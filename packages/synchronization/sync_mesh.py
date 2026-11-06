@@ -76,9 +76,15 @@ HONEST LIMITS (prototype, NOT production)
   must be observed against a canary harness; this prototype does not
   claim it.
 - Rollback is LOCAL to the node that detected divergence: it restores
-  that node's last verified checkpoint. There is no coordinated,
-  mesh-wide rollback protocol, and other nodes are not signalled
-  beyond the SyncResult returned to the caller of the sync.
+  that node's last verified checkpoint. A coordinated rollback
+  prototype now exists on top of this module (experiment 013,
+  packages/synchronization/coordinated_rollback.py, built on the
+  restore_to_entries primitive below): a caller restores every
+  participating node to one shared checkpoint. It is an explicit,
+  caller-driven step in-process - there is still no network
+  signalling, no consensus vote on the checkpoint, and no automatic
+  trigger - and other nodes are not signalled beyond the SyncResult
+  returned to the caller of the sync.
 - Tamper evidence inherits the Gate 1/2 limit: one edited entry is
   detected, and a fork is detected when both versions are seen, but
   an attacker who rewrites one origin's entire chain from genesis
@@ -241,6 +247,10 @@ class SyncResult:
     rolled_back is the automated rollback signal: True means a
     divergence was detected in this round and the node restored its
     last verified checkpoint instead of keeping anything incoming.
+    The one other shape is restore_to_entries (the coordinated
+    rollback primitive): rolled_back=True with
+    divergence_detected=False means an explicit restore to a given
+    verified entry set succeeded.
     """
 
     accepted: int
@@ -402,6 +412,82 @@ class SyncNode:
         result_other = other.receive_entries(mine)
         result_self = self.receive_entries(theirs)
         return result_self, result_other
+
+    # -- explicit restore (coordinated rollback primitive) -------------------
+
+    def restore_to_entries(self, entries: list[StateEntry]) -> SyncResult:
+        """Restore this node to an explicitly given entry set.
+
+        Local rollback (_diverge) can only return a node to its OWN
+        last verified checkpoint, so a mesh whose nodes verified
+        different states last has no common recovery point. This is
+        the primitive coordinated rollback
+        (packages/synchronization/coordinated_rollback.py,
+        experiment 013) is built on: every participating node is
+        restored to the SAME set, a shared checkpoint captured
+        earlier from a converged mesh.
+
+        The given set is judged exactly as a received batch is:
+        every entry's hash must recompute, no second entry may claim
+        an (origin, seq) identity with a different hash, and
+        _verify_chains must pass over the whole set. On any failure
+        this node diverges as usual - the event is logged, its own
+        checkpoint is restored, and the returned SyncResult reports
+        the divergence - and the given set is never kept. On success
+        the set becomes both the current entries and the checkpoint,
+        own-chain bookkeeping is rebuilt from the restored set (as
+        in _diverge, so the node's next mutation extends the
+        restored chain head), and the Lamport clock never moves
+        backwards. accepted is 0: nothing was merged, the state was
+        replaced.
+        """
+        candidate: dict[str, StateEntry] = {}
+        for entry in entries:
+            if not entry.hash_verifies():
+                return self._diverge(
+                    DivergenceEvent(
+                        reason="tampered_entry",
+                        detail=f"entry {entry.entry_id} hash does not recompute",
+                        entry_id=entry.entry_id,
+                    )
+                )
+            existing = candidate.get(entry.entry_id)
+            if existing is not None and existing.entry_hash != entry.entry_hash:
+                return self._diverge(
+                    DivergenceEvent(
+                        reason="forked_entry",
+                        detail=(
+                            f"entry {entry.entry_id} given twice with hashes "
+                            f"{existing.entry_hash} and {entry.entry_hash}"
+                        ),
+                        entry_id=entry.entry_id,
+                    )
+                )
+            candidate[entry.entry_id] = entry
+
+        chain_error = self._verify_chains(candidate)
+        if chain_error is not None:
+            return self._diverge(chain_error)
+
+        self._entries = candidate
+        if candidate:
+            self._lamport = max(self._lamport, max(e.lamport for e in candidate.values()))
+        own = [e for e in candidate.values() if e.origin == self.node_id]
+        if own:
+            top = max(own, key=lambda e: e.seq)
+            self._own_seq = top.seq + 1
+            self._own_prev_hash = top.entry_hash
+        else:
+            self._own_seq = 0
+            self._own_prev_hash = GENESIS_HASH
+        self._take_checkpoint()
+        return SyncResult(
+            accepted=0,
+            divergence_detected=False,
+            rolled_back=True,
+            reason=None,
+            state_hash=self.state_hash(),
+        )
 
     # -- divergence, checkpoint, rollback -----------------------------------
 
