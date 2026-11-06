@@ -74,7 +74,13 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 5 outcomes)
    anchor_mismatch and anchor_stale both FAIL the verdict under
    their own names - stale is never passed as anchored. With no
    anchor path given there is no anchor check and the verdict is
-   exactly as experiments 006/009 produced it.
+   exactly as experiments 006/009 produced it. Since experiment
+   019, run_gate may also be given a signing identity per chain
+   (signer + verification secret), passed to the same probes:
+   a signature that does not verify FAILS that chain's anchor
+   check under the name anchor_signature_invalid, distinct from
+   both other names; with no identity given, the anchor evidence
+   is exactly experiment 018's head-only judgement.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -127,6 +133,7 @@ for _pkg in ("registration", "policy-library", "synchronization"):
 from anchored_sync import AnchoredSyncNode  # noqa: E402
 from policy_node import (  # noqa: E402
     AnchorMismatch,
+    AnchorSignatureInvalid,
     AnchorStale,
     PolicyNode,
     verify_registry_snapshot,
@@ -544,7 +551,8 @@ class Gate5Harness:
 
     # -- anchor evidence (experiment 018) --------------------------------------
 
-    def _registry_anchor_check(self, anchor_path) -> GateCheck:
+    def _registry_anchor_check(self, anchor_path, signer=None,
+                               secret_hex=None) -> GateCheck:
         """Consult experiment 012's registry anchor for this
         scenario's snapshot, classified by experiment 015's own
         PolicyNode consultation: a probe node built over the
@@ -553,7 +561,13 @@ class Gate5Harness:
         AnchorMismatch, whose status names are the classification.
         Any other refusal (an unreadable configured anchor, a
         snapshot that fails internal verification in the probe) is
-        a failed check here, never a silent pass."""
+        a failed check here, never a silent pass.
+
+        With a signing identity (experiment 019, signer +
+        secret_hex), the probe is built with it and the anchor's
+        signature is verified as part of the same consultation:
+        an AnchorSignatureInvalid refusal is a failed check whose
+        detail names anchor_signature_invalid, and nothing else."""
         try:
             probe = PolicyNode(
                 node_id="gate5-anchor-probe",
@@ -561,6 +575,16 @@ class Gate5Harness:
                 payloads={},
                 serve_policies=False,
                 anchor_path=anchor_path,
+                anchor_signer=signer,
+                anchor_secret_hex=secret_hex,
+            )
+        except AnchorSignatureInvalid as exc:
+            return GateCheck(
+                "anchor_evidence_registry", False,
+                f"registry anchor evidence: anchor_signature_invalid "
+                f"(the anchor's signature does not verify for the "
+                f"configured signing identity; refused under this "
+                f"name, never treated as a valid anchor)",
             )
         except AnchorStale as exc:
             return GateCheck(
@@ -593,14 +617,21 @@ class Gate5Harness:
             f"{check.presented_count} entries match the anchor exactly)",
         )
 
-    def _mesh_anchor_check(self, anchor_path) -> GateCheck:
+    def _mesh_anchor_check(self, anchor_path, signer=None,
+                           secret_hex=None) -> GateCheck:
         """Consult experiment 012's mesh anchor for the canary
         node's state, classified by experiment 015's own
         AnchoredSyncNode: a probe node restored to the canary's
         exact entry set reports anchor_status() - anchored,
         anchor_stale, or anchor_mismatch - which is the
-        classification, reused as-is."""
-        probe = AnchoredSyncNode("gate5-anchor-probe", anchor_path=anchor_path)
+        classification, reused as-is. With a signing identity
+        (experiment 019) the probe is built with it, and
+        anchor_signature_invalid joins the possible statuses
+        under its own name."""
+        probe = AnchoredSyncNode(
+            "gate5-anchor-probe", anchor_path=anchor_path,
+            anchor_signer=signer, anchor_secret_hex=secret_hex,
+        )
         restored = probe.restore_to_entries(self.canary_node.entries())
         if restored.divergence_detected:
             return GateCheck(
@@ -624,6 +655,14 @@ class Gate5Harness:
                 "entry set is exactly the anchored set, per-origin "
                 "heads and state hash match experiment 012's anchor)",
             )
+        if status == "anchor_signature_invalid":
+            return GateCheck(
+                "anchor_evidence_mesh", False,
+                "mesh anchor evidence: anchor_signature_invalid "
+                "(the anchor's signature does not verify for the "
+                "configured signing identity; refused under this "
+                "name, never treated as a valid anchor)",
+            )
         return GateCheck(
             "anchor_evidence_mesh", False,
             f"mesh anchor evidence: {status} (the canary node's "
@@ -639,7 +678,11 @@ class Gate5Harness:
 
     def run_gate(self, iterations: int = 100, *,
                  registry_anchor_path=None,
-                 mesh_anchor_path=None) -> GateVerdict:
+                 mesh_anchor_path=None,
+                 registry_anchor_signer=None,
+                 registry_anchor_secret_hex=None,
+                 mesh_anchor_signer=None,
+                 mesh_anchor_secret_hex=None) -> GateVerdict:
         checks: list[GateCheck] = []
         canary: CanaryReport | None = None
         faults: list[FaultReport] = []
@@ -678,9 +721,17 @@ class Gate5Harness:
         # run. With neither path given, no anchor check is added
         # and the verdict is exactly experiment 006's.
         if registry_anchor_path is not None:
-            checks.append(self._registry_anchor_check(registry_anchor_path))
+            checks.append(self._registry_anchor_check(
+                registry_anchor_path,
+                signer=registry_anchor_signer,
+                secret_hex=registry_anchor_secret_hex,
+            ))
         if mesh_anchor_path is not None:
-            checks.append(self._mesh_anchor_check(mesh_anchor_path))
+            checks.append(self._mesh_anchor_check(
+                mesh_anchor_path,
+                signer=mesh_anchor_signer,
+                secret_hex=mesh_anchor_secret_hex,
+            ))
 
         try:
             canary = self.run_canary(iterations=iterations)
