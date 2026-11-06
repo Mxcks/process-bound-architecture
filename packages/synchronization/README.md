@@ -71,6 +71,8 @@ documents the prototypes that now implement it at prototype scale.
 | `demo_anchor_consultation.py` | Runnable walkthrough of case 8: genuine accept, rewrite flagged while a plain node accepts it, growth stale until re-anchored. |
 | `test_anchor_in_servers.py` | Automated tests for registration case 9's server half (experiment 018): an anchored server refuses the rewritten snapshot at startup (`anchor_mismatch`) and honest growth (`anchor_stale`) and serves the genuine snapshot over plaintext and over mutual TLS; an anchorless server serves the rewrite exactly as before. |
 | `demo_anchor_in_servers.py` | Runnable walkthrough of case 9's server half: genuine serves anchored, rewrite served anchorless and refused anchored, growth stale until re-anchored. |
+| `test_signed_mesh_anchor.py` | Automated tests for sync-mesh case 11 (experiment 019): a signed mesh anchor verifies with its kept history, a missing/tampered signature is `anchor_signature_invalid`, a same-identity re-anchor appends history while a different identity is refused and logged, a tampered history entry is caught, an identity-configured `AnchoredSyncNode` refuses a tampered-signature anchor under that divergence reason, and without an identity a signed anchor is judged by its heads as in cases 5/8. |
+| `test_signed_anchor_in_servers.py` | Automated tests for registration case 10's server half (experiment 019): a server started with `--anchor-signer` and `--anchor-secret-file` serves the genuine signed anchor and refuses to start over a tampered signature (`AnchorSignatureInvalid`); without a signing identity the same signed anchor behaves exactly as experiment 018. |
 
 ## How to run it
 
@@ -249,11 +251,17 @@ by its post-checkpoint state being accepted as the checkpoint.
   `packages/registration/`): per-origin heads plus the state hash,
   written to a file outside the node and checked against a
   presented node, which catches the full rewrite in the tests. The
-  anchor file is a stand-in - local, same machine, unsigned,
-  unwitnessed. Since experiment 015 an `AnchoredSyncNode`
+  anchor file is a stand-in - local, same machine, unwitnessed;
+  it can be signed since experiment 019 (test case 11 in
+  `tests/test-cases/sync-mesh.md`): only the identity that
+  signed a mesh anchor may re-anchor it, accepted re-anchors
+  append signed, hash-chained history entries inside the anchor
+  file, and a consultation configured with that signing identity
+  refuses a signature that does not verify as
+  `anchor_signature_invalid`. Since experiment 015 an `AnchoredSyncNode`
   configured with an anchor path consults it automatically on
   every receive; a plain `SyncNode` and the networked servers
-  still do not call it, and cross-node head comparison at scale
+  still do not call the mesh anchor, and cross-node head comparison at scale
   is still unbuilt.
 - Conflict resolution (deterministic last-writer-wins in the total
   order) is a stated prototype rule, not a claim about correct
