@@ -1,0 +1,77 @@
+=== TESTS FIRST: new suites run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_anchor_in_servers.py
+
+
+----------------------------------------------------------------------
+Ran 4 tests in 12.793s
+
+FAILED (failures=3, errors=1)
+--- python3 packages/validation/test_gate5_anchor.py
+TypeError: Gate5Harness.run_gate() got an unexpected keyword argument 'registry_anchor_path'
+TypeError: Gate5Harness.run_gate() got an unexpected keyword argument 'registry_anchor_path'
+TypeError: Gate5Harness.run_gate() got an unexpected keyword argument 'registry_anchor_path'
+TypeError: Gate5Harness.run_gate() got an unexpected keyword argument 'registry_anchor_path'
+Ran 5 tests in 0.608s
+FAILED (errors=4)
+(server failure shape: node_server.py: error: unrecognized arguments: --anchor ...; gate failure shape: TypeError: Gate5Harness.run_gate() got an unexpected keyword argument 'registry_anchor_path')
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 14 tests in 0.016s
+
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 21 tests in 0.040s
+
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 28 tests in 30.244s
+
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 14 tests in 0.653s
+
+OK
+
+=== NEW SUITES BY DIRECT FILE RUN ===
+== python3 packages/synchronization/test_anchor_in_servers.py
+Ran 4 tests in 3.110s
+
+OK
+== python3 packages/validation/test_gate5_anchor.py
+Ran 5 tests in 0.255s
+
+OK
+
+=== HANDOFF CHECK ===
+PASS: 3 EAI vectors recompute exactly.
+
+=== DEMOS ===
+== python3 packages/synchronization/demo_anchor_in_servers.py
+Setup. Alice registered; the genuine head is anchored outside.
+1. Anchored server over the genuine snapshot serves: True - anchor_status: anchored
+2. Anchorless server serves the rewrite (pre-018 behavior): True
+   Anchored server refused to start over the rewrite: True - log names anchor_mismatch: True
+3. Anchored server refused honest growth as anchor_stale: True
+   After re-anchoring the grown head, it starts and serves: True
+Demo state (temp, servers terminated): /tmp/pba-anchor-servers-demo-ws13d7ct
+== python3 packages/validation/demo_gate5_anchor.py
+Setup. One fresh canary scenario per verdict; both chains anchored outside each scenario.
+1. No anchors configured (experiment 006 verdict): passed=True failing=[]
+2. Genuine anchors configured: passed=True failing=[]
+   anchor_evidence_registry: registry anchor evidence: anchored (experiment 012 check ok; head 5c5579b0bcea0beb4253b57dc482bf1fdd4d7006321aa7194ec347b5ad4e9812, 3 entries match the anchor exactly)
+   anchor_evidence_mesh: mesh anchor evidence: anchored (the canary node's entry set is exactly the anchored set, per-origin heads and state hash match experiment 012's anchor)
+3. Registry rewritten (passes every internal check), anchors on: passed=False failing=['anchor_evidence_registry']
+   anchor_evidence_registry: registry anchor evidence: anchor_mismatch (anchored head 5c5579b0bcea0beb4253b57dc482bf1fdd4d7006321aa7194ec347b5ad4e9812, presented head 2feddd40f6ec253e84faa7835f08e08255be530220031552d2d4fb828b43cfd2; the snapshot verifies on its own and is refused only by the anchor)
+   anchor_evidence_mesh: mesh anchor evidence: anchored (the canary node's entry set is exactly the anchored set, per-origin heads and state hash match experiment 012's anchor)
+Demo state (temp): /tmp/pba-gate5-anchor-demo-7bxkyntb
+
+=== LEFTOVER PROCESS CHECK ===
+node_server processes remaining: 1
+
+NOTE on the leftover count above: the "1" counted is the capturing
+shell's own command line (it contains the demo file names, which
+contain the pattern). A standalone check run immediately after,
+in its own command (`ps aux | grep "[n]ode_server" | wc -l`),
+printed 0, and that standalone result is the one the README
+reports: zero leftover node_server processes.
