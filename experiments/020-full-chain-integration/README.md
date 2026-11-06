@@ -156,6 +156,28 @@ not built. Experiment 008's README carries a
 superseded-in-part note for its restart sentence, added with
 this experiment.
 
+[Superseded in part, 2026-11-06, experiment 021: both
+findings above were fixed in experiment 021
+(`experiments/021-revocation-delivery/`), each under its own
+tests-first run. F1: `ReplicatedPolicy` gained
+`reload_snapshot()` in the style of `PolicyNode`'s - after
+the snapshot file is updated with a revocation and the
+anchor lifecycle is followed, calling it makes every holder
+stop serving the revoked policy, a refused reload leaves the
+previous serving state untouched, and with no reload called
+the placed object still serves from its placement-time view,
+exactly the remaining fact 021's README states. F2:
+`node_server`'s `_serve_policy` now catches `PolicyRevoked`
+and returns a clean HTTP 410 refusal naming the revocation
+(error `policy_revoked`), over plaintext and TLS, and the
+server keeps serving other requests afterward. This
+experiment's own suite was updated in 021 so its stage 8
+finding assertions assert the fixed behavior where they
+previously asserted the findings; the finding text above
+stands as the record of what 020 found, and the statements
+below that F1/F2 "stand open" and "wait for their own
+experiment" are superseded by this note.]
+
 ## What failed
 
 The tests-first run failed as designed (recorded at the top of
