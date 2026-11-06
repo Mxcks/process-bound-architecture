@@ -93,8 +93,11 @@ HONEST LIMITS (prototype, NOT production)
   external anchor / witnessed head hash: a prototype anchor for
   these per-origin heads now exists (experiment 012,
   packages/synchronization/anchor.py, a stand-in file held outside
-  the node), but nothing in this module consults it - receive and
-  sync still judge entries by the checks above alone.
+  the node), and since experiment 015 an anchored variant of this
+  node (packages/synchronization/anchored_sync.py) consults it on
+  the merged state before accepting a peer's entries. This module
+  itself still does not: a plain SyncNode's receive and sync judge
+  entries by the checks above alone, exactly as before.
 - A fork is only observable once a node (or a sync between nodes)
   sees both versions. A partitioned fork that never meets is not
   detected by anyone; that is a property of the design, stated, not
