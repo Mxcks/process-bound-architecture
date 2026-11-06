@@ -6,9 +6,12 @@ Status: **Gate 1 prototype built and passing** (2026-11-06, experiment
 `experiments/002-gate1-registration-prototype/`), **revocation
 built and passing** on top of it (2026-11-06, experiment
 `experiments/008-revocation/`; test case 6 in
-`tests/test-cases/registration.md`), and an **external chain
+`tests/test-cases/registration.md`), an **external chain
 anchor built and passing** on top of that (2026-11-06, experiment
-`experiments/012-external-chain-anchor/`; test case 7).
+`experiments/012-external-chain-anchor/`; test case 7), and
+**signed anchors with a kept history** on top of that
+(2026-11-06, experiment `experiments/019-signed-anchors/`;
+test case 10).
 Prototype only, not production.
 See "Honest limits" below and the module docstring in
 `registration.py`, which is the authoritative list.
@@ -25,6 +28,8 @@ See "Honest limits" below and the module docstring in
 | `anchor.py` | The external chain anchor (experiment 012): writes the registry chain head (latest entry hash + entry count) to a file outside the registry's directory, and checks a presented registry against it. Python standard library only. |
 | `test_anchor.py` | Automated tests for case 7: genuine registry verifies against its anchor, the full-rewrite negative control (passes internal verification, fails the anchor check), single-entry tamper, and truncation/extension failing until re-anchored. |
 | `demo_anchor.py` | Runnable walkthrough of case 7, including the negative control and the re-anchor lifecycle. |
+| `test_signed_anchor.py` | Automated tests for case 10 (experiment 019): a signed anchor verifies with its kept history, a missing/wrong/tampered signature is `anchor_signature_invalid`, a same-identity re-anchor appends history, a different identity's re-anchor is refused and logged, a tampered history entry is caught, and unsigned anchors behave exactly as case 7 built them. |
+| `demo_signed_anchor.py` | Runnable walkthrough of case 10: signing, signature-checked verification, history-appending re-anchor, the refused different-identity attempt, and the tampered-signature status. |
 
 ## How to run it
 
@@ -45,6 +50,10 @@ python3 packages/registration/demo_revocation.py
 # External chain anchor tests and demo (case 7)
 python3 packages/registration/test_anchor.py
 python3 packages/registration/demo_anchor.py
+
+# Signed anchor tests and demo (case 10, experiment 019)
+python3 packages/registration/test_signed_anchor.py
+python3 packages/registration/demo_signed_anchor.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -123,6 +132,22 @@ Requires Python 3.10+. No dependencies, no network, nothing is deployed.
     name, are anchored the same way by
     `packages/synchronization/anchor.py`: each origin's head plus
     the state hash, checked against any presented node.
+14. Signed anchors (case 10, experiment 019): `write_anchor(...,
+    signer=..., secret_hex=...)` signs the anchor with an
+    enrolled identity's secret, Gate 1's HMAC scheme over a
+    domain-separated encoding. Only that same identity may
+    re-anchor a signed anchor; a different identity's attempt is
+    refused and appended to an anchor audit log beside the
+    anchor file. Each accepted signed re-anchor appends a
+    signed, hash-chained history entry inside the anchor file
+    (head, count, sequence, signer), verifiable with
+    `verify_anchor_history(...)`. Checks given a signing
+    identity (`check_registry_against_anchor(..., signer=...,
+    secret_hex=...)`) also verify the signature and history,
+    and a failure is the status `anchor_signature_invalid`,
+    distinct from `anchor_mismatch`. No identity configured:
+    anchors, signed or unsigned, are judged by head exactly as
+    in case 7.
 
 ## Honest limits
 
@@ -135,18 +160,29 @@ Requires Python 3.10+. No dependencies, no network, nothing is deployed.
   sync mesh (those are later gates).
 - The external anchor (case 7) is a stand-in at prototype scale: a
   separate local file outside the registry's directory, on the same
-  machine, unsigned and unwitnessed. It proves the comparison logic;
+  machine, and unwitnessed. It proves the comparison logic;
   it does not prove the anchor itself is safe. Whoever can rewrite
-  both the registry and the anchor file defeats it, and whoever can
-  write the anchor can re-anchor a rewrite. Production needs the
-  head held somewhere the registry's writer cannot reach (a
-  witnessed ledger, another operator's countersignature, a public
-  append-only log). Nothing here is that. Since experiment 015,
-  Gate 2 serving and Gate 3 sync DO consult an anchor automatically
-  when one is configured for the node (registration case 8), and
-  refuse a rewritten record; Gate 5's verdict still does not call
-  the anchor check, and no node consults an anchor it was not
-  configured with.
+  both the registry and an UNSIGNED anchor file defeats it, and
+  whoever can write an unsigned anchor can re-anchor a rewrite.
+  Since experiment 019 an anchor can be SIGNED (case 10): then
+  re-anchoring it needs the signer's secret and only that same
+  identity may do it, accepted re-anchors append to a signed,
+  tamper-evident history, and every consultation point verifies
+  the signature when it is configured with that signing identity,
+  under the name `anchor_signature_invalid`. Signing inherits the
+  HMAC limit above (a verifier must hold the secret, and the
+  channel could forge), and a signed anchor file can still be
+  deleted or rolled back to an older signed state. Production
+  still needs the head held somewhere the registry's writer cannot
+  reach (a witnessed ledger, another operator's countersignature,
+  a public append-only log). Nothing here is that. Since
+  experiment 015, Gate 2 serving and Gate 3 sync DO consult an
+  anchor automatically when one is configured for the node
+  (registration case 8), and refuse a rewritten record; since
+  experiment 018 the networked servers consult one at startup
+  when started with `--anchor` and the Gate 5 verdict takes
+  anchor evidence when configured; and no node consults an
+  anchor it was not configured with.
 - The execution boundary admits or blocks based on registration and code
   hash. It does not sandbox or execute arbitrary code; that is the
   runtime package's job.
