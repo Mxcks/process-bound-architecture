@@ -1,0 +1,84 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/policy-library/test_snapshot_delivery.py
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/policy-library/test_snapshot_delivery.py", line 67, in <module>
+    from snapshot_delivery import SnapshotDeliveryWatcher  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'snapshot_delivery'
+exit:1
+
+(The failing-before shape is experiment 016's: the test case -
+availability case 7, added to
+tests/test-cases/policy-availability.md before the code - names
+a watcher module that does not exist yet, so the suite fails at
+import. The case is proven to be what the code had to satisfy;
+after the build the same suite passes 5/5 below, unmodified.)
+
+=== PRE-BUILD BASELINE (before this experiment's code) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests  OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 28 tests  OK
+== python3 -m unittest discover -s packages/synchronization
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests  OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly
+(109 tests total, the baseline this experiment started from -
+20 registration + 28 policy-library + 43 synchronization + 18
+validation, the counts experiment 021 left; leftover
+node_server processes after the run: 0)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.027s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 33 tests in 0.659s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 43 tests in 64.623s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.592s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(114 tests total: the 109 baseline plus this experiment's 5
+new, all in packages/policy-library. Every earlier suite passes
+in the same run, including the unmodified liveness,
+self-healing, anchor consultation, and revocation delivery
+suites.)
+
+=== NEW SUITE BY DIRECT FILE RUN ===
+--- python3 packages/policy-library/test_snapshot_delivery.py
+test_anchor_stale_delivery_refused_and_keeps_reporting (__main__.SnapshotDeliveryTests.test_anchor_stale_delivery_refused_and_keeps_reporting) ... ok
+test_clean_change_delivered_automatically_revocation_takes_effect (__main__.SnapshotDeliveryTests.test_clean_change_delivered_automatically_revocation_takes_effect) ... ok
+test_heal_after_automatic_delivery_recruits_over_updated_record (__main__.SnapshotDeliveryTests.test_heal_after_automatic_delivery_recruits_over_updated_record) ... ok
+test_rewritten_delivery_refused_anchor_mismatch (__main__.SnapshotDeliveryTests.test_rewritten_delivery_refused_anchor_mismatch) ... ok
+test_tampered_delivery_refused_and_keeps_reporting (__main__.SnapshotDeliveryTests.test_tampered_delivery_refused_and_keeps_reporting) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.271s
+
+OK
+AUTOMATIC DELIVERY: one watcher tick delivered the revocation; the placed policy raises PolicyRevoked and the non-revoked policy keeps serving
+AUTOMATIC DELIVERY + HEALING: the post-delivery recruit holds the updated record and refuses the revoked policy
+
+=== NEW DEMO ===
+--- python3 packages/policy-library/demo_snapshot_delivery.py
+Setup. Policy registered: dcab37d1f0094a82... - anchored snapshot entries: 1
+1. Unchanged check: no_change - entries: 1 -> 1
+   Revoked + delivered + re-anchored, one tick: delivered - entries: 1 -> 2 - head moved: True
+   Placed policy refuses as revoked: True
+2. Delivered without re-anchor: delivery_refused - reason: anchor_stale - still serves: True
+   Next check re-reports: delivery_refused - anchor_stale
+   After the same-signer re-anchor: delivered
+3. Tampered delivery: delivery_refused - reason: tampered_record - previous view still serves: True
+Demo state left in: /tmp/pba-snapshot-delivery-demo-vy3pf23d
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server" | wc -l  ->  0
+(Checked after the pre-build baseline and after the full
+regression: 0 each time.)
