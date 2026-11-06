@@ -43,9 +43,18 @@ What remains open at real scale:
 - Liveness: nothing detects a real machine dying. There is no
   heartbeat or liveness check yet; the candidate direction assigns
   that to the verification gate (Gate 5, not yet built).
-- Self-healing: the floor is enforced and reported at placement
-  time only. If a holder dies permanently, nothing recruits a
-  replacement or heals back up to the floor.
+- Self-healing: TESTED at prototype scale (2026-11-06, experiment
+  `experiments/010-self-healing/`, availability case 4). A
+  permanently lost holder drops the count below the floor, the
+  shortfall is detected and reported, an explicit heal step
+  recruits a replacement from other opted-in nodes, copies the
+  policy to it (verified there like any holder), and restores the
+  floor; with no eligible replacement it reports below_floor
+  honestly. Still open at real scale: healing here is an explicit
+  call against a caller-supplied candidate list, in-process - no
+  liveness detection decides a holder is lost, nothing discovers
+  candidates or triggers healing automatically, and no copy moves
+  over a network.
 - Real independence: the prototype counts distinct node ids. It
   cannot verify different machines, operators, or failure domains.
 - Deliberate removal: `tests/test-cases/policy-availability.md`
