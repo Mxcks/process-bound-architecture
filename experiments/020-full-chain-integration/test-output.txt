@@ -1,0 +1,129 @@
+=== TESTS FIRST: new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_full_chain_integration.py
+test_finding_placed_holders_cannot_be_reloaded (__main__.FullChainTests.test_finding_placed_holders_cannot_be_reloaded) ... ERROR
+test_finding_revoked_policy_over_network_transport (__main__.FullChainTests.test_finding_revoked_policy_over_network_transport) ... ok
+test_full_chain_end_to_end (__main__.FullChainTests.test_full_chain_end_to_end) ... ERROR
+test_gate5_verdict_genuine_passes_rewritten_fails (__main__.FullChainTests.test_gate5_verdict_genuine_passes_rewritten_fails) ... ok
+
+======================================================================
+ERROR: test_finding_placed_holders_cannot_be_reloaded (__main__.FullChainTests.test_finding_placed_holders_cannot_be_reloaded)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_full_chain_integration.py", line 516, in test_finding_placed_holders_cannot_be_reloaded
+    replicated = self._place(snapshot)
+  File ".../packages/synchronization/test_full_chain_integration.py", line 262, in _place
+    return place_policy(
+TypeError: place_policy() got an unexpected keyword argument 'anchor_path'
+
+======================================================================
+ERROR: test_full_chain_end_to_end (__main__.FullChainTests.test_full_chain_end_to_end)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_full_chain_integration.py", line 327, in test_full_chain_end_to_end
+    replicated = self._place(snapshot)
+  File ".../packages/synchronization/test_full_chain_integration.py", line 262, in _place
+    return place_policy(
+TypeError: place_policy() got an unexpected keyword argument 'anchor_path'
+
+----------------------------------------------------------------------
+Ran 4 tests in 12.941s
+
+FAILED (errors=2)
+FINDING F2 revoked-over-network: policy request after revocation produced: exception:RemoteDisconnected Remote end closed connection without response; server log names PolicyRevoked: True
+STAGE 9 Gate 5 verdict: genuine PASS, rewritten FAIL on anchor_evidence_registry only (anchor_mismatch)
+
+(The two errors are the wiring addition not yet built: place_policy()
+had no anchor parameters. The two passes are the point of the
+tests-first run: the Gate 5 verdict composition and FINDING F2 -
+revocation over the network transport - are properties of the
+PRE-EXISTING code, and F2's test passing before any build is the
+evidence that the finding is real and not an artifact of this
+experiment's changes. An earlier first attempt at this run also
+failed at import: the test file's sys.path order let the plain
+module name `anchor` resolve to the registration package's
+anchor.py instead of this package's; the insert order was
+reversed so synchronization ends at the front, as in
+gate5_harness's own setup. That import failure is recorded in
+the README's What failed section.)
+
+=== PRE-BUILD BASELINE (before this experiment's code) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.032s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 24 tests in 0.080s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 37 tests in 40.694s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.903s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(99 tests total, the baseline this experiment started from.)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.058s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 24 tests in 0.065s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 41 tests in 48.304s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 1.331s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(103 tests total: the 99 baseline plus this experiment's 4,
+all in the synchronization package's discovery. The policy-library
+count is unchanged at 24 with the wiring addition in place, which
+is the backward-compatibility evidence for the new parameters:
+every pre-020 placement, healing, and liveness test passes
+unmodified with the defaults.)
+
+=== NEW SUITE BY DIRECT FILE RUN ===
+== python3 packages/synchronization/test_full_chain_integration.py
+test_finding_placed_holders_cannot_be_reloaded (__main__.FullChainTests.test_finding_placed_holders_cannot_be_reloaded) ... ok
+test_finding_revoked_policy_over_network_transport (__main__.FullChainTests.test_finding_revoked_policy_over_network_transport) ... ok
+test_full_chain_end_to_end (__main__.FullChainTests.test_full_chain_end_to_end) ... ok
+test_gate5_verdict_genuine_passes_rewritten_fails (__main__.FullChainTests.test_gate5_verdict_genuine_passes_rewritten_fails) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 11.012s
+
+OK
+FINDING F1 placed-holders-reload: ReplicatedPolicy exposes a reload/update method: False; after revocation + delivery over its snapshot file, the placed object still serves the revoked policy: True
+FINDING F2 revoked-over-network: policy request after revocation produced: exception:RemoteDisconnected Remote end closed connection without response; server log names PolicyRevoked: True
+STAGE 1 registration: PASS
+STAGE 2 signed registry anchor: PASS
+STAGE 3 placement floor 3 with anchor consultation: PASS
+STAGE 4 Gate 2 serving from second holder: PASS
+STAGE 5 protected identity-bound process serving + sync: PASS
+STAGE 6 mesh convergence + mesh anchor consultation: PASS
+STAGE 7 liveness auto-healing, floor restored: PASS
+STAGE 8 revocation delivered, serving stopped: PASS
+STAGE 9 Gate 5 verdict: genuine PASS, rewritten FAIL on anchor_evidence_registry only (anchor_mismatch)
+
+=== DEMO ===
+== python3 packages/synchronization/demo_full_chain.py
+Setup. Alice registers one policy; all state is temp.
+1. Gate 1 registration: created=True channel_ready_before_use=True validation_channel=True
+2. Signed registry anchor: ok=True signature_valid=True
+3. Placement: holders=['holder-a', 'holder-b', 'holder-c'] floor_met=True status=available
+4. Gate 2 second holder serves: code_matches=True anchor_status=anchored
+5. Protected process serving: status=200 served_by=srv-b anchor_status=anchored sync_converged=True
+6. Mesh: converged=True anchored_accept=True anchor_status=anchored
+7. Liveness: lost=('holder-a',) recruited=('replacement-d',) floor_restored=True still_serves=True
+8. Revocation: stale_before_reanchor=True refused_after_delivery=True channel_revoked=True
+FINDING F1: placed object has reload=False; it still serves the revoked policy=True (rebuilt holders over the updated snapshot refuse, as stage 8 shows for a single node)
+FINDING F2: revoked policy over the network: exception:RemoteDisconnected; server log names PolicyRevoked=True; the policy bytes were not served
+Demo state (temp, servers terminated): /tmp/pba-full-chain-demo-5o6ql2h9
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server" | wc -l  ->  0
+(Checked after the tests-first run, after the direct suite run,
+after the demo, and after the full regression: 0 each time.)
