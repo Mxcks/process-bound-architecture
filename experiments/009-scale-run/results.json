@@ -1,0 +1,671 @@
+{
+  "profile": "full",
+  "machine": {
+    "python": "3.12.3",
+    "platform": "Linux-7.0.0-43-generic-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processors": "x86_64"
+  },
+  "registration": [
+    {
+      "entries_target": 200,
+      "entries_completed": 200,
+      "users": 200,
+      "completed": true,
+      "enroll_s": 0.0037231749993225094,
+      "register_total_s": 0.11411726500045916,
+      "per_registration": {
+        "count": 200,
+        "min_ms": 0.108824,
+        "median_ms": 0.5384025,
+        "mean_ms": 0.56870082,
+        "p95_ms": 0.962233,
+        "max_ms": 2.781372
+      },
+      "verify_live_ms": {
+        "count": 5,
+        "min_ms": 2.564857,
+        "median_ms": 2.610576,
+        "mean_ms": 2.596591,
+        "p95_ms": 2.621332,
+        "max_ms": 2.621332
+      },
+      "verify_reload_ms": {
+        "count": 3,
+        "min_ms": 4.078929,
+        "median_ms": 4.160591,
+        "mean_ms": 4.20887,
+        "p95_ms": 4.38709,
+        "max_ms": 4.38709
+      },
+      "registry_file_bytes": 98380
+    },
+    {
+      "entries_target": 1000,
+      "entries_completed": 1000,
+      "users": 200,
+      "completed": true,
+      "enroll_s": 0.0036321080006018747,
+      "register_total_s": 2.847263413001201,
+      "per_registration": {
+        "count": 1000,
+        "min_ms": 0.091568,
+        "median_ms": 2.4466200000000002,
+        "mean_ms": 2.843827851,
+        "p95_ms": 5.668843,
+        "max_ms": 30.58671
+      },
+      "verify_live_ms": {
+        "count": 5,
+        "min_ms": 16.530736,
+        "median_ms": 17.801942,
+        "mean_ms": 17.9688288,
+        "p95_ms": 19.090115,
+        "max_ms": 19.090115
+      },
+      "verify_reload_ms": {
+        "count": 3,
+        "min_ms": 20.576404,
+        "median_ms": 21.307942,
+        "mean_ms": 22.671794000000002,
+        "p95_ms": 26.131036,
+        "max_ms": 26.131036
+      },
+      "registry_file_bytes": 492340
+    },
+    {
+      "entries_target": 5000,
+      "entries_completed": 5000,
+      "users": 200,
+      "completed": true,
+      "enroll_s": 0.0036829149994446198,
+      "register_total_s": 74.51381861499976,
+      "per_registration": {
+        "count": 5000,
+        "min_ms": 0.095243,
+        "median_ms": 12.6761845,
+        "mean_ms": 14.8962246348,
+        "p95_ms": 33.485317,
+        "max_ms": 103.776054
+      },
+      "verify_live_ms": {
+        "count": 5,
+        "min_ms": 69.703584,
+        "median_ms": 71.965838,
+        "mean_ms": 72.00288760000001,
+        "p95_ms": 75.571517,
+        "max_ms": 75.571517
+      },
+      "verify_reload_ms": {
+        "count": 3,
+        "min_ms": 106.128832,
+        "median_ms": 119.238397,
+        "mean_ms": 114.89833633333335,
+        "p95_ms": 119.32778,
+        "max_ms": 119.32778
+      },
+      "registry_file_bytes": 2469140
+    }
+  ],
+  "sync": [
+    {
+      "node_count": 10,
+      "mutations_per_node": 200,
+      "total_entries": 2000,
+      "mutate_total_s": 0.02399823700034176,
+      "delivery_total_s": 0.39661794300081965,
+      "per_node_delivery_s": [
+        0.04241726500004006,
+        0.03872670000055223,
+        0.0397219030000997,
+        0.03827236899996933,
+        0.04126334499960649,
+        0.040518297000744496,
+        0.038043735999963246,
+        0.03969856699950469,
+        0.03885988999900292,
+        0.03883437100012088
+      ],
+      "converged": true,
+      "state_hash": "d339bedfb1aa5d1f63ae0708d7f7c371e2683aa4881d692f08398e7c022ba6bd",
+      "entries_per_node": [
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000
+      ]
+    },
+    {
+      "node_count": 10,
+      "mutations_per_node": 1000,
+      "total_entries": 10000,
+      "mutate_total_s": 0.138567571000749,
+      "delivery_total_s": 2.840567409000869,
+      "per_node_delivery_s": [
+        0.26152742900012527,
+        0.23901437899985467,
+        0.38960381300057634,
+        0.27664674800143985,
+        0.3333340490007686,
+        0.35406434399919817,
+        0.242095010000412,
+        0.2555523060000269,
+        0.2383543890009605,
+        0.24996851099967898
+      ],
+      "converged": true,
+      "state_hash": "ee66f1a9578363d3d4889a74bd1d40f1c67693de27f67c6c226218a706280c19",
+      "entries_per_node": [
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000
+      ]
+    }
+  ],
+  "serve": [
+    {
+      "registry_entries": 200,
+      "snapshot_construct_ms": 3.0596,
+      "serve_ms": {
+        "count": 300,
+        "min_ms": 0.005057,
+        "median_ms": 0.005207,
+        "mean_ms": 0.005501343333333334,
+        "p95_ms": 0.005528,
+        "max_ms": 0.027921
+      },
+      "served_ok": true
+    },
+    {
+      "registry_entries": 1000,
+      "snapshot_construct_ms": 14.129364,
+      "serve_ms": {
+        "count": 300,
+        "min_ms": 0.005178,
+        "median_ms": 0.005438,
+        "mean_ms": 0.005621986666666667,
+        "p95_ms": 0.005959,
+        "max_ms": 0.017016
+      },
+      "served_ok": true
+    },
+    {
+      "registry_entries": 5000,
+      "snapshot_construct_ms": 78.956363,
+      "serve_ms": {
+        "count": 300,
+        "min_ms": 0.005399,
+        "median_ms": 0.005939,
+        "mean_ms": 0.006348576666666667,
+        "p95_ms": 0.00651,
+        "max_ms": 0.069254
+      },
+      "served_ok": true
+    }
+  ],
+  "canary": [
+    {
+      "registry_entries": 200,
+      "mesh_entries": 100,
+      "iterations": 50,
+      "stage_registry_ms": {
+        "count": 50,
+        "min_ms": 2.588543,
+        "median_ms": 2.6561795,
+        "mean_ms": 2.9930248,
+        "p95_ms": 2.805779,
+        "max_ms": 19.109003
+      },
+      "stage_mesh_ms": {
+        "count": 50,
+        "min_ms": 0.881201,
+        "median_ms": 0.9017375000000001,
+        "mean_ms": 1.2980492799999999,
+        "p95_ms": 0.975674,
+        "max_ms": 19.549915
+      },
+      "stage_serve_ms": {
+        "count": 50,
+        "min_ms": 0.00649,
+        "median_ms": 0.007156,
+        "mean_ms": 0.00802984,
+        "p95_ms": 0.01321,
+        "max_ms": 0.016895
+      },
+      "end_to_end_ms": {
+        "count": 50,
+        "min_ms": 3.489565,
+        "median_ms": 3.570395,
+        "mean_ms": 4.30170566,
+        "p95_ms": 4.328943,
+        "max_ms": 22.200791
+      },
+      "per_transformation_ms": {
+        "count": 100,
+        "min_ms": 0.008132,
+        "median_ms": 0.008282,
+        "mean_ms": 0.00849397,
+        "p95_ms": 0.008773,
+        "max_ms": 0.016845
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 3.570395,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 200,
+      "mesh_entries": 1000,
+      "iterations": 30,
+      "stage_registry_ms": {
+        "count": 30,
+        "min_ms": 2.669644,
+        "median_ms": 2.9761695,
+        "mean_ms": 4.1235495,
+        "p95_ms": 5.811547,
+        "max_ms": 25.498487
+      },
+      "stage_mesh_ms": {
+        "count": 30,
+        "min_ms": 9.038668,
+        "median_ms": 9.469313499999998,
+        "mean_ms": 13.805838633333334,
+        "p95_ms": 35.484516,
+        "max_ms": 36.705528
+      },
+      "stage_serve_ms": {
+        "count": 30,
+        "min_ms": 0.009324,
+        "median_ms": 0.0165895,
+        "mean_ms": 0.0177712,
+        "p95_ms": 0.029083,
+        "max_ms": 0.035243
+      },
+      "end_to_end_ms": {
+        "count": 30,
+        "min_ms": 11.720601,
+        "median_ms": 12.766635,
+        "mean_ms": 17.964578133333337,
+        "p95_ms": 40.760821,
+        "max_ms": 45.031988
+      },
+      "per_transformation_ms": {
+        "count": 1000,
+        "min_ms": 0.008113,
+        "median_ms": 0.008372,
+        "mean_ms": 0.018076763,
+        "p95_ms": 0.009043,
+        "max_ms": 5.429134
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 12.766635,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 200,
+      "mesh_entries": 10000,
+      "iterations": 15,
+      "stage_registry_ms": {
+        "count": 15,
+        "min_ms": 2.876845,
+        "median_ms": 3.143034,
+        "mean_ms": 3.2064301333333334,
+        "p95_ms": 3.791357,
+        "max_ms": 3.791357
+      },
+      "stage_mesh_ms": {
+        "count": 15,
+        "min_ms": 93.720931,
+        "median_ms": 95.590415,
+        "mean_ms": 97.32598353333333,
+        "p95_ms": 103.785297,
+        "max_ms": 103.785297
+      },
+      "stage_serve_ms": {
+        "count": 15,
+        "min_ms": 0.019529,
+        "median_ms": 0.022814,
+        "mean_ms": 0.02469426666666667,
+        "p95_ms": 0.036004,
+        "max_ms": 0.036004
+      },
+      "end_to_end_ms": {
+        "count": 15,
+        "min_ms": 96.63361,
+        "median_ms": 98.736975,
+        "mean_ms": 100.565892,
+        "p95_ms": 107.610545,
+        "max_ms": 107.610545
+      },
+      "per_transformation_ms": {
+        "count": 10000,
+        "min_ms": 0.008113,
+        "median_ms": 0.008493,
+        "mean_ms": 0.0087901354,
+        "p95_ms": 0.008914,
+        "max_ms": 0.123866
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 98.736975,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 1000,
+      "mesh_entries": 100,
+      "iterations": 50,
+      "stage_registry_ms": {
+        "count": 50,
+        "min_ms": 12.822023,
+        "median_ms": 13.1076515,
+        "mean_ms": 13.461121720000001,
+        "p95_ms": 14.355312,
+        "max_ms": 22.891256
+      },
+      "stage_mesh_ms": {
+        "count": 50,
+        "min_ms": 0.891457,
+        "median_ms": 0.910401,
+        "mean_ms": 0.9207593,
+        "p95_ms": 0.972409,
+        "max_ms": 1.018498
+      },
+      "stage_serve_ms": {
+        "count": 50,
+        "min_ms": 0.008112,
+        "median_ms": 0.010586,
+        "mean_ms": 0.012613300000000001,
+        "p95_ms": 0.019219,
+        "max_ms": 0.07348
+      },
+      "end_to_end_ms": {
+        "count": 50,
+        "min_ms": 13.732449,
+        "median_ms": 14.032163,
+        "mean_ms": 14.398848860000001,
+        "p95_ms": 15.336584,
+        "max_ms": 23.943285
+      },
+      "per_transformation_ms": {
+        "count": 100,
+        "min_ms": 0.008132,
+        "median_ms": 0.008242,
+        "mean_ms": 0.008662640000000001,
+        "p95_ms": 0.008844,
+        "max_ms": 0.037076
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 14.032163,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 1000,
+      "mesh_entries": 1000,
+      "iterations": 30,
+      "stage_registry_ms": {
+        "count": 30,
+        "min_ms": 12.984436,
+        "median_ms": 13.356299,
+        "mean_ms": 13.745561133333332,
+        "p95_ms": 14.642393,
+        "max_ms": 20.361101
+      },
+      "stage_mesh_ms": {
+        "count": 30,
+        "min_ms": 8.98615,
+        "median_ms": 9.090651000000001,
+        "mean_ms": 9.099494600000002,
+        "p95_ms": 9.194171,
+        "max_ms": 9.270876
+      },
+      "stage_serve_ms": {
+        "count": 30,
+        "min_ms": 0.010045,
+        "median_ms": 0.012282999999999999,
+        "mean_ms": 0.012483666666666667,
+        "p95_ms": 0.016624,
+        "max_ms": 0.017315
+      },
+      "end_to_end_ms": {
+        "count": 30,
+        "min_ms": 22.013831,
+        "median_ms": 22.4803455,
+        "mean_ms": 22.8622105,
+        "p95_ms": 23.801212,
+        "max_ms": 29.574913
+      },
+      "per_transformation_ms": {
+        "count": 1000,
+        "min_ms": 0.008092,
+        "median_ms": 0.008242,
+        "mean_ms": 0.00850628,
+        "p95_ms": 0.008432,
+        "max_ms": 0.030766
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 22.4803455,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 1000,
+      "mesh_entries": 10000,
+      "iterations": 15,
+      "stage_registry_ms": {
+        "count": 15,
+        "min_ms": 13.514722,
+        "median_ms": 15.318748,
+        "mean_ms": 20.6603382,
+        "p95_ms": 79.810916,
+        "max_ms": 79.810916
+      },
+      "stage_mesh_ms": {
+        "count": 15,
+        "min_ms": 95.482624,
+        "median_ms": 97.416434,
+        "mean_ms": 104.41754893333334,
+        "p95_ms": 145.497826,
+        "max_ms": 145.497826
+      },
+      "stage_serve_ms": {
+        "count": 15,
+        "min_ms": 0.023145,
+        "median_ms": 0.028162,
+        "mean_ms": 0.029658399999999998,
+        "p95_ms": 0.053661,
+        "max_ms": 0.053661
+      },
+      "end_to_end_ms": {
+        "count": 15,
+        "min_ms": 109.04008,
+        "median_ms": 113.085187,
+        "mean_ms": 125.11852833333334,
+        "p95_ms": 203.919508,
+        "max_ms": 203.919508
+      },
+      "per_transformation_ms": {
+        "count": 10000,
+        "min_ms": 0.008082,
+        "median_ms": 0.008483,
+        "mean_ms": 0.0090853418,
+        "p95_ms": 0.009154,
+        "max_ms": 0.209354
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 113.085187,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 5000,
+      "mesh_entries": 100,
+      "iterations": 50,
+      "stage_registry_ms": {
+        "count": 50,
+        "min_ms": 68.874772,
+        "median_ms": 72.031847,
+        "mean_ms": 81.69956682,
+        "p95_ms": 139.83371,
+        "max_ms": 168.996173
+      },
+      "stage_mesh_ms": {
+        "count": 50,
+        "min_ms": 0.997967,
+        "median_ms": 1.0324585,
+        "mean_ms": 1.08421838,
+        "p95_ms": 1.356595,
+        "max_ms": 1.494442
+      },
+      "stage_serve_ms": {
+        "count": 50,
+        "min_ms": 0.0196,
+        "median_ms": 0.0236905,
+        "mean_ms": 0.024612099999999998,
+        "p95_ms": 0.032649,
+        "max_ms": 0.033861
+      },
+      "end_to_end_ms": {
+        "count": 50,
+        "min_ms": 69.919949,
+        "median_ms": 73.0857025,
+        "mean_ms": 82.8239104,
+        "p95_ms": 141.162563,
+        "max_ms": 170.551987
+      },
+      "per_transformation_ms": {
+        "count": 100,
+        "min_ms": 0.008103,
+        "median_ms": 0.008282,
+        "mean_ms": 0.00850767,
+        "p95_ms": 0.008783,
+        "max_ms": 0.019149
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 73.0857025,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 5000,
+      "mesh_entries": 1000,
+      "iterations": 30,
+      "stage_registry_ms": {
+        "count": 30,
+        "min_ms": 67.450695,
+        "median_ms": 69.7158885,
+        "mean_ms": 69.86365723333333,
+        "p95_ms": 72.681011,
+        "max_ms": 73.603955
+      },
+      "stage_mesh_ms": {
+        "count": 30,
+        "min_ms": 9.334452,
+        "median_ms": 9.505438,
+        "mean_ms": 9.561388366666668,
+        "p95_ms": 9.977476,
+        "max_ms": 10.610155
+      },
+      "stage_serve_ms": {
+        "count": 30,
+        "min_ms": 0.019649,
+        "median_ms": 0.02335,
+        "mean_ms": 0.023762633333333335,
+        "p95_ms": 0.030015,
+        "max_ms": 0.032299
+      },
+      "end_to_end_ms": {
+        "count": 30,
+        "min_ms": 77.001541,
+        "median_ms": 79.51094599999999,
+        "mean_ms": 79.4613451,
+        "p95_ms": 82.20717,
+        "max_ms": 83.211046
+      },
+      "per_transformation_ms": {
+        "count": 1000,
+        "min_ms": 0.008012,
+        "median_ms": 0.008322,
+        "mean_ms": 0.00893418,
+        "p95_ms": 0.009545,
+        "max_ms": 0.105899
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 79.51094599999999,
+      "all_verified": true
+    },
+    {
+      "registry_entries": 5000,
+      "mesh_entries": 10000,
+      "iterations": 15,
+      "stage_registry_ms": {
+        "count": 15,
+        "min_ms": 66.564997,
+        "median_ms": 72.670154,
+        "mean_ms": 72.75670113333334,
+        "p95_ms": 80.882944,
+        "max_ms": 80.882944
+      },
+      "stage_mesh_ms": {
+        "count": 15,
+        "min_ms": 95.555442,
+        "median_ms": 96.676153,
+        "mean_ms": 96.7795964,
+        "p95_ms": 98.039629,
+        "max_ms": 98.039629
+      },
+      "stage_serve_ms": {
+        "count": 15,
+        "min_ms": 0.023946,
+        "median_ms": 0.027321,
+        "mean_ms": 0.027714266666666668,
+        "p95_ms": 0.031597,
+        "max_ms": 0.031597
+      },
+      "end_to_end_ms": {
+        "count": 15,
+        "min_ms": 164.650064,
+        "median_ms": 168.985577,
+        "mean_ms": 169.5797088,
+        "p95_ms": 178.778967,
+        "max_ms": 178.778967
+      },
+      "per_transformation_ms": {
+        "count": 10000,
+        "min_ms": 0.007982,
+        "median_ms": 0.008302,
+        "mean_ms": 0.0086848276,
+        "p95_ms": 0.008853,
+        "max_ms": 0.462765
+      },
+      "target_ms": 1.0,
+      "end_to_end_meets_target": false,
+      "per_transformation_meets_target": true,
+      "miss_factor": 168.985577,
+      "all_verified": true
+    }
+  ]
+}
