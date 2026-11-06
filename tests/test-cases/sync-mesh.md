@@ -83,3 +83,50 @@
    015 (in-process nodes; the experiment 007/014 server processes
    still do not consult an anchor, and no anchor is consulted by
    the Gate 5 verdict).
+9. Certificate binding to a claimed node id (added 2026-11-06,
+   experiment 017): experiment 014's protected links authenticate
+   possession of a CA-issued certificate and nothing more - the
+   certificate's name is never checked against the node id a
+   process claims, so any enrolled node's certificate could be
+   presented while claiming to be any other node. This case binds
+   the two. Certificates are issued for a specific node id, with
+   that id carried in the certificate itself (a URI subjectAltName
+   of the form `urn:pba:node:<node-id>`, generated at runtime
+   inside the tests exactly as experiment 014 generates its
+   credentials; no certificate, key, or credential file exists in
+   this repository). A protected process started with identity
+   binding enabled refuses to start at all when the id in its own
+   certificate differs from the node id it was started claiming.
+   When a binding-enabled node ACCEPTS a link, the connecting
+   peer's certificate id is checked against the node id that peer
+   claims on the link: a match is served exactly as in experiment
+   014 (entries sync and converge, a policy crosses verified),
+   and a mismatch is refused with a plainly stated
+   identity_mismatch naming the claimed id and the certified id,
+   on the health, entries, and policy paths alike. When a
+   binding-enabled node INITIATES a link (the server-to-server
+   /sync direction experiment 014 exposes), it checks the peer
+   server's certificate id against the node id that peer claims
+   in its own health response before any entries are pulled: a
+   mismatch is refused as identity_mismatch and no state moves.
+   The mismatch refusal must be DISTINCT from experiment 014's
+   refusals (no credential, and a credential from a rogue CA,
+   both of which fail the TLS handshake itself and receive no
+   HTTP answer): the mismatched peer's credential is otherwise
+   valid - issued by the same CA the server trusts, so the
+   handshake succeeds on possession alone - and the same
+   certificate is served when the claim matches the id it was
+   issued for, proving identity binding, not possession, is what
+   refused it. After every mismatch refusal the server still
+   serves a correctly identified peer. A peer process claiming an
+   id its certificate was not issued for, started without binding
+   (experiment 014 mode), is likewise refused when it initiates
+   sync toward a binding-enabled node: the accepting node sees
+   the claim/cert mismatch on the incoming link and nothing
+   merges in either node. Status: implemented at prototype scale
+   in experiment 017 (localhost processes, runtime-generated test
+   certificates carrying the node id as a URI SAN, binding opt-in
+   per process via `--tls-bind-identity`; no identity proofing of
+   who SHOULD hold a certificate, no certificate revocation or
+   lifecycle, and no per-endpoint authorization beyond the
+   identity check is claimed).
