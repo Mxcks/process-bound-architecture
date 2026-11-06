@@ -24,7 +24,12 @@ passing** (2026-11-06, experiment
 case 5), and **coordinated rollback across nodes built and
 passing** (2026-11-06, experiment
 `experiments/013-coordinated-rollback/`; `tests/test-cases/sync-mesh.md`
-case 6). Prototype only, not production. The module docstrings in
+case 6), and **protected node links built and passing**
+(2026-11-06, experiment `experiments/014-protected-node-links/`;
+`tests/test-cases/sync-mesh.md` case 7): the networked processes
+can now speak mutual TLS - encrypted in transit, with a client
+certificate required - while discovery by set addresses remains
+open. Prototype only, not production. The module docstrings in
 `sync_mesh.py` and `node_server.py` are the authoritative lists of
 honest limits. The layer contract above is unchanged; what follows
 documents the prototypes that now implement it at prototype scale.
@@ -44,6 +49,9 @@ documents the prototypes that now implement it at prototype scale.
 | `coordinated_rollback.py` | Coordinated rollback (experiment 013): a shared checkpoint captured from a verified-converged set of nodes (entry set, state, state hash, per-origin chain heads), a coordinator that restores every participating node to that one checkpoint through `sync_mesh.py`'s `restore_to_entries`, and a checkpoint check that names a node that skipped the rollback divergent. Builds on `SyncNode` and reuses `anchor.py`'s `origin_heads`. |
 | `test_coordinated_rollback.py` | Automated tests for sync-mesh case 6: coordinated rollback restores the shared checkpoint on all nodes after a fork fault (whose local rollback observably lands elsewhere), the mesh converges on new changes afterward, and the negative control (a node that skips the rollback is detected divergent and rejoins only by restoring the checkpoint itself). |
 | `demo_coordinated_rollback.py` | Runnable walkthrough of case 6: checkpoint, fault, local rollback missing the shared checkpoint, coordinated rollback, skipped node detected, rejoin. |
+| `protected_link.py` | Protected node links (experiment 014): mutual-TLS contexts for the networked transport (`server_context` requires a client certificate chaining to the given CA; `client_context` verifies the server and presents the peer's own certificate), plus runtime generation of throwaway test credentials (openssl subprocess; test CA, per-node certificates, and a rogue CA for refusal tests). No credential file is committed. |
+| `test_protected_nodes.py` | Automated tests for sync-mesh case 7: two protected processes converge and a policy crosses while a byte-capturing proxy proves the wire carries no plaintext, unauthenticated and rogue-credential peers are refused at the handshake with no plaintext fallback, Gate 3/2 verification still runs over the protected link (tampered entry diverges, opt-in still enforced, snapshot verifies on receipt), and a killed protected process's survivors still serve and converge. Credentials are generated per test into its temporary directory. |
+| `demo_protected_nodes.py` | Runnable walkthrough of case 7: two protected processes converge, the capture holds no plaintext, a credential-less client is refused, the second process is killed, and the first still serves. |
 
 ## How to run it
 
@@ -70,6 +78,10 @@ python3 packages/synchronization/test_anchor.py
 # Coordinated rollback (sync-mesh case 6)
 python3 packages/synchronization/test_coordinated_rollback.py
 python3 packages/synchronization/demo_coordinated_rollback.py
+
+# Protected node links (sync-mesh case 7)
+python3 packages/synchronization/test_protected_nodes.py
+python3 packages/synchronization/demo_protected_nodes.py
 
 # One node server by hand (ephemeral port; prints LISTENING <port>)
 python3 packages/synchronization/node_server.py --node-id my-node \
@@ -129,6 +141,27 @@ already synced to another process, no more: the network tests prove
 that shape (a killed node's entries live on in its peers, its
 unsynced ones would not).
 
+## Protected node links, in plain words
+
+`protected_link.py` (experiment 014) wraps the networked
+transport's socket in mutual TLS when a server is started with
+`--tls-cert/--tls-key/--tls-ca`. The server requires a client
+certificate chaining to its CA, so an unauthenticated peer - no
+certificate, or one from a different authority - is refused at
+the handshake and never reaches an endpoint, and there is no
+plaintext mode on a protected port. Clients (including a server
+process initiating `/sync`, which presents its own node
+certificate) verify the server against the same CA with the
+address check on. The wire carries ciphertext only: the case 7
+tests drive a successful exchange through a byte-capturing
+forwarding proxy and require the capture to contain none of the
+plaintext it carried. TLS decides who may connect and keeps the
+wire unreadable; it grants the payload no trust, so every Gate 3
+and Gate 2 check runs unchanged inside the receiving process -
+a tampered entry over the protected link diverges and rolls back
+exactly as over plaintext. Discovery is untouched: addresses are
+still configured by whoever starts the processes.
+
 ## Coordinated rollback, in plain words
 
 Local rollback (point 4) returns a node to its OWN last verified
@@ -154,11 +187,19 @@ by its post-checkpoint state being accepted as the checkpoint.
   method call; partition there is modeled by not calling sync. The
   networked prototype (experiment 007) replaces the transport with
   real localhost HTTP between real processes, and nothing beyond
-  localhost: no TLS, no authentication or authorization on any
-  endpoint, no peer discovery (addresses are configured by whoever
-  starts the processes), no gossip schedule, no persistence (kill a
-  process and its unreplicated in-memory entries are gone), and no
-  scale or latency numbers demonstrated or claimed.
+  localhost. Protected links are now built at prototype scale
+  (experiment 014, `protected_link.py`): a server started with TLS
+  arguments speaks mutual TLS - encrypted in transit, client
+  certificate required, no plaintext fallback - but authentication
+  is only possession of a CA-issued certificate (no binding of a
+  certificate to a claimed node id, no per-endpoint authorization
+  beyond opt-in serving, no revocation or rotation, no identity
+  proofing, and the test CA is generated per run on the same
+  machine). Still open for the networked prototype: no peer
+  discovery (addresses are configured by whoever starts the
+  processes), no gossip schedule, no persistence (kill a process
+  and its unreplicated in-memory entries are gone), and no scale
+  or latency numbers demonstrated or claimed.
 - No real Byzantine consensus: no quorum, voting, or BFT protocol.
   Detection is local hash/chain verification plus fork comparison
   when two views meet. A fork nobody ever compares is not detected.
