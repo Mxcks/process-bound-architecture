@@ -1,0 +1,135 @@
+$ python3 --version
+Python 3.12.3
+
+$ python3 -m unittest discover -s packages/registration -v
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+test_author_can_revoke_and_boundary_and_validation_refuse (test_revocation.RevocationTests.test_author_can_revoke_and_boundary_and_validation_refuse) ... ok
+test_non_author_cannot_revoke (test_revocation.RevocationTests.test_non_author_cannot_revoke) ... ok
+test_revocation_is_new_chain_entry_original_untouched (test_revocation.RevocationTests.test_revocation_is_new_chain_entry_original_untouched) ... ok
+test_revocation_requires_valid_signature_and_real_policy (test_revocation.RevocationTests.test_revocation_requires_valid_signature_and_real_policy) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.011s
+
+OK
+
+$ python3 packages/registration/test_revocation.py
+test_author_can_revoke_and_boundary_and_validation_refuse (__main__.RevocationTests.test_author_can_revoke_and_boundary_and_validation_refuse) ... ok
+test_non_author_cannot_revoke (__main__.RevocationTests.test_non_author_cannot_revoke) ... ok
+test_revocation_is_new_chain_entry_original_untouched (__main__.RevocationTests.test_revocation_is_new_chain_entry_original_untouched) ... ok
+test_revocation_requires_valid_signature_and_real_policy (__main__.RevocationTests.test_revocation_requires_valid_signature_and_real_policy) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.006s
+
+OK
+
+$ python3 -m unittest discover -s packages/policy-library -v
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+test_node_with_updated_snapshot_stops_serving (test_revocation_serving.RevocationServingTests.test_node_with_updated_snapshot_stops_serving) ... ok
+test_reload_by_path_and_tampered_reload_leaves_view_untouched (test_revocation_serving.RevocationServingTests.test_reload_by_path_and_tampered_reload_leaves_view_untouched) ... ok
+test_stale_node_serves_until_updated_record_arrives (test_revocation_serving.RevocationServingTests.test_stale_node_serves_until_updated_record_arrives) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.013s
+
+OK
+
+$ python3 packages/policy-library/test_revocation_serving.py
+test_node_with_updated_snapshot_stops_serving (__main__.RevocationServingTests.test_node_with_updated_snapshot_stops_serving) ... ok
+test_reload_by_path_and_tampered_reload_leaves_view_untouched (__main__.RevocationServingTests.test_reload_by_path_and_tampered_reload_leaves_view_untouched) ... ok
+test_stale_node_serves_until_updated_record_arrives (__main__.RevocationServingTests.test_stale_node_serves_until_updated_record_arrives) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.006s
+
+OK
+
+$ python3 -m unittest discover -s packages/synchronization -v
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 1.730s
+
+OK
+
+$ python3 packages/synchronization/test_network_nodes.py
+test_killed_process_survivors_still_serve_and_converge (__main__.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (__main__.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (__main__.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (__main__.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 1.434s
+
+OK
+
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.115s
+
+OK
+
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+$ python3 packages/registration/demo_revocation.py
+Setup. Alice registered her policy: dcab37d1f0094a82...
+   Admitted before revocation: member-access
+   Validation channel honored before revocation: True
+1. Non-author revocation rejected and audit-logged: True
+2. Author revoked her own policy: True at log index 1
+3. Revocation is a new chain entry, original entry untouched: True
+4. Execution boundary refuses the revoked policy: True
+5. Validation channel no longer honored: True
+Demo state (registry + audit logs) left in: /tmp/pba-revocation-demo-lml2akp0
+
+$ python3 packages/policy-library/demo_revocation.py
+Setup. Node serves the policy: True
+Alice revoked the policy centrally: True
+STALE WINDOW: node still serves the revoked policy (not yet synced): True
+Updated record delivered; entries after reload: 2
+STALE WINDOW CLOSED: node now refuses the revoked policy: True
+Demo state left in: /tmp/pba-revocation-node-demo-ukf91oru
+
+$ python3 packages/registration/demo.py
+1. Channel exists before use: True
+2. Alice registered her own library: True dcab37d1f0094a82...
+3. Bad signature rejected and audit-logged: True
+4. Unregistered code blocked at the execution boundary: True
+5. Re-registering gives the same record, chain verifies: True
+6. Validation channel bound on registration: val-43f4d36f3398e31be772049aee3bf45e
+   Admitted at boundary: member-access
+Demo state (registry + audit logs) left in: /tmp/pba-gate1-demo-jhlxt8n2
+
+$ python3 packages/policy-library/demo.py
+Setup. Policy registered centrally: dcab37d1f0094a82...
+1a. Central registration point offline (files moved away): True
+1b. Second node served the policy from the registration record alone: True
+2. Node that did not opt in holds the policy but does not serve it: True
+   The same user node, after opting in, serves it: True
+Demo state left in: /tmp/pba-gate2-demo-53idlp8l
+
+$ pgrep -af "node_serve[r].py" (leftover network-test server processes)
+none
