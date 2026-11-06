@@ -122,9 +122,13 @@ HONEST LIMITS (prototype, NOT production)
   quorum, local-only rollback, no revocation, and HMAC prototype
   signing in Gate 1. An external chain anchor exists (experiment
   012) and, since experiment 018, a server started with --anchor
-  consults the registry anchor at startup (see above); the anchor
-  itself is still experiment 012's unsigned local stand-in, and
-  the mesh chain in this process consults no anchor.
+  consults the registry anchor at startup (see above); since
+  experiment 019 the anchor may be signed, and a server started
+  with --anchor-signer plus --anchor-secret-file also verifies
+  that signature at startup, refusing to start on
+  anchor_signature_invalid. Without those arguments the
+  consultation is experiment 018's head-only one. The mesh chain
+  in this process consults no anchor.
 """
 
 from __future__ import annotations
@@ -206,6 +210,8 @@ class NetworkNode:
         serve_policies: bool = False,
         bind_identity: bool = False,
         anchor_path: str | Path | None = None,
+        anchor_signer: str | None = None,
+        anchor_secret_hex: str | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -224,6 +230,12 @@ class NetworkNode:
         # construction; None (the default) means no consultation
         # and behavior exactly as experiments 007/014 left it.
         self.anchor_path = Path(anchor_path) if anchor_path else None
+        # Experiment 019: the signing identity for the anchor,
+        # passed straight to the PolicyNode alongside the anchor
+        # path (both or neither, as PolicyNode requires). None
+        # (the default) is experiment 018's head-only consultation.
+        self.anchor_signer = anchor_signer
+        self.anchor_secret_hex = anchor_secret_hex
         self.policy_node: PolicyNode | None = None
         if self.snapshot_path is not None:
             # PolicyNode construction verifies the snapshot hash
@@ -238,6 +250,8 @@ class NetworkNode:
                 payloads=payloads or {},
                 serve_policies=serve_policies,
                 anchor_path=self.anchor_path,
+                anchor_signer=self.anchor_signer,
+                anchor_secret_hex=self.anchor_secret_hex,
             )
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
@@ -693,6 +707,19 @@ def main(argv: list[str] | None = None) -> int:
                              "--snapshot. The PolicyNode consults it at "
                              "startup and the process refuses to start on "
                              "anchor_mismatch or anchor_stale")
+    parser.add_argument("--anchor-signer", default=None,
+                        help="signing identity for a signed anchor "
+                             "(experiment 019); requires --anchor and "
+                             "--anchor-secret-file. With it, the PolicyNode "
+                             "also verifies the anchor's signature at "
+                             "startup and the process refuses to start on "
+                             "anchor_signature_invalid")
+    parser.add_argument("--anchor-secret-file", default=None,
+                        help="file holding the anchor signer's enrollment "
+                             "secret (hex), read once at startup; "
+                             "requires --anchor-signer. A file, not a "
+                             "value argument, so the secret does not ride "
+                             "in the process command line")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -710,6 +737,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.anchor and not args.snapshot:
         parser.error("--anchor requires --snapshot (the anchor is for "
                      "the snapshot's registry chain)")
+    anchor_identity = (args.anchor_signer, args.anchor_secret_file)
+    if any(anchor_identity) and not all(anchor_identity):
+        parser.error("--anchor-signer and --anchor-secret-file must be "
+                     "given together")
+    if args.anchor_signer and not args.anchor:
+        parser.error("--anchor-signer requires --anchor (the signing "
+                     "identity is for that anchor)")
+    anchor_secret_hex = None
+    if args.anchor_secret_file:
+        anchor_secret_hex = Path(
+            args.anchor_secret_file).read_text(encoding="utf-8").strip()
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
@@ -745,6 +783,8 @@ def main(argv: list[str] | None = None) -> int:
         serve_policies=args.serve_policies,
         bind_identity=args.tls_bind_identity,
         anchor_path=args.anchor,
+        anchor_signer=args.anchor_signer,
+        anchor_secret_hex=anchor_secret_hex,
     )
     tls_context = None
     if all(tls_values):
