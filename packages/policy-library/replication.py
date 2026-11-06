@@ -64,9 +64,29 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 4 outcomes)
    PolicyNode does (experiments 015/019): a rewritten or
    honestly grown snapshot is refused at holder construction
    under the anchor's own names. Nothing else about placement,
-   healing, or serving changes, and the revocation limit below
-   stands exactly as written: holders are still constructed
-   once and never reload.
+   healing, or serving changes. (This paragraph originally
+   closed by restating that holders never reload; that limit
+   is superseded by outcome 6 below, experiment 021.)
+
+6. Revocation delivery to a placed policy (experiment 021,
+   availability test case 6, fixing finding F1 of experiment
+   020). ReplicatedPolicy gains reload_snapshot(), in the same
+   style as PolicyNode.reload_snapshot (experiments 008/015):
+   the caller delivers the updated record over the placement's
+   shared snapshot file (following the anchor lifecycle when
+   an anchor is configured: honest growth is AnchorStale until
+   the grown registry is re-anchored by the same signer), then
+   calls reload_snapshot(). The delivered snapshot is verified
+   and anchor-consulted BEFORE any holder's view changes -
+   a refused reload (tampered, stale, mismatched, badly signed
+   anchor) leaves the previous serving state untouched - and
+   then every holder reloads and rebuilds its view, so serve()
+   raises PolicyRevoked for a revoked policy, non-revoked
+   policies keep serving, and the delivered path becomes the
+   snapshot heal() recruits over. With no reload called,
+   behavior is exactly the pre-021 behavior: the placed object
+   serves from its placement-time view. Delivery is an
+   explicit call, not a push; see the limits below.
 
 HOW IT WORKS, IN PLAIN WORDS
 ----------------------------
@@ -116,10 +136,17 @@ HONEST LIMITS (prototype, NOT production)
   without an external anchor, and holders serve verified bytes
   without sandboxing or executing them. Revocation (registration
   case 6, experiment 008) is honored by PolicyNode when its snapshot
-  contains the revocation entry, but holders here are constructed
-  once, at placement, and never reload: a placed ReplicatedPolicy
-  does not learn of a revocation recorded after its snapshot was
-  taken. Wiring reload into placement is unbuilt.
+  contains the revocation entry. Holders here are constructed once,
+  at placement; since experiment 021 a placed ReplicatedPolicy
+  learns of a later revocation through reload_snapshot() - an
+  EXPLICIT call a caller makes after delivering the updated record
+  over the shared snapshot file, verified and anchor-consulted
+  before any holder's view changes. Nothing calls it automatically,
+  nothing pushes or broadcasts the updated record, and a placed
+  policy that is never reloaded keeps serving from its
+  placement-time view indefinitely: the stale window for placed
+  policies is closed by a call, not by the system, and is unbounded
+  until that call happens. That is stated, not fixed over.
 - Deliberate removal by the owner (tests/test-cases/policy-
   availability.md case 3, dependents notified before a policy stops
   being served) is NOT implemented here. Gate 4's outcomes are the
@@ -249,6 +276,14 @@ class ReplicatedPolicy:
     needs the placement context (policy bytes + registry snapshot)
     that place_policy() stores on the object; a ReplicatedPolicy
     constructed without it cannot heal and heal() says so.
+
+    Revocation delivery (experiment 021): reload_snapshot()
+    receives an updated registry record (the placement's shared
+    snapshot file, updated in place, or an explicit new path),
+    verifies and anchor-consults it before any holder's view
+    changes, and rebuilds every holder's view from it - the
+    placed-policy form of PolicyNode.reload_snapshot. Without
+    that call, holders keep their placement-time view.
     """
 
     def __init__(
@@ -417,6 +452,90 @@ class ReplicatedPolicy:
             floor_restored=restored,
             status="healed" if restored else "below_floor",
         )
+
+    # -- receiving an updated record (experiment 021) ---------------------
+
+    def reload_snapshot(
+        self, snapshot_path: str | Path | None = None
+    ) -> int:
+        """Receive an updated registry record and rebuild every
+        holder's view from it (availability case 6; finding F1 of
+        experiment 020, fixed here).
+
+        This is PolicyNode.reload_snapshot (experiments 008/015)
+        carried to a placed policy, in the same style and with
+        the same refusals: the updated snapshot - this placement's
+        own shared snapshot file after a sync has copied the new
+        record over it (the default), or an explicit new path -
+        is verified and, when an anchor is configured, consulted
+        BEFORE any holder's view changes, and only then is every
+        holder reloaded from it. Returns the number of entries in
+        the verified snapshot.
+
+        The before/after discipline is two-phase, so a refused
+        reload leaves the previous serving state untouched
+        exactly as a standalone node's refused reload does:
+
+        - Phase 1 validates the delivered snapshot once, through
+          a throwaway PolicyNode constructed exactly as a holder
+          is (same snapshot, same anchor consultation this
+          placement carries): a tampered snapshot raises
+          TamperedRecord, an honestly grown one AnchorStale, a
+          rewritten one AnchorMismatch, a badly signed anchor
+          AnchorSignatureInvalid - and no holder has been touched
+          yet, so the placed policy keeps serving its previous
+          view.
+        - Phase 2 reloads each holder in placement order through
+          its own reload_snapshot, which re-runs the same
+          verification per holder before rebuilding that holder's
+          view, and records the delivered path as this placement's
+          snapshot, so a later heal() recruits replacements over
+          the updated record, not the stale one.
+
+        After a successful reload of a snapshot containing a
+        revocation entry for this policy, serve() raises
+        PolicyRevoked from the first online holder, exactly as a
+        standalone node refuses. With NO reload called, nothing
+        changes: the placed object keeps serving from its
+        placement-time view - delivery here is an explicit call,
+        not a push, and that remaining fact is stated in this
+        module's limits, not hidden.
+        """
+        if not self._holders:
+            raise PolicyUnavailable(
+                f"no holders to reload for policy {self.policy_hash}"
+            )
+        path = (
+            Path(snapshot_path)
+            if snapshot_path is not None
+            else self._registry_snapshot_path
+        )
+        if path is None:
+            # A ReplicatedPolicy constructed without placement
+            # context: fall back to the snapshot its first holder
+            # was built over, as PolicyNode.reload_snapshot does.
+            path = next(iter(self._holders.values())).registry_snapshot_path
+        # Phase 1: validate once, before any holder's view changes.
+        PolicyNode(
+            node_id=next(iter(self._holders)),
+            registry_snapshot_path=path,
+            payloads={},
+            serve_policies=False,
+            anchor_path=self.anchor_path,
+            anchor_signer=self.anchor_signer,
+            anchor_secret_hex=self.anchor_secret_hex,
+        )
+        # Phase 2: every holder reloads (each re-verifies first,
+        # per PolicyNode.reload_snapshot) and rebuilds its view.
+        loaded = 0
+        for node in self._holders.values():
+            loaded = node.reload_snapshot(path)
+        self._registry_snapshot_path = path
+        return loaded
+
+    # Backwards-readable alias, as on PolicyNode: receiving the
+    # updated record *is* a sync of this placement's registry view.
+    update_snapshot = reload_snapshot
 
     # -- serving --------------------------------------------------------------
 
