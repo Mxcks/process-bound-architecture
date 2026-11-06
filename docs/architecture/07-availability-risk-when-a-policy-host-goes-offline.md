@@ -62,7 +62,14 @@ What remains open at real scale:
   stops being served) is not implemented.
 - Inherited limits: no revocation (a holder cannot learn a policy
   was revoked after its snapshot), and snapshot trust is
-  tamper-evidence without an external anchor.
+  tamper-evidence without an external anchor. (The anchor half of
+  that sentence has since been built at prototype scale,
+  2026-11-06, experiment `experiments/012-external-chain-anchor/`:
+  the registry head, and the sync mesh's per-origin heads, are
+  anchored to a file outside the record and a fully rewritten
+  record fails that check in tests. The anchor file is a local
+  stand-in, not a witnessed external service, and serving does not
+  consult it; revocation delivery remains as stated.)
 
 Candidate direction as originally recorded (now TESTED at prototype
 scale, see above):
