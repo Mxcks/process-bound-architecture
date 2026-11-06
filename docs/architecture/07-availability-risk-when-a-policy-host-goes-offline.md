@@ -7,9 +7,56 @@ access. If a policy is removed, or someone turns off their computer without
 knowing that policy is hosted there, that could drop policies for systems
 that depend on them.
 
-Status: **OPEN, unsolved in the source proposals.**
+Status: **MITIGATED AT PROTOTYPE SCALE, still OPEN at real scale**
+(updated 2026-11-06, Gate 4, experiment
+`experiments/005-gate4-availability/`).
 
-Candidate direction to test (UNVERIFIED, not a decision):
+The candidate direction below was tested and it works in the
+prototype (`packages/policy-library/replication.py`, 3 of 3 Gate 4
+tests pass, Gate 1/2/3 regressions green):
+
+- The honest failure is real and shown: a policy held by exactly one
+  node is unavailable after that node goes offline (negative control,
+  asserted as a test result, not hidden).
+- Replication to a floor of independent, opted-in holder nodes at
+  registration time works at prototype scale: with floor 3, the
+  policy is still served after the original host goes offline, and
+  still served by the last holder after two of three go offline.
+  Non-opted-in nodes and duplicate node ids are never counted toward
+  the floor.
+- The floor is reported honestly: a placement that cannot meet its
+  floor reports the actual holder count vs the floor with status
+  `below_floor`, and is never marked "available". A policy is marked
+  "available" only when its replication floor is met, as the
+  candidate direction proposed.
+
+What the prototype proves, and nothing more: the placement, floor
+accounting, and failover logic are correct against Gate 2's verified
+serving, with "offline" modeled as a flag on in-process nodes on one
+machine.
+
+What remains open at real scale:
+
+- Real holders: network transport, discovery, and a placement
+  protocol. Prototype holders are in-process objects over one shared
+  snapshot file.
+- Liveness: nothing detects a real machine dying. There is no
+  heartbeat or liveness check yet; the candidate direction assigns
+  that to the verification gate (Gate 5, not yet built).
+- Self-healing: the floor is enforced and reported at placement
+  time only. If a holder dies permanently, nothing recruits a
+  replacement or heals back up to the floor.
+- Real independence: the prototype counts distinct node ids. It
+  cannot verify different machines, operators, or failure domains.
+- Deliberate removal: `tests/test-cases/policy-availability.md`
+  case 3 (owner removes a policy, dependents are notified before it
+  stops being served) is not implemented.
+- Inherited limits: no revocation (a holder cannot learn a policy
+  was revoked after its snapshot), and snapshot trust is
+  tamper-evidence without an external anchor.
+
+Candidate direction as originally recorded (now TESTED at prototype
+scale, see above):
 replication of a registered policy to N independent registered nodes at
 registration time, with the mesh refusing to mark a policy "available" until
 its replication floor is met, and a liveness check in the verification gate.
