@@ -36,13 +36,20 @@ Stages, in order (test_full_chain_end_to_end):
      lifecycle on delivery (stale first, re-anchor by the same
      signer, then reload refuses as revoked), final state
 
-Two further test methods record the findings this scenario
-exposes on surfaces no earlier experiment exercised together
-(the finding clause of the test case, stated before the build):
-  - test_finding_placed_holders_cannot_be_reloaded: revocation
-    delivered to PLACED holders (005/010/016).
-  - test_finding_revoked_policy_over_network_transport:
-    revocation served over the network transport (007/014),
+Two further test methods cover the findings this scenario
+exposed on surfaces no earlier experiment exercised together
+(the finding clause of the test case, stated before the build).
+As built in experiment 020 they asserted the findings exactly
+as found (F1: a placed policy could not be reloaded; F2: a
+revoked policy over the network dropped the connection).
+Experiment 021 fixed both findings, and these two methods now
+assert the FIXED behavior (the 020 README carries a
+superseded-in-part note saying so):
+  - test_placed_holders_reload_delivers_revocation: revocation
+    delivered to PLACED holders via reload_snapshot (005/010/016).
+  - test_revoked_policy_over_network_transport_clean_refusal:
+    revocation served over the network transport as a clean
+    HTTP refusal naming the revocation (007/014),
     plus the Gate 5 verdict stage (018/019 pattern) in
     test_gate5_verdict_genuine_passes_rewritten_fails.
 
@@ -507,9 +514,9 @@ class FullChainTests(unittest.TestCase):
         for line in stages:
             print(f"STAGE {line}")
 
-    # -- finding: revocation to placed holders ---------------------------
+    # -- finding F1 (fixed in experiment 021): revocation to placed holders --
 
-    def test_finding_placed_holders_cannot_be_reloaded(self):
+    def test_placed_holders_reload_delivers_revocation(self):
         record = self._register()
         self._anchor_registry()
         snapshot = self._placement_snapshot()
@@ -524,32 +531,38 @@ class FullChainTests(unittest.TestCase):
         # way placement knows: over the shared snapshot file.
         shutil.copyfile(self.registry_log, snapshot)
 
-        has_reload = any(
-            hasattr(replicated, name)
-            for name in ("reload_snapshot", "reload", "update_snapshot"))
-        still_serves = None
+        # Experiment 020 found F1 here: ReplicatedPolicy exposed
+        # no reload/update method and the placed object still
+        # served the revoked policy after this delivery.
+        # Experiment 021 fixed it (see that experiment's README
+        # and the superseded-in-part note in this experiment's
+        # README): the reload path now exists, the placed object
+        # still serves from its placement-time view until the
+        # reload is called (that remaining fact is asserted, not
+        # hidden), and after the reload every holder refuses.
+        has_reload = hasattr(replicated, "reload_snapshot")
+        still_serves_before_reload = replicated.serve().code == ALICE_CODE
+        loaded = replicated.reload_snapshot() if has_reload else None
+        refused = False
         try:
-            still_serves = replicated.serve().code == ALICE_CODE
-        except Exception:
-            still_serves = False
+            replicated.serve()
+        except PolicyRevoked:
+            refused = True
         print(
-            "FINDING F1 placed-holders-reload: "
-            f"ReplicatedPolicy exposes a reload/update method: {has_reload}; "
-            f"after revocation + delivery over its snapshot file, the "
-            f"placed object still serves the revoked policy: {still_serves}")
-        # The finding, asserted exactly as found today: placement
-        # (005) and everything built on it (010 heal, 016 watcher)
-        # construct holders once and expose no reload, so a placed
-        # policy does NOT learn of a revocation through its public
-        # API. This test failing in a future run is the signal
-        # that the finding has changed and 020's record needs a
-        # superseded-in-part note.
-        self.assertFalse(has_reload)
-        self.assertTrue(still_serves)
+            "FIXED F1 placed-holders-reload (experiment 021): "
+            f"ReplicatedPolicy exposes reload_snapshot: {has_reload}; "
+            f"before the reload the placed object still serves from "
+            f"its placement-time view: {still_serves_before_reload}; "
+            f"reload loaded entries: {loaded}; after the reload "
+            f"serve() refuses as PolicyRevoked: {refused}")
+        self.assertTrue(has_reload)
+        self.assertTrue(still_serves_before_reload)
+        self.assertEqual(loaded, 2)
+        self.assertTrue(refused)
 
-    # -- finding: revocation over the network, plus Gate 5 verdict -------
+    # -- finding F2 (fixed in experiment 021): revocation over the network --
 
-    def test_finding_revoked_policy_over_network_transport(self):
+    def test_revoked_policy_over_network_transport_clean_refusal(self):
         record = self._register()
         self._anchor_registry()
         snap_b = self._snapshot_copy("srv-b")
@@ -575,35 +588,28 @@ class FullChainTests(unittest.TestCase):
         self.assertTrue(health["anchor_configured"])
         self.assertEqual(health["anchor_status"], "anchored")
 
-        shape = None
-        detail = ""
-        try:
-            status, body = node_server.fetch_policy(srv_b2.base_url,
-                                                    record.policy_hash)
-            shape = f"http_{status}"
-            detail = json.dumps(body)[:200]
-            served_code = (base64.b64decode(body["code_base64"])
-                           if status == 200 else None)
-            self.assertNotEqual(served_code, ALICE_CODE,
-                                "revoked policy was SERVED over the wire")
-        except Exception as exc:  # the refusal shape found today
-            shape = f"exception:{type(exc).__name__}"
-            detail = str(exc)[:200]
-        time.sleep(0.2)  # let the server's handler error reach its log
-        log = srv_b2.log_text()
+        # Experiment 020 found F2 here: node_server's policy
+        # endpoint caught NotServing / PolicyNotFound /
+        # TamperedRecord but NOT PolicyRevoked (a sibling
+        # PolicyLibraryError), so the refusal was an unhandled
+        # exception in the handler - the connection dropped with
+        # no HTTP response at all. Experiment 021 fixed it (see
+        # that experiment's README and the superseded-in-part
+        # note in this experiment's README): the request now
+        # returns a clean HTTP refusal naming the revocation,
+        # the policy bytes are not served, and the server keeps
+        # serving afterward (health answers).
+        status, body = node_server.fetch_policy(srv_b2.base_url,
+                                                record.policy_hash)
         print(
-            "FINDING F2 revoked-over-network: "
-            f"policy request after revocation produced: {shape} {detail}; "
-            f"server log names PolicyRevoked: {'PolicyRevoked' in log}")
-        # The finding, asserted exactly as found today: the policy
-        # is NOT served (good), but node_server's policy endpoint
-        # catches NotServing / PolicyNotFound / TamperedRecord and
-        # NOT PolicyRevoked (a sibling PolicyLibraryError), so the
-        # refusal is an unhandled exception in the handler - the
-        # connection drops with no HTTP response at all - instead
-        # of a clean JSON refusal naming the revocation.
-        self.assertTrue(shape.startswith("exception:"))
-        self.assertIn("PolicyRevoked", log)
+            "FIXED F2 revoked-over-network (experiment 021): "
+            f"policy request after revocation produced: "
+            f"http_{status} {json.dumps(body)[:200]}")
+        self.assertEqual(status, 410)
+        self.assertEqual(body["error"], "policy_revoked")
+        self.assertNotIn("code_base64", body)
+        health_after = node_server.fetch_health(srv_b2.base_url)
+        self.assertTrue(health_after["ok"])
 
     def test_gate5_verdict_genuine_passes_rewritten_fails(self):
         # Gate 5 over the scenario's evidence, 018/019 pattern: a
