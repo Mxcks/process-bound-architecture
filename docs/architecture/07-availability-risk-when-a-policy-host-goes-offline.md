@@ -79,6 +79,16 @@ What remains open at real scale:
   record fails that check in tests. The anchor file is a local
   stand-in, not a witnessed external service, and serving does not
   consult it; revocation delivery remains as stated.)
+  (Revocation delivery to PLACED policies has since been built
+  at prototype scale in two steps: experiment 021 gave
+  `ReplicatedPolicy` a `reload_snapshot()` path, availability
+  case 6, and experiment 022, availability case 7, added a
+  delivery watcher in the liveness watcher's style that calls
+  that reload automatically on its checks when the shared
+  snapshot file changes, re-reporting a refused delivery until
+  its cause is fixed - on a modeled clock, in-process, with no
+  push of the record into the file and no unattended
+  scheduling.)
 
 Candidate direction as originally recorded (now TESTED at prototype
 scale, see above):
