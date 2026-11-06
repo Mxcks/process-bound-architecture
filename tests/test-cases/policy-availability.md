@@ -126,3 +126,53 @@
    modeled clock, in-process holders over one shared snapshot
    file; no unattended scheduling, no network delivery, and no
    push or broadcast is claimed).
+8. Composed liveness and snapshot-delivery watchers over one
+   placed policy (added 2026-11-06, experiment 023): case 5's
+   liveness watcher (016) and case 7's delivery watcher (022)
+   each watch one placed policy, but before this case they were
+   never run composed over the SAME placement: 022's
+   heal-after-delivery proof used explicit lose/heal calls, not
+   016's automatic trigger, so two uncoordinated watchers over
+   one placement could double-act, act in the wrong order, or
+   recruit a replacement over a stale record. A single
+   coordinator, in the existing watcher style (deterministic
+   modeled clock, no wall-clock sleeps), runs ONE composed
+   check cycle over one placed policy, driving both watchers
+   and composing - not rewriting or duplicating - them. Cycle
+   order, stated before the build: delivery runs BEFORE
+   liveness in every cycle, so any healing in the same cycle
+   recruits over the newest record the placement holds, never
+   over a record a pending delivery was about to replace.
+   Expected: (a) the hard case in one window - a policy is
+   revoked in the shared record (the grown registry delivered
+   over the snapshot file and the anchor lifecycle followed,
+   as in cases 6/7) AND a holder of that policy goes silent
+   past the lost threshold in the same cycle window: the
+   composed cycle delivers the revocation, declares the lost
+   holder lost, and healing recruits a replacement over the
+   UPDATED record, so the replacement refuses the revoked
+   policy, and a non-revoked policy placed over the same
+   snapshot keeps serving after its own delivery; (b) no
+   double action - across several composed cycles with no
+   changes, no reloads and no heals occur (holder views are
+   not rebuilt and counts stay stable), and when only one
+   kind of event occurs in a cycle (only a delivery, or only
+   a loss), exactly that one action occurs; (c) refusal
+   composition - when a delivery is refused in a cycle
+   (anchor_stale or tampered, as in case 7), healing in that
+   same cycle still works for a genuinely lost holder but
+   recruits over the LAST GOOD record: the refusal does not
+   block healing, the heal does not force the refused delivery
+   through (the placed policy keeps serving its previous view
+   and the refusal keeps being reported until its cause is
+   fixed), and both the refusal and the heal are recorded in
+   the composed report; (d) the composed report for each cycle
+   names what happened in that cycle in one place: the
+   delivery applied or refused with its reason, the holders
+   declared lost, and the heal with its result, in the plain
+   report style of cases 5/7. Status: implemented at prototype
+   scale in experiment 023 (one coordinator driving the two
+   existing watchers over one in-process placement on a modeled
+   clock; no unattended scheduling, no network transport, and
+   no coordination between separate placements' coordinators
+   is claimed).
