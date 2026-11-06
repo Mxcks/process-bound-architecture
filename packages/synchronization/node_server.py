@@ -54,7 +54,12 @@ GET  /policy/<policy_hash>
                     carries the metadata plus the code as base64.
                     Refusals map to HTTP: not opted in -> 403,
                     unknown/unheld policy -> 404, tampered record
-                    or payload -> 409.
+                    or payload -> 409, policy revoked by its
+                    author -> 410 with error "policy_revoked"
+                    (experiment 021; before it, PolicyRevoked was
+                    not caught here and the request dropped the
+                    connection with no response - finding F2 of
+                    experiment 020).
 
 VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
 ------------------------------------------------
@@ -119,7 +124,12 @@ HONEST LIMITS (prototype, NOT production)
   ways), now serialized as JSON. No streaming, no deltas, and no
   performance, scale, or latency numbers are measured or claimed.
 - Inherited limits stand unchanged: no Byzantine consensus or
-  quorum, local-only rollback, no revocation, and HMAC prototype
+  quorum, local-only rollback, no revocation DELIVERY to a
+  running server (it builds its PolicyNode at startup and never
+  reloads, so a revocation reaches it only on restart over an
+  updated snapshot - though since experiment 021 its refusal
+  over the wire is a clean 410, not a dropped connection), and
+  HMAC prototype
   signing in Gate 1. An external chain anchor exists (experiment
   012) and, since experiment 018, a server started with --anchor
   consults the registry anchor at startup (see above); since
@@ -158,6 +168,7 @@ from policy_node import (  # noqa: E402
     NotServing,
     PolicyNode,
     PolicyNotFound,
+    PolicyRevoked,
     TamperedRecord,
 )
 import protected_link  # noqa: E402
@@ -567,6 +578,16 @@ def make_handler(node: NetworkNode):
                 return
             except PolicyNotFound as exc:
                 self._send_json(404, {"error": "policy_not_found", "detail": str(exc)})
+                return
+            except PolicyRevoked as exc:
+                # Experiment 021 (finding F2 of experiment 020):
+                # PolicyRevoked is a sibling PolicyLibraryError,
+                # not a subclass of the refusals above; uncaught,
+                # it propagated out of this handler and dropped
+                # the connection with no HTTP response at all.
+                # It now maps to a clean refusal in the same
+                # shape: 410 Gone, error naming the revocation.
+                self._send_json(410, {"error": "policy_revoked", "detail": str(exc)})
                 return
             except TamperedRecord as exc:
                 self._send_json(409, {"error": "tampered_record", "detail": str(exc)})
