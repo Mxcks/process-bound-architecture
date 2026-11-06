@@ -43,11 +43,33 @@ HONEST LIMITS (prototype, NOT production)
   whole-file rewrite from genesis would recompute cleanly. Detecting
   that needs an external anchor / witnessed head hash, still unbuilt.
 - The node serves policy *bytes* after verifying them. It does not
-  sandbox or execute policy code (runtime package's job), and it does
-  not check revocation: Gate 1 has no revocation yet (a revocation test
-  case is now written in tests/test-cases/registration.md, case 6, but
-  revocation is NOT built here, so a policy this node serves could
-  have been "revoked" elsewhere without the node knowing).
+  sandbox or execute policy code (runtime package's job).
+
+REVOCATION (test case 6, built in experiment 008)
+----------------------------------------------------------
+Gate 1 now appends revocations to the same hash-chained record
+(event "revoked"; see packages/registration/registration.py). This
+node honors them, with the stale window stated plainly:
+
+- A snapshot that contains a policy's revocation entry makes
+  serve_policy refuse that policy with PolicyRevoked, even when the
+  payload verifies exactly. Registration entries and revocation
+  entries are kept apart internally, so a revocation entry never
+  overwrites the registration record it revokes.
+- A node built over a *pre-revocation* snapshot does not know about
+  the revocation and keeps serving: that is the stale window, and it
+  is real. It closes when the node receives the updated record:
+  reload_snapshot() re-reads (and re-verifies) a snapshot file - the
+  node's own file after a sync copies the new record over it, or a
+  new path - and rebuilds the node's view from it alone. After a
+  successful reload the revoked policy is refused; a reload whose
+  snapshot fails verification raises TamperedRecord and leaves the
+  node's previous view untouched.
+- There is no push or broadcast here: nothing in this prototype
+  delivers the updated record to a stale node on its own (delivery
+  is the synchronization layer's job, as it already is for the
+  registration record itself), and a node that never receives it
+  stays stale indefinitely. That is stated, not fixed over.
 - Opt-in is a constructor flag / local config boolean. There is no
   authentication of the node operator and no consent record beyond the
   local config file.
@@ -126,6 +148,15 @@ class PolicyNotFound(PolicyLibraryError):
     """No registration entry or no payload held for this policy hash."""
 
 
+class PolicyRevoked(PolicyLibraryError):
+    """The policy's registration was revoked by its author (case 6).
+
+    Raised only when this node's snapshot actually contains the
+    revocation entry; a node holding a pre-revocation snapshot cannot
+    raise it, which is exactly the stale window case 6 names.
+    """
+
+
 class TamperedRecord(PolicyLibraryError):
     """The registration record or the payload does not verify."""
 
@@ -181,8 +212,48 @@ class PolicyNode:
         self._payloads = dict(payloads)
         self.serve_policies = bool(serve_policies)
         # Raises TamperedRecord if the copied chain does not verify.
-        self._entries = verify_registry_snapshot(self.registry_snapshot_path)
-        self._by_hash = {e["policy_hash"]: e for e in self._entries}
+        self._entries: list[dict] = []
+        self._by_hash: dict[str, dict] = {}
+        self._revoked: set[str] = set()
+        self._load_entries(verify_registry_snapshot(self.registry_snapshot_path))
+
+    def _load_entries(self, entries: list[dict]) -> None:
+        """Rebuild this node's view from a verified entry list.
+
+        Registration entries populate _by_hash; revocation entries
+        (event "revoked", experiment 008) populate _revoked and never
+        overwrite the registration entry for the same policy hash.
+        """
+        self._entries = entries
+        self._by_hash = {}
+        self._revoked = set()
+        for entry in entries:
+            if entry.get("event") == "revoked":
+                self._revoked.add(entry["policy_hash"])
+            else:
+                self._by_hash[entry["policy_hash"]] = entry
+
+    def reload_snapshot(self, snapshot_path: str | Path | None = None) -> int:
+        """Receive an updated registry record and rebuild from it.
+
+        This is how the stale window (case 6) closes: the updated
+        snapshot - this node's own snapshot file after a sync has
+        copied the new record over it, or an explicit new path - is
+        re-verified standalone (hash chain recomputed from the file
+        alone) and only then replaces the node's view. A snapshot
+        that fails verification raises TamperedRecord and the node's
+        previous view is left untouched. Returns the number of
+        entries in the verified snapshot.
+        """
+        path = Path(snapshot_path) if snapshot_path is not None else self.registry_snapshot_path
+        entries = verify_registry_snapshot(path)  # raises before any state changes
+        self.registry_snapshot_path = path
+        self._load_entries(entries)
+        return len(entries)
+
+    # Backwards-readable alias: receiving the updated record *is* a sync
+    # of this node's registry view, in the vocabulary of case 6.
+    update_snapshot = reload_snapshot
 
     @classmethod
     def from_config(
@@ -217,9 +288,17 @@ class PolicyNode:
         """True if this node holds a verified record + payload.
 
         Says nothing about serving: a non-opted-in node can hold a
-        policy and still refuse to serve it (outcome 2).
+        policy and still refuse to serve it (outcome 2), and a node
+        whose snapshot contains the policy's revocation holds it and
+        refuses it as revoked (case 6).
         """
         return policy_hash in self._by_hash and policy_hash in self._payloads
+
+    def is_revoked(self, policy_hash: str) -> bool:
+        """True if this node's snapshot contains the policy's
+        revocation entry. False both for live policies and for the
+        stale case: a pre-revocation snapshot knows nothing."""
+        return policy_hash in self._revoked
 
     # -- serving ------------------------------------------------------------
 
@@ -230,7 +309,10 @@ class PolicyNode:
         1. Opt-in first: a node that did not choose to serve refuses
            everything, before any lookup (outcome 2).
         2. The registration entry must exist in the verified snapshot.
-        3. The payload this node holds must hash to the entry's
+        3. Revocation: if this node's snapshot contains the policy's
+           revocation entry, the policy is refused as revoked (case
+           6), whatever its payload looks like.
+        4. The payload this node holds must hash to the entry's
            code_hash, and the entry's policy_hash must recompute from
            (author, name, version, payload). Serving bytes that do not
            match their registration record is a tamper refusal, not a
@@ -243,6 +325,10 @@ class PolicyNode:
         entry = self._by_hash.get(policy_hash)
         if entry is None:
             raise PolicyNotFound(f"no registration record for policy hash: {policy_hash}")
+        if policy_hash in self._revoked:
+            raise PolicyRevoked(
+                f"policy revoked by its author ({entry['author']}): {policy_hash}"
+            )
         code = self._payloads.get(policy_hash)
         if code is None:
             raise PolicyNotFound(f"node holds no payload for policy hash: {policy_hash}")
