@@ -13,7 +13,13 @@ Failure mode: gate bypass or unverified channel execution = hard failure.
 Blocked by: Gate 1 registration (see AUTHORIZATION.md build order).
 
 Status: **Gate 5 verification gate prototype built and passing**
-(2026-11-06, experiment `experiments/006-gate5-verification/`).
+(2026-11-06, experiment `experiments/006-gate5-verification/`), and
+**anchor evidence in the verdict built and passing** (2026-11-06,
+experiment `experiments/018-anchor-in-servers-and-verdict/`):
+run_gate takes opt-in registry and mesh anchor paths (experiment
+012's checks, experiment 015's classification, reused) and adds
+each configured anchor to the verdict as its own named check; with
+none configured the verdict is exactly experiment 006's.
 Gate 1 passed in experiment 002, which unblocked this layer's build
 per the build order above; the Gate 5 harness is this layer's first
 code. A scale harness (`scale_harness.py`, experiment
@@ -30,6 +36,8 @@ not production. The module docstrings in `gate5_harness.py` and
 | `gate5_harness.py` | The Gate 5 prototype: a canary scenario built on Gates 1-3 (registration, verified serving node, converged sync mesh), real lineage timing, forced-fault injection with halt-and-rollback, and one verdict computed from the checks. Python standard library only. Builds on the earlier packages; does not modify them. |
 | `test_gate5.py` | Automated tests, one per Gate 5 outcome, plus a negative test proving the verdict fails on bad evidence. |
 | `demo.py` | Runnable walkthrough of all three Gate 5 outcomes, printing the measured numbers and the verdict. |
+| `test_gate5_anchor.py` | Automated tests for anchor evidence in the verdict (experiment 018): no-anchor verdict unchanged, genuine anchors keep it passing, a rewritten registry that passes every internal check fails it on the anchor check alone (anchor_mismatch), honest growth of either chain fails it as anchor_stale. |
+| `demo_gate5_anchor.py` | Runnable walkthrough of the anchor-evidence verdicts: no anchors, genuine anchors, and the internally consistent rewrite failing on anchor evidence alone. |
 | `scale_harness.py` | The scale harness (experiment 009): registration at volume (200 / 1,000 / 5,000 entries, 200 users), sync convergence at size (10 nodes, up to 10,000 entries, shuffled delivery), verified serve against large snapshots, and the Gate 5 canary lineage path across a registry × mesh size grid. Runnable as a CLI: `python3 packages/validation/scale_harness.py --profile full`. |
 | `test_scale_harness.py` | Automated tests that the scale harness runs and reports sane results at modest size. The big numbers are measured results in experiment 009, not unit assertions. |
 
@@ -134,8 +142,11 @@ is the registration write path.
   signalling beyond the returned result.
 - Faults are injected through the normal receive path. A fork is
   only detected once both versions meet, and a full-chain rewrite
-  with the original suppressed would still verify (no external
-  anchor exists yet). Both are inherited Gate 3 limits.
+  with the original suppressed still verifies on internal evidence
+  alone: an external anchor for both chains exists (experiment
+  012) and the verdict consults it when the caller configures one
+  (experiment 018), but an unconfigured gate run judges internal
+  evidence alone. The fork half is an inherited Gate 3 limit.
 - Timings include Python interpreter and JSON costs a production
   runtime would not have, and exclude network costs it would.
 - Proof verification from the proposals (zk-SNARK / Merkle
