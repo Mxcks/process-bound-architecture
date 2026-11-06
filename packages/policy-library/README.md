@@ -17,9 +17,18 @@ node built with an anchor path consults experiment 012's anchor
 at load and on reload, refusing a rewritten snapshot as
 `anchor_mismatch` and an honestly grown one as `anchor_stale`
 until re-anchored; a node built without one behaves exactly as
-before. Prototype only, not production. The module
-docstrings in `policy_node.py` and `replication.py` are the
-authoritative lists of honest limits.
+before, and **liveness detection with an automatic healing
+trigger built and passing** on top of Gate 4 / experiment 010
+(2026-11-06, experiment
+`experiments/016-liveness-auto-healing/`; availability case 5): a
+watcher reads heartbeats from a shared liveness view on a modeled
+clock, declares a holder lost only after 3 missed beats (fewer is
+silent-short, still a holder, never healed over), and triggers
+experiment 010's `heal()` from that detection; a returned lost
+holder rejoins as a candidate only. Prototype only, not
+production. The module docstrings in `policy_node.py`,
+`replication.py`, and `liveness.py` are the authoritative lists
+of honest limits.
 
 Authoring, signing, and registering a library is Gate 1's job
 (`packages/registration/`). This package is the other half: once a
@@ -42,6 +51,9 @@ central home, ever again in order to be served.
 | `demo_self_healing.py` | Runnable walkthrough of case 4, including the negative control. |
 | `test_anchor_consultation.py` | Automated tests for registration case 8 (experiment 015): a `PolicyNode` built with `anchor_path` (in `policy_node.py`, reusing the registration package's experiment 012 check by file-path load) serves a genuine snapshot, refuses the full-rewrite snapshot at load as `AnchorMismatch`, treats no-anchor behavior as exactly pre-015 (including serving the rewrite, stated plainly), and refuses honest growth as `AnchorStale` at load and on reload until re-anchored. |
 | `demo_anchor_consultation.py` | Runnable walkthrough of case 8 on the serving side: anchored serve, rewrite refused while an anchorless node serves it, growth stale until re-anchored. |
+| `liveness.py` | The experiment 016 prototype: `LivenessView` (shared heartbeat view on a deterministic modeled clock: tick counter plus last-beat ticks, no wall-clock time) and `LivenessWatcher` (three-state classification - alive / silent_short / lost at 3 missed beats - automatic `heal()` trigger on a lost declaration, `WatchReport` plus an event log, returning-holder-as-candidate rule). Reuses `replication.py`'s `lose_holder` / `heal` unchanged. |
+| `test_liveness.py` | Automated tests for availability case 5 (experiment 016): lost triggers automatic healing and the replacement alone serves verified; silent-short returns unhealed; lost with no eligible replacement keeps reporting below floor; a returned lost holder is a candidate, not a holder, until a later heal recruits it. |
+| `demo_liveness.py` | Runnable walkthrough of case 5, including both negative controls and the returning-holder rule. |
 
 ## How to run it
 
@@ -77,6 +89,12 @@ python3 packages/policy-library/demo_self_healing.py
 # growth until re-anchored; no anchor means pre-015 behavior)
 python3 packages/policy-library/test_anchor_consultation.py
 python3 packages/policy-library/demo_anchor_consultation.py
+
+# Liveness tests and demo (availability case 5: heartbeats on a
+# modeled clock, a holder lost at 3 missed beats triggers healing
+# automatically; silent-short never does)
+python3 packages/policy-library/test_liveness.py
+python3 packages/policy-library/demo_liveness.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -170,7 +188,53 @@ the caller supplies. Nothing detects a real machine dying, decides
 a silent holder is lost rather than temporarily offline, discovers
 candidates, or triggers healing automatically, and the copy a
 recruit receives is the in-process payload plus the shared snapshot
-file, not a network transfer.
+file, not a network transfer. (Experiment 016 adds the detection
+and the automatic trigger at prototype scale, on a modeled clock -
+see the next section; real machine-death detection remains unbuilt.)
+
+## Liveness detection and the automatic trigger, in plain words (case 5)
+
+Experiment 016 closes the detection gap experiment 010 left named,
+at prototype scale. `liveness.py` adds two things and reuses
+everything else:
+
+1. **A shared liveness view** (`LivenessView`): an integer tick
+   counter and, per holder, the tick of its last heartbeat. Time is
+   modeled - the tick moves only when a test or demo advances it,
+   and a holder beats only when its beat is recorded - so no test
+   sleeps and timing cannot flake.
+2. **A watcher** (`LivenessWatcher`) over one `ReplicatedPolicy`,
+   classifying each holder from missed beats alone (current tick
+   minus last beat): **alive** at 0 missed, **silent-short** at 1
+   or 2 missed, **lost** at 3 or more missed
+   (`LOST_AFTER_MISSED_BEATS = 3`, the threshold stated in case 5).
+   Silent-short is Gate 4's temporary-offline case: still a holder,
+   still counted, failover covers serving, no healing. The check
+   that declares a holder lost removes it through experiment 010's
+   `lose_holder()` and calls `heal()` with the watcher's candidate
+   list in that same check - the trigger is the detection, not a
+   caller. Every check returns a `WatchReport` and appends events
+   (`holder_lost`, `healing_triggered`, `below_floor`,
+   `holder_returned_as_candidate`) to a log the tests assert.
+
+Negative controls behave as case 5 requires: a briefly silent
+holder that beats again before 3 missed beats was never declared
+lost and never healed over; a lost holder with no eligible
+replacement reports `below_floor`, and every later check re-reports
+it (and re-attempts with whatever candidates then exist) instead of
+going silent. **Returning-holder rule:** a holder declared lost
+that beats again rejoins as a candidate only - never automatically
+as a holder, so the count never double-counts - and a later
+automatic heal can recruit it like any other candidate, with a
+fresh verified copy from `heal()`.
+
+Liveness limits, on top of everything above: the heartbeat is a
+method call and the clock is a counter. No real heartbeat moves
+over a network, no timer fires unattended, no real machine death
+is detected, the fixed threshold of 3 is untuned against any real
+interval or jitter, one watcher watches one policy with no
+mesh-wide agreement, and candidates are the watcher's list plus
+returned holders - nothing is discovered.
 
 ## Revocation and the stale window, in plain words (case 6)
 
