@@ -1,0 +1,112 @@
+$ python3 -m unittest discover -s packages/synchronization -p test_network_nodes.py -v
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 16.608s
+
+OK
+
+$ python3 packages/synchronization/test_network_nodes.py -v
+test_killed_process_survivors_still_serve_and_converge (__main__.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (__main__.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (__main__.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (__main__.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 8.009s
+
+OK
+
+$ python3 packages/synchronization/demo_network_nodes.py
+started process demo-a at http://127.0.0.1:45781 (pid 44043)
+started process demo-b at http://127.0.0.1:36141 (pid 44048)
+
+=== Outcome 1: two processes sync over HTTP and converge ===
+before sync, hashes differ: True
+sync result (A's merge): {'accepted': 1, 'divergence_detected': False, 'rolled_back': False, 'reason': None, 'state_hash': '7b50bce04786c55e6ec453ba7042f5e7915fe142e10d96f87f51989d4535df77'}
+sync result (B's merge): {'accepted': 1, 'divergence_detected': False, 'rolled_back': False, 'reason': None, 'state_hash': '7b50bce04786c55e6ec453ba7042f5e7915fe142e10d96f87f51989d4535df77'}
+states: {'region': 'us-central', 'tier': 'member'}
+hashes equal: True
+
+=== Outcome 2: policy served by the second process, over HTTP ===
+status: 200 | served_by: demo-b
+code matches the registered policy: True
+
+=== Outcome 3: kill the second process; the first still serves ===
+process demo-b (pid 44048) killed
+A's state still holds both entries: True
+policy still served, now by: demo-a
+
+Networked node outcomes: {1: True, 2: True, 3: True}
+
+=== REGRESSION: earlier gate suites, unmodified ===
+
+$ python3 -m unittest discover -s packages/registration -v
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.098s
+
+OK
+
+$ python3 -m unittest discover -s packages/policy-library -v
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.020s
+
+OK
+
+$ python3 -m unittest discover -s packages/synchronization -p test_sync_mesh.py -v
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.071s
+
+OK
+
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.684s
+
+OK
+
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+=== FULL synchronization discovery (Gate 3 + network suites together) ===
+
+$ python3 -m unittest discover -s packages/synchronization -v
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 7.697s
+
+OK
+
