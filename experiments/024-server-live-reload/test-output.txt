@@ -1,0 +1,172 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_server_live_reload.py
+test_anchor_stale_refused_re_reported_then_delivered (__main__.PlaintextLiveReloadTests.test_anchor_stale_refused_re_reported_then_delivered) ... ERROR
+test_mesh_only_server_reports_no_snapshot (__main__.PlaintextLiveReloadTests.test_mesh_only_server_reports_no_snapshot) ... ERROR
+test_no_change_then_clean_delivery_reloads_plaintext (__main__.PlaintextLiveReloadTests.test_no_change_then_clean_delivery_reloads_plaintext) ... ERROR
+test_restart_over_rewritten_snapshot_still_refused (__main__.PlaintextLiveReloadTests.test_restart_over_rewritten_snapshot_still_refused) ... ok
+test_rewritten_delivery_refused_anchor_mismatch (__main__.PlaintextLiveReloadTests.test_rewritten_delivery_refused_anchor_mismatch) ... ERROR
+test_tampered_delivery_refused_then_genuine_lands (__main__.PlaintextLiveReloadTests.test_tampered_delivery_refused_then_genuine_lands) ... ERROR
+test_signed_anchor_tls_live_reload (__main__.SignedTlsLiveReloadTests.test_signed_anchor_tls_live_reload) ... ERROR
+
+======================================================================
+ERROR: test_anchor_stale_refused_re_reported_then_delivered (__main__.PlaintextLiveReloadTests.test_anchor_stale_refused_re_reported_then_delivered)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 372, in test_anchor_stale_refused_re_reported_then_delivered
+    report = node_server.check_snapshot(server.base_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'check_snapshot'
+
+======================================================================
+ERROR: test_mesh_only_server_reports_no_snapshot (__main__.PlaintextLiveReloadTests.test_mesh_only_server_reports_no_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 482, in test_mesh_only_server_reports_no_snapshot
+    report = node_server.check_snapshot(server.base_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'check_snapshot'
+
+======================================================================
+ERROR: test_no_change_then_clean_delivery_reloads_plaintext (__main__.PlaintextLiveReloadTests.test_no_change_then_clean_delivery_reloads_plaintext)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 313, in test_no_change_then_clean_delivery_reloads_plaintext
+    self.assertEqual(health["snapshot_entries"], 2)
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^
+KeyError: 'snapshot_entries'
+
+======================================================================
+ERROR: test_rewritten_delivery_refused_anchor_mismatch (__main__.PlaintextLiveReloadTests.test_rewritten_delivery_refused_anchor_mismatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 444, in test_rewritten_delivery_refused_anchor_mismatch
+    report = node_server.check_snapshot(server.base_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'check_snapshot'
+
+======================================================================
+ERROR: test_tampered_delivery_refused_then_genuine_lands (__main__.PlaintextLiveReloadTests.test_tampered_delivery_refused_then_genuine_lands)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 412, in test_tampered_delivery_refused_then_genuine_lands
+    report = node_server.check_snapshot(server.base_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'check_snapshot'
+
+======================================================================
+ERROR: test_signed_anchor_tls_live_reload (__main__.SignedTlsLiveReloadTests.test_signed_anchor_tls_live_reload)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix024/packages/synchronization/test_server_live_reload.py", line 534, in test_signed_anchor_tls_live_reload
+    self.assertEqual(health["snapshot_entries"], 2)
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^
+KeyError: 'snapshot_entries'
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.527s
+
+FAILED (errors=6)
+
+(The failing-before run was made twice with identical results:
+first in this repo before node_server.py changed, and again -
+the verbatim output above - in a scratch copy whose
+node_server.py is the pre-024 file fetched back from GitHub
+(remote blob f33f055238df2f39d311255d17862ba1e5e4e083, which
+contains no check_snapshot), because the full failure listing
+was wanted for this record after the build had landed. The
+shapes are the tests-first shapes of experiments 016-023: the
+case - sync-mesh case 13, added to
+tests/test-cases/sync-mesh.md before the code - names a client
+helper, a POST endpoint, and two /health fields that do not
+exist yet, so six tests error on exactly those absences
+(AttributeError: module 'node_server' has no attribute
+'check_snapshot'; KeyError: 'snapshot_entries'). The seventh,
+the startup-gate test, passes against the unbuilt code: a
+server started over a rewritten snapshot already refuses to
+start, a pre-existing property of experiments 018/019 that
+case 13 requires to REMAIN true, so its pre-build pass is
+evidence recorded, not a gap.)
+
+=== PRE-BUILD BASELINE (before this experiment's code; the new suite held out of discovery) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.245s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 3.901s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 43 tests in 199.749s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 3.000s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly
+(120 tests total, the baseline this experiment started from -
+20 registration + 39 policy-library + 43 synchronization +
+18 validation, the counts experiment 023 left; leftover
+node_server processes after the run: 0. The synchronization
+discovery took 199.749s in this baseline run on a shared
+machine, as experiment 021 also recorded once; no timing
+claim is made from it.)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.113s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 1.438s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 50 tests in 60.319s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.648s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(127 tests total: the 120 baseline plus this experiment's 7
+new, all in packages/synchronization. Every earlier suite
+passes unmodified in the same run, including experiment
+018's and 019's server suites - the evidence that the startup
+gate is unchanged - and experiment 021's case 12 suite, the
+restart shape this experiment's live path now complements.)
+
+=== NEW SUITE BY DIRECT FILE RUN ===
+--- python3 packages/synchronization/test_server_live_reload.py
+test_anchor_stale_refused_re_reported_then_delivered (__main__.PlaintextLiveReloadTests.test_anchor_stale_refused_re_reported_then_delivered) ... ok
+test_mesh_only_server_reports_no_snapshot (__main__.PlaintextLiveReloadTests.test_mesh_only_server_reports_no_snapshot) ... ok
+test_no_change_then_clean_delivery_reloads_plaintext (__main__.PlaintextLiveReloadTests.test_no_change_then_clean_delivery_reloads_plaintext) ... ok
+test_restart_over_rewritten_snapshot_still_refused (__main__.PlaintextLiveReloadTests.test_restart_over_rewritten_snapshot_still_refused) ... ok
+test_rewritten_delivery_refused_anchor_mismatch (__main__.PlaintextLiveReloadTests.test_rewritten_delivery_refused_anchor_mismatch) ... ok
+test_tampered_delivery_refused_then_genuine_lands (__main__.PlaintextLiveReloadTests.test_tampered_delivery_refused_then_genuine_lands) ... ok
+test_signed_anchor_tls_live_reload (__main__.SignedTlsLiveReloadTests.test_signed_anchor_tls_live_reload) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.623s
+
+OK
+LIVE RELOAD anchor_stale: refused twice, previous view still serving; delivery lands after re-anchor
+LIVE RELOAD (plaintext): one check on the running process reloaded 2 -> 3 entries; the revoked policy now refuses over the wire, no restart
+LIVE RELOAD anchor_mismatch: rewritten file refused, previous view serving
+LIVE RELOAD tampered_record: refused twice, previous view serving; genuine delivery lands
+LIVE RELOAD (mutual TLS, signed anchor): stale refused, same-signer re-anchor, one check reloaded the running server; 410 over HTTPS
+
+=== NEW DEMO ===
+--- python3 packages/synchronization/demo_server_live_reload.py
+Setup. Anchored server running: anchor_status=anchored - snapshot_entries=2
+   alice's policy serves: 200 - True
+1. Check, nothing changed: no_change - loaded_entries: None
+2. Revoked + delivered, no re-anchor: reload_refused - reason: anchor_stale - alice still serves (stale window): True
+3. Re-anchored, one check: reloaded - entries 2 -> 3 - loaded: 3
+   alice over the wire now: 410 - error: policy_revoked
+   bob still serves: 200 - True
+   health standing: anchor_status=anchored - snapshot_entries=3 - last check: reloaded
+   the server process was never restarted: pid 71943 throughout
+Demo state left in: /tmp/pba-server-live-reload-demo-lla613kr
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server" | wc -l  ->  0
+(Checked after the tests-first run, after the pre-build
+baseline, after the full regression, after the new suite's
+direct run, and after the demo: 0 each time.)
