@@ -1,0 +1,45 @@
+name: zero-trust-ci
+
+# Zero-trust CI/CD: no handoff is trusted, every handoff is verified.
+# A stage runs only if the previous stage's cryptographic check passed.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-handoffs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Handoff 1: deterministic identity schema must recompute exactly.
+      - name: Verify EAI hashing vectors
+        run: python3 scripts/verify-handoffs.py
+      # Handoff 2: every package test suite that exists must pass.
+      # A package with no tests is reported, not silently skipped.
+      - name: Run package tests
+        run: |
+          found=0
+          for d in packages/*/; do
+            if [ -d "$d/tests" ] || ls "$d"test_*.py >/dev/null 2>&1 || ls "$d"tests/test_*.py >/dev/null 2>&1; then
+              found=1
+              echo "Testing $d"
+              python3 -m pytest "$d" -q || exit 1
+            else
+              echo "NO TESTS YET: $d (reported, Gate work)"
+            fi
+          done
+          echo "packages with tests found: $found"
+      # Handoff 3: unregistered-module guard.
+      # Any Wasm/filter artifact committed without a registration record
+      # fails the pipeline. (Record format lands with Gate 1.)
+      - name: Block unregistered filter artifacts
+        run: |
+          if find packages/runtime-filters -name "*.wasm" | grep -q .; then
+            echo "Wasm artifacts present: Gate 1 registration records required before this check can pass them."
+            exit 1
+          fi
+          echo "No unregistered Wasm artifacts present."
