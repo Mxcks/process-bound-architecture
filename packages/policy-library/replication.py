@@ -29,6 +29,26 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 4 outcomes)
    (so the shortfall is visible and fixable), but nothing in this
    module ever calls it available.
 
+4. Self-healing holder replacement (experiment 010, availability
+   test case 4, built on outcomes 1-3 without changing them). A
+   holder can be lost permanently: lose_holder() removes it, which
+   is distinct from go_offline()'s temporary modeled liveness (a
+   temporarily offline holder is still a holder; Gate 4 failover
+   covers it, and it never triggers healing). Removal drops the
+   holder count, and needs_healing() / shortfall() state the gap
+   against the floor as facts. heal(candidates) recruits
+   replacements from other opted-in, not-already-holding candidates
+   (same eligibility rules as placement), copies the policy to each
+   recruit by constructing a real Gate 2 PolicyNode over the same
+   verified snapshot - so a recruit verifies and serves exactly like
+   an original holder - and stops as soon as the floor is restored.
+   The HealingReport pairs the count before and after with the
+   floor: status "healed" only when the floor is restored,
+   "below_floor" when the candidates run out first, "at_floor" when
+   there was nothing to heal. When no eligible replacement exists,
+   healing reports below_floor and recruits nobody; it never
+   pretends it healed.
+
 HOW IT WORKS, IN PLAIN WORDS
 ----------------------------
 Placement happens once, at registration time (in the tests, directly
@@ -51,15 +71,23 @@ HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
 - Holders are in-process PolicyNode objects on one machine over one
   shared snapshot file. There is no network transport, no discovery,
-  no placement protocol, and no automatic re-replication: if a holder
-  goes offline permanently, this prototype does not recruit a
-  replacement holder or heal back up to the floor. The floor is
-  enforced and reported at placement time only; availability_report()
-  shows the live shortfall but nothing acts on it.
-- "Offline" is a boolean flipped by the tests/demo. Nothing detects
-  a real machine dying, a process crashing, or a network partition,
-  and there is no liveness check or heartbeat (the verification gate
-  in Gate 5 is where a liveness check was proposed; not built here).
+  and no placement protocol. Self-healing (experiment 010) is an
+  explicit heal() call made by whoever noticed the loss, against a
+  candidate list the caller supplies: nothing watches for losses,
+  nothing discovers candidates, and the copy a recruit receives is
+  the in-process payload dict plus the same shared snapshot file,
+  not a transfer over any network. Gate 4's original statement
+  stands for placement itself: the floor is enforced and reported
+  at placement time, and availability_report() shows the live
+  servable state; healing is the one action that now exists on top
+  of the report, and only when it is invoked.
+- "Offline" is a boolean flipped by the tests/demo, and "lost" is a
+  removal the tests/demo perform. Nothing detects a real machine
+  dying, a process crashing, or a network partition, decides on its
+  own that a silent holder is lost rather than temporarily offline,
+  or triggers healing automatically, and there is no liveness check
+  or heartbeat (the verification gate in Gate 5 is where a liveness
+  check was proposed; not built here).
 - Independence is node_id distinctness only. Three holders could be
   three processes on one physical machine, in one rack, or under one
   operator, and this prototype cannot tell. Real independence
@@ -154,6 +182,37 @@ class AvailabilityReport:
         }
 
 
+@dataclass(frozen=True)
+class HealingReport:
+    """What one heal() call did, stated honestly (experiment 010).
+
+    status is "healed" only if floor_restored is True and at least
+    one holder was recruited; "at_floor" when there was no shortfall
+    to heal (floor_restored is True, recruited is empty); and
+    "below_floor" when the candidates ran out before the floor was
+    restored, with the real counts on both sides of the attempt.
+    """
+
+    policy_hash: str
+    floor: int
+    holder_count_before: int
+    recruited_node_ids: tuple[str, ...]
+    holder_count_after: int
+    floor_restored: bool
+    status: str  # "healed" | "at_floor" | "below_floor"
+
+    def to_dict(self) -> dict:
+        return {
+            "policy_hash": self.policy_hash,
+            "floor": self.floor,
+            "holder_count_before": self.holder_count_before,
+            "recruited_node_ids": list(self.recruited_node_ids),
+            "holder_count_after": self.holder_count_after,
+            "floor_restored": self.floor_restored,
+            "status": self.status,
+        }
+
+
 class ReplicatedPolicy:
     """One registered policy placed on a set of independent holders.
 
@@ -163,6 +222,14 @@ class ReplicatedPolicy:
     offline ones, and returns the first online holder's verified
     ServedPolicy (Gate 2 verification runs inside PolicyNode on
     every serve). No holder online means PolicyUnavailable.
+
+    Self-healing (experiment 010): lose_holder() removes a holder
+    permanently (holder count drops; distinct from a temporary
+    go_offline), and heal(candidates) recruits replacement holders
+    until the floor is restored or the candidates run out. Healing
+    needs the placement context (policy bytes + registry snapshot)
+    that place_policy() stores on the object; a ReplicatedPolicy
+    constructed without it cannot heal and heal() says so.
     """
 
     def __init__(
@@ -171,11 +238,17 @@ class ReplicatedPolicy:
         policy_hash: str,
         floor: int,
         holders: dict[str, PolicyNode],
+        code: bytes | None = None,
+        registry_snapshot_path: str | Path | None = None,
     ):
         self.policy_hash = policy_hash
         self.floor = floor
         self._holders = dict(holders)  # placement order preserved
         self._online: set[str] = set(self._holders)
+        self._code = code
+        self._registry_snapshot_path = (
+            Path(registry_snapshot_path) if registry_snapshot_path is not None else None
+        )
 
     # -- reports ----------------------------------------------------------
 
@@ -220,6 +293,92 @@ class ReplicatedPolicy:
 
     def is_online(self, node_id: str) -> bool:
         return node_id in self._online
+
+    # -- permanent loss and self-healing (experiment 010) -------------------
+
+    def lose_holder(self, node_id: str) -> None:
+        """Remove a holder permanently: it is gone, not offline.
+
+        Distinct from go_offline(): a temporarily offline holder is
+        still a holder and still counts toward the floor (Gate 4
+        failover covers serving while it is down). A lost holder is
+        removed from the holder set, so the holder count drops and
+        the placement/availability reports state the shortfall.
+        Losing a node that is not a holder is a KeyError, never a
+        silent no-op.
+        """
+        if node_id not in self._holders:
+            raise KeyError(f"not a holder of this policy: {node_id}")
+        del self._holders[node_id]
+        self._online.discard(node_id)
+
+    def shortfall(self) -> int:
+        """How many holders short of the floor this policy is now."""
+        return max(0, self.floor - len(self._holders))
+
+    def needs_healing(self) -> bool:
+        """Detection, as a fact: the holder count is below the floor."""
+        return self.shortfall() > 0
+
+    def heal(self, candidates: list[NodeSpec]) -> HealingReport:
+        """Recruit replacement holders until the floor is restored.
+
+        Candidates are taken in order under placement's own rules:
+        only opted-in nodes, never a node that already holds the
+        policy, never the same node twice in one call. Each recruit
+        is copied the policy the way placement copies it - a real
+        PolicyNode over the same verified registry snapshot holding
+        the policy payload - and starts online. Recruiting stops the
+        moment the floor is restored; spares beyond the shortfall
+        are not taken. If the candidates run out first, the report
+        says below_floor with the counts as they stand: a partial
+        recruitment is kept (those holders are real) and reported,
+        never rounded up to healed.
+        """
+        before = len(self._holders)
+        if not self.needs_healing():
+            return HealingReport(
+                policy_hash=self.policy_hash,
+                floor=self.floor,
+                holder_count_before=before,
+                recruited_node_ids=(),
+                holder_count_after=before,
+                floor_restored=True,
+                status="at_floor",
+            )
+        if self._code is None or self._registry_snapshot_path is None:
+            raise RuntimeError(
+                "cannot heal: this ReplicatedPolicy was constructed "
+                "without the placement context (policy bytes and "
+                "registry snapshot) that copying to a replacement "
+                "holder requires; construct through place_policy()"
+            )
+        recruited: list[str] = []
+        for spec in candidates:
+            if not self.needs_healing():
+                break
+            if not spec.serve_policies:
+                continue  # never counted, never used: not their choice
+            if spec.node_id in self._holders:
+                continue  # already a holder (or already recruited now)
+            self._holders[spec.node_id] = PolicyNode(
+                node_id=spec.node_id,
+                registry_snapshot_path=self._registry_snapshot_path,
+                payloads={self.policy_hash: self._code},
+                serve_policies=True,
+            )
+            self._online.add(spec.node_id)
+            recruited.append(spec.node_id)
+        restored = not self.needs_healing()
+        return HealingReport(
+            policy_hash=self.policy_hash,
+            floor=self.floor,
+            holder_count_before=before,
+            recruited_node_ids=tuple(recruited),
+            holder_count_after=len(self._holders),
+            floor_restored=restored,
+            status="healed" if restored else "below_floor",
+        )
 
     # -- serving --------------------------------------------------------------
 
@@ -272,4 +431,10 @@ def place_policy(
             payloads={policy_hash: code},
             serve_policies=True,
         )
-    return ReplicatedPolicy(policy_hash=policy_hash, floor=floor, holders=holders)
+    return ReplicatedPolicy(
+        policy_hash=policy_hash,
+        floor=floor,
+        holders=holders,
+        code=code,
+        registry_snapshot_path=registry_snapshot_path,
+    )
