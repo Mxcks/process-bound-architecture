@@ -84,8 +84,14 @@ HONEST LIMITS (prototype, NOT production)
   propagates: a caller who asked for an anchor is never silently
   synced without one, and the node's state is left as it was.
 - Consultation is on the merged state as a whole, in-process,
-  against a local stand-in anchor file that is unsigned and
-  unwitnessed (all of experiment 012's anchor limits stand). The
+  against a local stand-in anchor file (all of experiment 012's
+  anchor limits stand, as amended by experiment 019: the anchor
+  may now be signed, and a node constructed with a signing
+  identity - anchor_signer + anchor_secret_hex - verifies that
+  signature and the anchor's kept history as part of this
+  consultation, refusing a merged state whose anchor signature
+  does not verify as a divergence named
+  anchor_signature_invalid). The
   experiment 007/014 server processes do not construct anchored
   nodes, so networked sync does not consult a mesh anchor (their
   --anchor, added in experiment 018, consults the registry anchor
@@ -116,21 +122,52 @@ class AnchoredSyncNode(SyncNode):
     not an error.
     """
 
-    def __init__(self, node_id: str, anchor_path: str | Path | None = None):
+    def __init__(
+        self,
+        node_id: str,
+        anchor_path: str | Path | None = None,
+        *,
+        anchor_signer: str | None = None,
+        anchor_secret_hex: str | None = None,
+    ):
         super().__init__(node_id)
         self.anchor_path = Path(anchor_path) if anchor_path is not None else None
+        # Experiment 019: the signing identity this node verifies
+        # its anchor's signature with, when configured (both or
+        # neither). Both None is experiment 015's head-only
+        # judgement of the anchor.
+        if (anchor_signer is None) != (anchor_secret_hex is None):
+            raise ValueError(
+                "anchor_signer and anchor_secret_hex must be given together"
+            )
+        self.anchor_signer = anchor_signer
+        self.anchor_secret_hex = anchor_secret_hex
+
+    def _check_anchor(self):
+        """The anchor check for this node, with the signing
+        identity when one is configured."""
+        if self.anchor_signer is not None:
+            return check_node_against_anchor(
+                self, self.anchor_path,
+                signer=self.anchor_signer, secret_hex=self.anchor_secret_hex,
+            )
+        return check_node_against_anchor(self, self.anchor_path)
 
     # -- introspection ----------------------------------------------------
 
     def anchor_status(self) -> str:
         """This node's own standing against its configured anchor:
-        "no_anchor", "anchored", "anchor_stale", or
-        "anchor_mismatch", by the same classification receive uses.
+        "no_anchor", "anchored", "anchor_stale",
+        "anchor_mismatch", or (experiment 019, with a signing
+        identity configured) "anchor_signature_invalid", by the
+        same classification receive uses.
         Raises MeshAnchorError if a configured anchor is unreadable.
         """
         if self.anchor_path is None:
             return "no_anchor"
-        check = check_node_against_anchor(self, self.anchor_path)
+        check = self._check_anchor()
+        if check.status == "anchor_signature_invalid":
+            return "anchor_signature_invalid"
         if check.ok:
             return "anchored"
         return "anchor_stale" if self._is_honest_extension() else "anchor_mismatch"
@@ -174,9 +211,11 @@ class AnchoredSyncNode(SyncNode):
             return result
 
         try:
-            check = check_node_against_anchor(self, self.anchor_path)
+            check = self._check_anchor()
             status = (
-                "anchored"
+                "anchor_signature_invalid"
+                if check.status == "anchor_signature_invalid"
+                else "anchored"
                 if check.ok
                 else "anchor_stale"
                 if self._is_honest_extension()
