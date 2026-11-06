@@ -124,6 +124,19 @@ matched its own shell's command line. The final run's check, in
   unbuilt, and Gate 4's `ReplicatedPolicy` holders are constructed
   once and never reload, so a placed policy does not learn of a
   later revocation.
+  [Superseded in part, 2026-11-06, experiment 020: the sentence
+  above about restarting a server is refined by direct assertion.
+  A server restarted over an updated snapshot does stop serving
+  the revoked policy's bytes, but its policy endpoint does not
+  catch `PolicyRevoked`, so the request drops the connection
+  with no HTTP response at all - the refusal exists only as a
+  traceback naming `PolicyRevoked` in the server's log (finding
+  F2 in `experiments/020-full-chain-integration/`). The
+  placed-policy sentence is also confirmed there by direct
+  assertion, not just stated: a placed `ReplicatedPolicy` has no
+  reload method and still serves the revoked policy after the
+  updated record is delivered over its snapshot file (finding
+  F1).]
 - Revocation is final in this prototype: there is no un-revoke or
   reinstatement entry type, and re-registering identical bytes (same
   policy hash) returns the existing record without reinstating it.
