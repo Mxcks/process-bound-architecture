@@ -1,0 +1,161 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_snapshot_wire_transport.py
+test_backward_delivery_refused_snapshot_regression (__main__.PlaintextWireTransportTests.test_backward_delivery_refused_snapshot_regression) ... ERROR
+test_mesh_only_server_reports_no_snapshot (__main__.PlaintextWireTransportTests.test_mesh_only_server_reports_no_snapshot) ... ERROR
+test_no_change_stale_then_clean_wire_delivery (__main__.PlaintextWireTransportTests.test_no_change_stale_then_clean_wire_delivery) ... ERROR
+test_restart_over_rewritten_snapshot_still_refused (__main__.PlaintextWireTransportTests.test_restart_over_rewritten_snapshot_still_refused) ... ok
+test_rewritten_chain_refused_anchor_mismatch (__main__.PlaintextWireTransportTests.test_rewritten_chain_refused_anchor_mismatch) ... ERROR
+test_tampered_entry_in_transit_refused_then_clean_lands (__main__.PlaintextWireTransportTests.test_tampered_entry_in_transit_refused_then_clean_lands) ... ERROR
+test_signed_tls_wire_delivery_full_flow (__main__.SignedTlsWireTransportTests.test_signed_tls_wire_delivery_full_flow) ... ERROR
+
+======================================================================
+ERROR: test_backward_delivery_refused_snapshot_regression (__main__.PlaintextWireTransportTests.test_backward_delivery_refused_snapshot_regression)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 464, in test_backward_delivery_refused_snapshot_regression
+    report = node_server.deliver_snapshot(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_snapshot'
+
+======================================================================
+ERROR: test_mesh_only_server_reports_no_snapshot (__main__.PlaintextWireTransportTests.test_mesh_only_server_reports_no_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 510, in test_mesh_only_server_reports_no_snapshot
+    report = node_server.deliver_snapshot(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_snapshot'
+
+======================================================================
+ERROR: test_no_change_stale_then_clean_wire_delivery (__main__.PlaintextWireTransportTests.test_no_change_stale_then_clean_wire_delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 339, in test_no_change_stale_then_clean_wire_delivery
+    self.assertIsNone(health["last_snapshot_delivery"])
+                      ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'last_snapshot_delivery'
+
+======================================================================
+ERROR: test_rewritten_chain_refused_anchor_mismatch (__main__.PlaintextWireTransportTests.test_rewritten_chain_refused_anchor_mismatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 431, in test_rewritten_chain_refused_anchor_mismatch
+    report = node_server.deliver_snapshot(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_snapshot'
+
+======================================================================
+ERROR: test_tampered_entry_in_transit_refused_then_clean_lands (__main__.PlaintextWireTransportTests.test_tampered_entry_in_transit_refused_then_clean_lands)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 406, in test_tampered_entry_in_transit_refused_then_clean_lands
+    report = node_server.deliver_snapshot(server.base_url, tampered)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_snapshot'
+
+======================================================================
+ERROR: test_signed_tls_wire_delivery_full_flow (__main__.SignedTlsWireTransportTests.test_signed_tls_wire_delivery_full_flow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/prefix025/packages/synchronization/test_snapshot_wire_transport.py", line 592, in test_signed_tls_wire_delivery_full_flow
+    report = node_server.deliver_snapshot(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_snapshot'
+
+----------------------------------------------------------------------
+Ran 7 tests in 4.286s
+
+FAILED (errors=6)
+
+(The failing-before run was made twice with identical results:
+first in this repo before node_server.py changed, and again -
+the verbatim output above - in a scratch copy whose
+node_server.py is the pre-025 file fetched back from GitHub
+(remote blob 1a2a9319c002253c942959d3e33d9c6be205aa6c, which
+contains no deliver_snapshot), because the full failure listing
+was wanted for this record after the build had landed. The
+shapes are the tests-first shapes of experiments 016-024: the
+case - sync-mesh case 14, added to
+tests/test-cases/sync-mesh.md before the code - names a client
+helper, a POST endpoint, and a /health field that do not exist
+yet, and the suite errors six times on the helper's absence
+while passing the one test that asserts a pre-existing
+property: the startup gate of cases 10/11, re-asserted here
+as case 13 re-asserted it.)
+
+=== PRE-BUILD BASELINE (scratch copy above, pre-025 node_server.py, new suite absent) ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.045s
+OK
+--- python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.695s
+OK
+--- python3 -m unittest discover -s packages/synchronization
+Ran 50 tests in 62.608s
+OK
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.973s
+OK
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+--- leftover node_server processes after the baseline run: 0
+
+(The same baseline was also run in this repo before the
+build; it passed identically, 127 tests total. The scratch
+reproduction is quoted because its per-package lines were
+captured in full.)
+
+=== AFTER THE BUILD: the new suite by direct file run ===
+--- python3 packages/synchronization/test_snapshot_wire_transport.py
+test_backward_delivery_refused_snapshot_regression (__main__.PlaintextWireTransportTests.test_backward_delivery_refused_snapshot_regression) ... ok
+test_mesh_only_server_reports_no_snapshot (__main__.PlaintextWireTransportTests.test_mesh_only_server_reports_no_snapshot) ... ok
+test_no_change_stale_then_clean_wire_delivery (__main__.PlaintextWireTransportTests.test_no_change_stale_then_clean_wire_delivery) ... ok
+test_restart_over_rewritten_snapshot_still_refused (__main__.PlaintextWireTransportTests.test_restart_over_rewritten_snapshot_still_refused) ... ok
+test_rewritten_chain_refused_anchor_mismatch (__main__.PlaintextWireTransportTests.test_rewritten_chain_refused_anchor_mismatch) ... ok
+test_tampered_entry_in_transit_refused_then_clean_lands (__main__.PlaintextWireTransportTests.test_tampered_entry_in_transit_refused_then_clean_lands) ... ok
+test_signed_tls_wire_delivery_full_flow (__main__.SignedTlsWireTransportTests.test_signed_tls_wire_delivery_full_flow) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.725s
+
+OK
+WIRE TRANSPORT snapshot_regression: our own chain, only older, refused under the backward name; the standing record never moved
+WIRE TRANSPORT (plaintext): one push delivered 2 -> 3 entries to the running process; its file was rewritten from the verified delivery, no restart, no manual copy
+WIRE TRANSPORT anchor_mismatch: a rewritten chain refused under the rewrite's own name, not the backward name
+WIRE TRANSPORT tampered_record: an entry edited in transit refused, file and view unchanged
+WIRE TRANSPORT anchor_signature_invalid (mutual TLS, identity binding): the grown head anchored by an untrusted identity refused, file and view unchanged
+WIRE TRANSPORT (mutual TLS, signed anchor): same-signer anchor, one push delivered to the running server; 410 over HTTPS
+
+=== AFTER THE BUILD: full regression, all four tested packages ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.030s
+OK
+--- python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.477s
+OK
+--- python3 -m unittest discover -s packages/synchronization
+Ran 57 tests in 61.160s
+OK
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.793s
+OK
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+--- leftover node_server processes after the regression run: 0
+
+=== AFTER THE BUILD: the new demo, end to end ===
+--- python3 packages/synchronization/demo_snapshot_wire_transport.py
+Setup. Anchored server running: anchor_status=anchored - snapshot_entries=2
+   alice's policy serves: 200 - True
+1. Push of the standing record: no_change - file untouched: True
+2. Revoked + pushed, no re-anchor: delivery_refused - reason: anchor_stale - file untouched: True - alice still serves (stale window): True
+3. Re-anchored, pushed again: delivered - entries 2 -> 3 - loaded: 3
+   the server's file IS the delivered record now: True
+   alice over the wire now: 410 - error: policy_revoked
+   bob still serves: 200 - True
+   a case 13 check right after the delivery: no_change (file and view moved together)
+4. The old record pushed again: delivery_refused - reason: snapshot_regression - alice still refuses (the standing record never moved): True
+   health standing: anchor_status=anchored - snapshot_entries=3 - last delivery: delivery_refused / snapshot_regression
+   the server process was never restarted: pid 76566 throughout, and its snapshot file was never copied by hand
+Demo state left in: /tmp/pba-wire-transport-demo-ur9hmf95
+--- leftover node_server processes after the demo run: 0
