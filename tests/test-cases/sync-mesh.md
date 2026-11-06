@@ -334,3 +334,132 @@
    protected link; restart over a rewritten snapshot still
    refused at startup; a mesh-only server reports
    no_snapshot).
+14. A running server receives the updated record over the
+   wire (added 2026-11-06, experiment 025): case 13 closed
+   the reload half of server delivery - a running server
+   reloads when a check is driven - and stated its own
+   remaining limit in the same breath: getting the updated
+   record INTO the server's snapshot file is still an
+   explicit file copy made outside the process; no push,
+   broadcast, or network transport of the record to a
+   running server exists, and case 12's restart shape is the
+   only other way a record moves. The mesh side has moved
+   its state between processes since case 4; the registry
+   record itself has never travelled. This case closes the
+   transport half. A running server - started over a
+   registry snapshot, with `--anchor` and, where configured,
+   `--anchor-signer` plus `--anchor-secret-file` as in cases
+   10/11/13 - accepts a registry snapshot delivery on its
+   existing POST surface: `POST /deliver-snapshot`, driven
+   by a new client helper (`deliver_snapshot`, in the style
+   of `mutate`, `request_sync`, and `check_snapshot`). The
+   delivery carries the snapshot ENTRIES themselves (the
+   Gate 1 log entries as JSON), never a file path: the
+   receiver is handed data, and data is what it verifies.
+   Expected:
+   - A delivery of exactly the entries the server already
+     stands on reports `no_change` and changes nothing: the
+     snapshot file is not rewritten and no reload occurs
+     (the report's `loaded_entries` is null), in case 13's
+     no-churn discipline.
+   - A wire delivery is judged exactly as strictly as a file
+     delivery (cases 8/10/13): the delivered entries are
+     verified as a chain and consulted against the server's
+     configured anchor - and, where a signer is configured,
+     that anchor's signature - BEFORE anything changes, by
+     the same consultation the reload runs (experiment
+     015/019, reused through a candidate verification, not a
+     new judgement). Only a delivery that stands is applied,
+     through case 13's reload path (experiment 021's
+     mechanism): the server's own snapshot file is rewritten
+     from the verified delivery (serialized in Gate 1's own
+     log format) and the running PolicyNode reloads from it,
+     so the file and the serving view move together and a
+     later restart or case 13 check sees the same record -
+     a check driven right after a stood delivery reports
+     `no_change`. This file-rewrite choice is stated, not
+     hidden: the server's snapshot file remains its one
+     durable record (case 13's check, the startup gate, and
+     GET /snapshot all read it), so a wire delivery that did
+     not land in the file would split the process's record
+     from its view.
+   - The clean flow: the author revokes (registration case
+     6), the deliverer follows the anchor lifecycle (the
+     grown head re-anchored, by the same signer where the
+     anchor is signed, experiments 012/019), and the grown
+     entries are pushed to the RUNNING server. The delivery
+     reports `delivered` with the before/after entry counts
+     and chain heads and the loaded entry count; afterward a
+     request for the revoked policy over the wire returns
+     case 12's clean refusal - status 410, error
+     `policy_revoked` - a policy that was NOT revoked keeps
+     serving with status 200 and its exact registered bytes,
+     and `/health` reports the new standing: the loaded
+     snapshot entry count and the last delivery's report.
+     No restart, and no manual file copy anywhere in the
+     flow.
+   - Refusals, each named, each leaving the serving view
+     AND the server's snapshot file byte-for-byte unchanged,
+     each reported in the delivery's response and carried on
+     `/health` as the last delivery's report, and none of
+     them wedging the surface (a later clean delivery still
+     lands): honest growth pushed WITHOUT the re-anchor is
+     refused as `anchor_stale`; an entry edited in transit
+     (its body changed, its entry_hash left standing,
+     experiment 021's tamper) as `tampered_record`; a chain
+     rewritten from genesis (experiment 012's negative
+     control, internally consistent) as `anchor_mismatch`;
+     where a signer is configured, a delivery whose grown
+     head was anchored by an identity the server is NOT
+     configured to trust (the anchor it consults signed by a
+     different enrolled identity) as
+     `anchor_signature_invalid`; and a delivery that goes
+     BACKWARD - the delivered entries are exactly an earlier
+     prefix of the very chain the server already stands on
+     (fewer entries, every delivered hash the loaded hash at
+     its index) - as `snapshot_regression`, a name this case
+     sets: the existing vocabulary names anchor judgements
+     and record tampering, and none of them says "this is
+     our own chain, only older"; a shorter REWRITE is not a
+     prefix of the standing chain and is not this refusal -
+     it falls through to verification and is refused as
+     `anchor_mismatch`, so the backward name cannot be used
+     to launder a rewrite.
+   - The full flow runs over experiment 014's protected
+     transport with experiment 017's identity binding on:
+     the pushing peer presents a certificate issued for its
+     own node id and claims that id, the receiving server
+     checks claim against certificate as at every endpoint,
+     and the signed-anchor refusals and the clean delivery
+     behave exactly as over plaintext.
+   - Existing behavior is unchanged: case 13's
+     `POST /check-snapshot`, the startup gate of cases 10/11
+     (a server STARTED over a rewritten snapshot with an
+     anchor still refuses to start), and the mesh sync
+     surface all behave exactly as before, proven by the
+     unmodified earlier suites in the same run.
+   The delivery is driven by the pushing peer: no timer,
+   scheduler, or gossip inside the server solicits one, and
+   the anchor itself still arrives out of band (its file is
+   the local stand-in of experiments 012-019; this case
+   transports the record, not the anchor). Status:
+   implemented at prototype scale in experiment 025
+   (`experiments/025-snapshot-wire-transport/`); the case
+   was written before the build. Tests:
+   `packages/synchronization/test_snapshot_wire_transport.py`
+   (no-change delivery rewrites nothing and reloads nothing;
+   clean wire delivery of the revocation record over
+   plaintext - stale refused first, same-signer lifecycle,
+   delivered, 410 over the wire, file and view together,
+   check-after-delivery no_change; tampered entry in transit
+   refused as tampered_record with file and view unchanged,
+   then a clean delivery lands; rewritten chain refused as
+   anchor_mismatch, not snapshot_regression; backward
+   delivery refused as snapshot_regression with the standing
+   record and file untouched, then a further clean growth
+   still lands; a mesh-only server reports no_snapshot; the
+   startup gate re-asserted; the full flow over mutual TLS
+   with identity binding and a signed anchor - stale,
+   differently-signed anchor refused as
+   anchor_signature_invalid, same-signer anchor, delivered,
+   clean 410 over the protected link).
