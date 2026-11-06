@@ -1,0 +1,165 @@
+TESTS-FIRST RUN (before any 016 code existed: no liveness module)
+
+$ python3 --version
+Python 3.12.3
+
+$ python3 packages/policy-library/test_liveness.py
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/policy-library/test_liveness.py", line 34, in <module>
+    from liveness import (  # noqa: E402
+ModuleNotFoundError: No module named 'liveness'
+
+FULL RUN AFTER THE BUILD
+
+$ python3 --version
+Python 3.12.3
+
+$ python3 -m unittest discover -s packages/policy-library -v
+test_genuine_snapshot_consults_anchor_and_serves (test_anchor_consultation.AnchorConsultationServingTests.test_genuine_snapshot_consults_anchor_and_serves) ... ok
+test_honest_growth_is_anchor_stale_until_reanchored (test_anchor_consultation.AnchorConsultationServingTests.test_honest_growth_is_anchor_stale_until_reanchored) ... ok
+test_no_anchor_behavior_is_exactly_pre_015 (test_anchor_consultation.AnchorConsultationServingTests.test_no_anchor_behavior_is_exactly_pre_015) ... ok
+test_reload_to_grown_snapshot_is_stale_refused_then_serves_after_reanchor (test_anchor_consultation.AnchorConsultationServingTests.test_reload_to_grown_snapshot_is_stale_refused_then_serves_after_reanchor) ... ok
+test_rewritten_snapshot_refused_at_load_anchor_mismatch (test_anchor_consultation.AnchorConsultationServingTests.test_rewritten_snapshot_refused_at_load_anchor_mismatch) ... ok
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_lost_holder_triggers_automatic_healing_and_floor_restored (test_liveness.LivenessTests.test_lost_holder_triggers_automatic_healing_and_floor_restored) ... ok
+test_lost_with_no_replacement_keeps_reporting_below_floor (test_liveness.LivenessTests.test_lost_with_no_replacement_keeps_reporting_below_floor) ... ok
+test_returned_lost_holder_rejoins_as_candidate_not_holder (test_liveness.LivenessTests.test_returned_lost_holder_rejoins_as_candidate_not_holder) ... ok
+test_silent_short_holder_returns_and_is_never_healed_over (test_liveness.LivenessTests.test_silent_short_holder_returns_and_is_never_healed_over) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+test_node_with_updated_snapshot_stops_serving (test_revocation_serving.RevocationServingTests.test_node_with_updated_snapshot_stops_serving) ... ok
+test_reload_by_path_and_tampered_reload_leaves_view_untouched (test_revocation_serving.RevocationServingTests.test_reload_by_path_and_tampered_reload_leaves_view_untouched) ... ok
+test_stale_node_serves_until_updated_record_arrives (test_revocation_serving.RevocationServingTests.test_stale_node_serves_until_updated_record_arrives) ... ok
+test_healing_noop_at_floor_and_recruits_exact_shortfall (test_self_healing.SelfHealingTests.test_healing_noop_at_floor_and_recruits_exact_shortfall) ... ok
+test_healing_restores_floor_after_holder_is_lost (test_self_healing.SelfHealingTests.test_healing_restores_floor_after_holder_is_lost) ... ok
+test_negative_control_no_eligible_replacement_reports_below_floor (test_self_healing.SelfHealingTests.test_negative_control_no_eligible_replacement_reports_below_floor) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.204s
+
+OK
+
+$ python3 packages/policy-library/test_liveness.py
+test_lost_holder_triggers_automatic_healing_and_floor_restored (__main__.LivenessTests.test_lost_holder_triggers_automatic_healing_and_floor_restored) ... ok
+test_lost_with_no_replacement_keeps_reporting_below_floor (__main__.LivenessTests.test_lost_with_no_replacement_keeps_reporting_below_floor) ... ok
+test_returned_lost_holder_rejoins_as_candidate_not_holder (__main__.LivenessTests.test_returned_lost_holder_rejoins_as_candidate_not_holder) ... ok
+test_silent_short_holder_returns_and_is_never_healed_over (__main__.LivenessTests.test_silent_short_holder_returns_and_is_never_healed_over) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.005s
+
+OK
+
+$ python3 -m unittest discover -s packages/registration -v
+test_anchor_captures_head_outside_registry_and_genuine_registry_verifies (test_anchor.ExternalAnchorTests.test_anchor_captures_head_outside_registry_and_genuine_registry_verifies) ... ok
+test_anchor_pins_length_truncation_and_extension_fail_until_reanchored (test_anchor.ExternalAnchorTests.test_anchor_pins_length_truncation_and_extension_fail_until_reanchored) ... ok
+test_negative_control_full_rewrite_passes_internal_but_fails_anchor (test_anchor.ExternalAnchorTests.test_negative_control_full_rewrite_passes_internal_but_fails_anchor) ... ok
+test_single_entry_tamper_fails_internal_and_anchor_check (test_anchor.ExternalAnchorTests.test_single_entry_tamper_fails_internal_and_anchor_check) ... ok
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+test_author_can_revoke_and_boundary_and_validation_refuse (test_revocation.RevocationTests.test_author_can_revoke_and_boundary_and_validation_refuse) ... ok
+test_non_author_cannot_revoke (test_revocation.RevocationTests.test_non_author_cannot_revoke) ... ok
+test_revocation_is_new_chain_entry_original_untouched (test_revocation.RevocationTests.test_revocation_is_new_chain_entry_original_untouched) ... ok
+test_revocation_requires_valid_signature_and_real_policy (test_revocation.RevocationTests.test_revocation_requires_valid_signature_and_real_policy) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.016s
+
+OK
+
+$ python3 -m unittest discover -s packages/synchronization -v
+test_mesh_anchor_captures_origin_heads_and_converged_nodes_verify (test_anchor.MeshAnchorTests.test_mesh_anchor_captures_origin_heads_and_converged_nodes_verify) ... ok
+test_negative_control_rewritten_origin_chain_passes_internal_but_fails_anchor (test_anchor.MeshAnchorTests.test_negative_control_rewritten_origin_chain_passes_internal_but_fails_anchor) ... ok
+test_genuine_peer_accepted_and_converged_with_anchor (test_anchor_consultation.AnchorConsultationSyncTests.test_genuine_peer_accepted_and_converged_with_anchor) ... ok
+test_honest_growth_is_anchor_stale_until_reanchored (test_anchor_consultation.AnchorConsultationSyncTests.test_honest_growth_is_anchor_stale_until_reanchored) ... ok
+test_no_anchor_behavior_is_exactly_pre_015 (test_anchor_consultation.AnchorConsultationSyncTests.test_no_anchor_behavior_is_exactly_pre_015) ... ok
+test_rewritten_peer_flagged_anchor_mismatch_not_accepted (test_anchor_consultation.AnchorConsultationSyncTests.test_rewritten_peer_flagged_anchor_mismatch_not_accepted) ... ok
+test_coordinated_rollback_restores_shared_checkpoint_on_all_nodes (test_coordinated_rollback.CoordinatedRollbackTests.test_coordinated_rollback_restores_shared_checkpoint_on_all_nodes) ... ok
+test_mesh_converges_on_new_changes_after_coordinated_rollback (test_coordinated_rollback.CoordinatedRollbackTests.test_mesh_converges_on_new_changes_after_coordinated_rollback) ... ok
+test_negative_control_node_that_skips_rollback_is_detected_divergent (test_coordinated_rollback.CoordinatedRollbackTests.test_negative_control_node_that_skips_rollback_is_detected_divergent) ... ok
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+test_killed_protected_process_survivors_still_serve_and_converge (test_protected_nodes.ProtectedNodeTests.test_killed_protected_process_survivors_still_serve_and_converge) ... ok
+test_policy_crosses_protected_link_verified_and_tamper_still_caught (test_protected_nodes.ProtectedNodeTests.test_policy_crosses_protected_link_verified_and_tamper_still_caught) ... ok
+test_protected_processes_converge_and_wire_capture_has_no_plaintext (test_protected_nodes.ProtectedNodeTests.test_protected_processes_converge_and_wire_capture_has_no_plaintext) ... ok
+test_unauthenticated_and_rogue_peers_are_refused (test_protected_nodes.ProtectedNodeTests.test_unauthenticated_and_rogue_peers_are_refused) ... ok
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 14.641s
+
+OK
+
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+test_canary_at_modest_size_reports_honest_target_comparison (test_scale_harness.ScaleHarnessTests.test_canary_at_modest_size_reports_honest_target_comparison) ... ok
+test_registration_at_modest_size (test_scale_harness.ScaleHarnessTests.test_registration_at_modest_size) ... ok
+test_serve_at_modest_size (test_scale_harness.ScaleHarnessTests.test_serve_at_modest_size) ... ok
+test_small_profile_suite_is_sane_end_to_end (test_scale_harness.ScaleHarnessTests.test_small_profile_suite_is_sane_end_to_end) ... ok
+test_sync_converges_at_modest_size (test_scale_harness.ScaleHarnessTests.test_sync_converges_at_modest_size) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.301s
+
+OK
+
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+$ python3 packages/policy-library/demo_liveness.py
+Setup. Policy registered: dcab37d1f0094a82...
+1. Silent for 2 beats, state: silent_short - still a holder: True - healing triggered: False
+   3rd missed beat, lost: ['original-host'] - auto-healed: healed - recruited: ['replacement-d'] - holders: 2 -> 3
+   Policy still served after auto-healing: True
+2. Brief silence, state: silent_short - healed over: False
+   Returned in time, state: alive - holders unchanged: ('original-host', 'holder-b', 'holder-c')
+3. Lost with no replacement, report: below_floor - holders: 2 of floor 3
+   Next check still reports: below_floor - survivors serve: True
+4. Lost holder returned as candidate: ['original-host'] - is a holder again: False - holder count (never 4): 3
+Demo state left in: /tmp/pba-liveness-demo-o4pwnv0x
+
+$ python3 packages/policy-library/demo_self_healing.py
+Setup. Policy registered: dcab37d1f0094a82...
+1. Holder lost, below floor reported honestly: 2 of floor 3 - below_floor
+   Shortfall detected (needs_healing / shortfall): True / 1
+2. Healing recruited: ['replacement-d'] - holders 2 -> 3 - status: healed
+   Policy still served after healing: True
+3. Replacement alone serves the verified policy: True
+4. No eligible replacement, healing reports: below_floor - placement still: 2 of floor 3 - below_floor
+   Survivors still serve while online: True
+Demo state left in: /tmp/pba-self-healing-demo-5nuzwkes
+
+$ python3 packages/policy-library/demo_availability.py
+Setup. Policy registered: dcab37d1f0094a82...
+1a. Sole holder serves while online: True
+1b. Sole holder offline, policy unavailable (the honest failure): True
+2a. Placement: holders 3 of floor 3 - status: available
+2b. Original host offline, another holder serves: True
+2c. Two of three holders offline, the last one serves: True
+3. Floor unmet, reported honestly: holders 2 vs floor 3 - status: below_floor
+Demo state left in: /tmp/pba-gate4-demo-b1blsgv8
+
+$ python3 packages/policy-library/demo.py
+Setup. Policy registered centrally: dcab37d1f0094a82...
+1a. Central registration point offline (files moved away): True
+1b. Second node served the policy from the registration record alone: True
+2. Node that did not opt in holds the policy but does not serve it: True
+   The same user node, after opting in, serves it: True
+Demo state left in: /tmp/pba-gate2-demo-hpxawm9q
+
+$ pgrep -af "node_serve[r].py" (leftover network-test server processes)
+none
