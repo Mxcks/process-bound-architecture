@@ -83,3 +83,46 @@
    prototype scale in experiment 021 (explicit reload call on
    in-process holders over one shared snapshot file; no push,
    broadcast, or automatic delivery is claimed).
+7. Automatic snapshot delivery to a placed policy (added
+   2026-11-06, experiment 022): case 6 gave a placed policy a
+   reload path and named its own remaining fact - nothing calls
+   `reload_snapshot()`, so a placed policy learns of a revocation
+   only when someone reloads it by hand, and the liveness watcher
+   of case 5 does not trigger reloads. A delivery watcher in the
+   style of case 5's liveness watcher (deterministic modeled
+   clock, no wall-clock sleeps) watches one placed policy and, on
+   each of its checks, compares two cheap facts of the registry
+   snapshot the placed policy was built over - its current chain
+   head and its entry count - against the head and count the
+   placed policy last loaded. Expected: when the snapshot has
+   changed and the delivery is clean (the delivered snapshot
+   verifies, and when the placed policy was built with anchor
+   consultation as in case 6 the anchor lifecycle has been
+   followed, the grown registry already re-anchored by the same
+   signer), the watcher calls `reload_snapshot()` automatically
+   in that same check and the change takes effect: a revoked
+   policy stops being served by the placed object, a non-revoked
+   policy placed over the same snapshot keeps serving after its
+   own automatic delivery, and the delivery is recorded in the
+   watcher's report / log with the before and after heads and
+   entry counts. Negative controls, in the style of case 1: when
+   the snapshot changed but the anchor lifecycle was NOT followed
+   (the honestly grown snapshot is anchor_stale) or the delivered
+   snapshot is tampered with or rewritten, the watcher refuses
+   the delivery in that check, the placed policy keeps serving
+   its previous view, the refusal is recorded with its reason,
+   and later checks keep re-reporting the same refusal instead of
+   going silent; and when nothing changed, the watcher does
+   nothing and reports no delivery, so holder views are not
+   rebuilt on unchanged ticks. Healing interaction, stated
+   before the build: case 6 noted that a heal between a
+   revocation and a reload recruits a replacement over the stale
+   record; after an automatic delivery has landed, a later heal
+   (including one a holder loss triggers while delivery is in
+   flight) recruits over the UPDATED record, so the recruit
+   refuses the revoked policy exactly like the holders that were
+   reloaded. Status: implemented at prototype scale in
+   experiment 022 (a watcher whose checks the caller drives on a
+   modeled clock, in-process holders over one shared snapshot
+   file; no unattended scheduling, no network delivery, and no
+   push or broadcast is claimed).
