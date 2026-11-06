@@ -65,11 +65,14 @@ HONEST LIMITS (prototype, NOT production)
   operator, and this prototype cannot tell. Real independence
   (different machines, operators, failure domains) is a deployment
   property this code does not verify.
-- Serving inherits Gate 2's limits unchanged: snapshot trust is
-  tamper-evidence without an external anchor, there is no revocation
-  (a holder serving from its snapshot cannot learn a policy was
-  revoked), and holders serve verified bytes without sandboxing or
-  executing them.
+- Serving inherits Gate 2's limits: snapshot trust is tamper-evidence
+  without an external anchor, and holders serve verified bytes
+  without sandboxing or executing them. Revocation (registration
+  case 6, experiment 008) is honored by PolicyNode when its snapshot
+  contains the revocation entry, but holders here are constructed
+  once, at placement, and never reload: a placed ReplicatedPolicy
+  does not learn of a revocation recorded after its snapshot was
+  taken. Wiring reload into placement is unbuilt.
 - Deliberate removal by the owner (tests/test-cases/policy-
   availability.md case 3, dependents notified before a policy stops
   being served) is NOT implemented here. Gate 4's outcomes are the
