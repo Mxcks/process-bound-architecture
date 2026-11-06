@@ -19,7 +19,8 @@ ENDPOINTS
 GET  /health     -> {node_id, ok, entries, state_hash,
                      serve_policies, policy_configured,
                      anchor_configured, anchor_status,
-                     snapshot_entries, last_snapshot_check}
+                     snapshot_entries, last_snapshot_check,
+                     last_snapshot_delivery}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -59,6 +60,33 @@ POST /check-snapshot
                     check's report and the loaded snapshot entry
                     count, so the process's current standing is
                     readable without driving a check.
+POST /deliver-snapshot
+                 -> {entries: [...]}: receive one registry
+                    snapshot delivery over the wire
+                    (experiment 025): the snapshot ENTRIES
+                    themselves, as JSON dicts, never a file
+                    path. The delivered entries are verified
+                    as a chain and consulted against this
+                    process's configured anchor (and its
+                    signature, where a signer is configured)
+                    BEFORE anything changes, exactly as a file
+                    delivery is judged; only a delivery that
+                    stands is applied, through the same reload
+                    as /check-snapshot: this process's own
+                    snapshot file is rewritten from the
+                    verified delivery (Gate 1's log format)
+                    and the PolicyNode reloads from it, so the
+                    file and the serving view move together.
+                    The response is the delivery's report:
+                    status "delivered", "delivery_refused"
+                    (with the refusal's own name as "reason"),
+                    "no_change", or "no_snapshot", plus the
+                    before/after entry counts and chain heads,
+                    the loaded entry count when a delivery
+                    stood, and the anchor status after the
+                    delivery. /health carries the last
+                    delivery's report as last_snapshot_delivery,
+                    beside last_snapshot_check.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -112,6 +140,29 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   view untouched and is re-reported by every later check until
   its cause is fixed - experiment 022's discipline at the
   process surface.
+- A registry snapshot delivered over the wire
+  (POST /deliver-snapshot, experiment 025) is judged by the
+  same verification, not by the transport: the delivered
+  entries are first written to a candidate file and put
+  through a full PolicyNode construction (chain verification
+  plus the anchor consultation above, signature included
+  where configured) BEFORE the server's snapshot file or
+  serving view changes. A refused delivery changes neither,
+  byte-for-byte. Only a candidate that stands replaces the
+  snapshot file (rewritten from the verified delivery, in
+  Gate 1's log format) and is then loaded by the running
+  PolicyNode's own reload from that file, so what a later
+  restart or /check-snapshot sees is exactly what was
+  delivered and verified. Two judgements run before the
+  candidate verification, on the delivered hashes alone: a
+  delivery identical to the chain this process already
+  stands on is "no_change", and a delivery that is exactly
+  an earlier prefix of that chain is refused as
+  snapshot_regression (sync-mesh case 14 sets the name) -
+  a shorter chain that is NOT that prefix falls through to
+  the candidate verification and is judged there (a rewrite
+  is anchor_mismatch), so the backward name cannot launder
+  a rewrite.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -153,27 +204,33 @@ HONEST LIMITS (prototype, NOT production)
   performance, scale, or latency numbers are measured or claimed.
 - Inherited limits stand unchanged: no Byzantine consensus or
   quorum, local-only rollback, and HMAC prototype signing in
-  Gate 1. Revocation delivery to a running server exists only
-  as a caller-driven check (experiment 024): the process
-  reloads its PolicyNode when a client drives
-  POST /check-snapshot after the updated record has been copied
-  over its snapshot file. No timer, scheduler, or thread inside
-  the server fires that check unattended, nothing pushes or
-  broadcasts the updated record into the file, and a server
-  whose check is never driven stays exactly as stale as
-  experiment 007 left it (though since experiment 021 its
-  refusal over the wire is a clean 410, not a dropped
-  connection). An external chain anchor exists (experiment
-  012) and, since experiment 018, a server started with --anchor
-  consults the registry anchor at startup (see above); since
-  experiment 019 the anchor may be signed, and a server started
-  with --anchor-signer plus --anchor-secret-file also verifies
+  Gate 1. Revocation delivery to a running server is driven,
+  never unattended: the process reloads its PolicyNode when a
+  client drives POST /check-snapshot after the updated record
+  has been copied over its snapshot file (experiment 024), or
+  when a peer pushes the record itself to
+  POST /deliver-snapshot (experiment 025). No timer, scheduler,
+  or thread inside the server fires either one, nothing
+  solicits a delivery, there is no broadcast or gossip of the
+  record, and a server nobody drives or pushes to stays
+  exactly as stale as experiment 007 left it (though since
+  experiment 021 its refusal over the wire is a clean 410,
+  not a dropped connection). The anchor a delivery is
+  consulted against still arrives out of band: the anchor
+  file is the local stand-in of experiments 012-019, and
+  experiment 025 transports the record, not the anchor. An
+  external chain anchor exists (experiment 012) and, since
+  experiment 018, a server started with --anchor consults the
+  registry anchor at startup (see above); since experiment
+  019 the anchor may be signed, and a server started with
+  --anchor-signer plus --anchor-secret-file also verifies
   that signature at startup, refusing to start on
   anchor_signature_invalid. Without those arguments the
   consultation is experiment 018's head-only one. Since
-  experiment 024 the same consultation also runs on every live
-  reload, not only at startup. The mesh chain
-  in this process consults no anchor.
+  experiment 024 the same consultation also runs on every
+  live reload, and since experiment 025 on every wire
+  delivery, not only at startup. The mesh chain in this
+  process consults no anchor.
 """
 
 from __future__ import annotations
@@ -181,6 +238,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import socket
 import sys
 import threading
@@ -200,6 +258,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from policy_node import (  # noqa: E402
+    GENESIS_HASH,
     NotServing,
     PolicyNode,
     PolicyNotFound,
@@ -317,6 +376,9 @@ class NetworkNode:
             else None
         )
         self.last_snapshot_check: dict | None = None
+        # Experiment 025: the most recent wire delivery's
+        # report, in the same field shape as the last check's.
+        self.last_snapshot_delivery: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -440,6 +502,150 @@ class NetworkNode:
             "anchor_status": self.anchor_status,
         }
         self.last_snapshot_check = report
+        return report
+
+    def deliver_snapshot(self, entries: list[dict]) -> dict:
+        """One registry snapshot delivery received over the wire
+        (experiment 025, sync-mesh case 14).
+
+        `entries` are the delivered snapshot's Gate 1 log
+        entries as plain JSON dicts - the record itself, handed
+        over as data. The delivery is judged exactly as
+        strictly as a file delivery:
+
+        - Identical to the chain this process already stands
+          on (same entry hashes, in order): "no_change" -
+          nothing is written and nothing reloads.
+        - Exactly an earlier prefix of that chain (fewer
+          entries, every delivered hash the loaded hash at its
+          index): refused as "snapshot_regression", the name
+          case 14 sets. The judgement runs on the hashes
+          alone, before any verification: it says only "this
+          is our own chain, only older", and a shorter chain
+          that is NOT this prefix never reaches it.
+        - Anything else is written to a candidate file beside
+          the snapshot and put through a full PolicyNode
+          construction with this process's own anchor
+          configuration - chain verification plus the
+          experiment 015/019 anchor consultation (signature
+          included where a signer is configured) - BEFORE
+          anything changes. Any refusal the construction
+          raises (TamperedRecord, AnchorStale, AnchorMismatch,
+          AnchorSignatureInvalid, ...) becomes a
+          "delivery_refused" report under the refusal's own
+          name (experiment 022's naming, reused through
+          check_snapshot's import), and neither the snapshot
+          file nor the serving view changes, byte-for-byte.
+        - A candidate that stands replaces the snapshot file
+          (os.replace of the verified candidate, serialized in
+          Gate 1's own log format - json.dumps(entry,
+          sort_keys=True), one entry per line, exactly as
+          registration.py writes its log) and the running
+          PolicyNode reloads from that file, experiment 024's
+          reload path: the file and the serving view move
+          together, so a later restart or check sees the same
+          record.
+
+        With no PolicyNode configured there is nothing to
+        deliver to: "no_snapshot". The delivery is driven by
+        the pushing peer (POST /deliver-snapshot); no timer or
+        thread in this process solicits one. Callers hold
+        self.lock, as for every other node access from the
+        handler.
+        """
+        if self.policy_node is None or self.snapshot_path is None:
+            report = {
+                "node_id": self.node_id,
+                "status": "no_snapshot",
+                "reason": None,
+                "before_head": None,
+                "after_head": None,
+                "before_count": None,
+                "after_count": None,
+                "loaded_entries": None,
+                "anchor_status": self.anchor_status,
+            }
+            self.last_snapshot_delivery = report
+            return report
+        before = self._loaded_snapshot_facts
+        # The loaded view's hashes: PolicyNode keeps its
+        # verified entries in _entries (the policy-library's
+        # own modules reach into placement internals the same
+        # way - see snapshot_delivery.py). "Stands on" means
+        # this view, not the file: the file is only the view's
+        # durable form, kept in step by 024's checks and by
+        # this method's stood deliveries.
+        loaded_hashes = [e["entry_hash"] for e in self.policy_node._entries]
+        delivered_hashes = [e.get("entry_hash") for e in entries]
+        after_head = delivered_hashes[-1] if delivered_hashes else GENESIS_HASH
+
+        def _report(status, reason, presented_count, presented_head,
+                    loaded_entries):
+            return {
+                "node_id": self.node_id,
+                "status": status,
+                "reason": reason,
+                "before_head": before.head,
+                "after_head": presented_head,
+                "before_count": before.count,
+                "after_count": presented_count,
+                "loaded_entries": loaded_entries,
+                "anchor_status": self.anchor_status,
+            }
+
+        if delivered_hashes == loaded_hashes:
+            report = _report("no_change", None, before.count, before.head,
+                             None)
+            self.last_snapshot_delivery = report
+            return report
+        if (len(delivered_hashes) < len(loaded_hashes)
+                and delivered_hashes == loaded_hashes[:len(delivered_hashes)]):
+            report = _report("delivery_refused", "snapshot_regression",
+                             len(entries), after_head, None)
+            self.last_snapshot_delivery = report
+            return report
+
+        candidate_path = self.snapshot_path.with_name(
+            self.snapshot_path.name + ".wire-candidate")
+        candidate_bytes = "".join(
+            json.dumps(entry, sort_keys=True) + "\n" for entry in entries
+        ).encode("utf-8")
+        try:
+            candidate_path.write_bytes(candidate_bytes)
+            try:
+                # The candidate judges itself: a full PolicyNode
+                # construction over the candidate file, with this
+                # process's anchor configuration and no payloads
+                # (construction verifies; it serves nothing).
+                PolicyNode(
+                    node_id=self.node_id,
+                    registry_snapshot_path=candidate_path,
+                    payloads={},
+                    serve_policies=False,
+                    anchor_path=self.anchor_path,
+                    anchor_signer=self.anchor_signer,
+                    anchor_secret_hex=self.anchor_secret_hex,
+                )
+            except Exception as exc:
+                report = _report("delivery_refused",
+                                 _reload_refusal_reason(exc),
+                                 len(entries), after_head, None)
+                self.last_snapshot_delivery = report
+                return report
+            # The delivery stands. The file is replaced by the
+            # verified candidate and the running node reloads
+            # from it (the reload re-verifies the same bytes
+            # from the real path, as every 024 reload does).
+            os.replace(candidate_path, self.snapshot_path)
+            loaded = self.policy_node.reload_snapshot()
+        finally:
+            if candidate_path.exists():
+                candidate_path.unlink()
+        presented = snapshot_facts(self.snapshot_path)
+        self._loaded_snapshot_facts = presented
+        report = _report("delivered", None, presented.count, presented.head,
+                         loaded)
+        self.last_snapshot_delivery = report
         return report
 
 
@@ -610,6 +816,23 @@ def check_snapshot(base_url: str) -> dict:
     return body
 
 
+def deliver_snapshot(base_url: str, entries: list[dict]) -> dict:
+    """Push one registry snapshot delivery to the RUNNING server
+    at base_url (experiment 025): `entries` are the snapshot's
+    Gate 1 log entries as JSON dicts - the record itself, not a
+    path. The receiving server verifies them as a chain and
+    consults its configured anchor (and signature) before
+    anything changes; only a delivery that stands rewrites its
+    snapshot file and reloads its PolicyNode. Returns the
+    delivery's report dict: status "delivered",
+    "delivery_refused" (with the refusal's own name as
+    "reason"), "no_change", or "no_snapshot"."""
+    status, body = post_json(
+        base_url, "/deliver-snapshot", {"entries": entries})
+    assert status == 200, f"snapshot delivery failed: {status} {body}"
+    return body
+
+
 def fetch_policy(base_url: str, policy_hash: str) -> tuple[int, dict]:
     """Fetch a served policy. Returns (status, body); on 200 the
     body carries the code as base64 in "code_base64"."""
@@ -720,6 +943,10 @@ def make_handler(node: NetworkNode):
                         # (None until the first check is driven).
                         "snapshot_entries": node.snapshot_loaded_count,
                         "last_snapshot_check": node.last_snapshot_check,
+                        # Experiment 025: the last wire delivery's
+                        # report (None until the first delivery is
+                        # pushed), beside the last check's.
+                        "last_snapshot_delivery": node.last_snapshot_delivery,
                     })
                 return
             if self.path == "/state":
@@ -833,6 +1060,27 @@ def make_handler(node: NetworkNode):
                 # divergence is a /entries outcome.
                 with node.lock:
                     report = node.check_snapshot()
+                self._send_json(200, report)
+                return
+            if self.path == "/deliver-snapshot":
+                # Experiment 025: one registry snapshot delivery
+                # pushed to this running process (see NetworkNode.
+                # deliver_snapshot). The payload carries the
+                # snapshot entries themselves; a bare list of
+                # entry objects is the only accepted shape. The
+                # report is the response, refusals included: a
+                # refused delivery is a delivery outcome, not a
+                # transport error, exactly as above.
+                raw_entries = payload.get("entries")
+                if (not isinstance(raw_entries, list)
+                        or not all(isinstance(e, dict)
+                                   for e in raw_entries)):
+                    self._send_json(400, {
+                        "error": "deliver-snapshot needs an entries "
+                                 "list of snapshot entry objects"})
+                    return
+                with node.lock:
+                    report = node.deliver_snapshot(raw_entries)
                 self._send_json(200, report)
                 return
             self._send_json(404, {"error": f"unknown path: {self.path}"})
