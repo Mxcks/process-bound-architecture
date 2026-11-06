@@ -29,7 +29,14 @@ case 6), and **protected node links built and passing**
 `tests/test-cases/sync-mesh.md` case 7): the networked processes
 can now speak mutual TLS - encrypted in transit, with a client
 certificate required - while discovery by set addresses remains
-open. Prototype only, not production. The module docstrings in
+open, and **anchor consultation in sync built and passing**
+(2026-11-06, experiment `experiments/015-anchor-consultation/`;
+`tests/test-cases/sync-mesh.md` case 8): an `AnchoredSyncNode`
+built with a mesh anchor path consults experiment 012's anchor on
+the merged state before accepting a peer's entries, flagging a
+rewritten peer `anchor_mismatch` and honest growth
+`anchor_stale` until re-anchored; a node built without one
+behaves exactly as before. Prototype only, not production. The module docstrings in
 `sync_mesh.py` and `node_server.py` are the authoritative lists of
 honest limits. The layer contract above is unchanged; what follows
 documents the prototypes that now implement it at prototype scale.
@@ -52,6 +59,9 @@ documents the prototypes that now implement it at prototype scale.
 | `protected_link.py` | Protected node links (experiment 014): mutual-TLS contexts for the networked transport (`server_context` requires a client certificate chaining to the given CA; `client_context` verifies the server and presents the peer's own certificate), plus runtime generation of throwaway test credentials (openssl subprocess; test CA, per-node certificates, and a rogue CA for refusal tests). No credential file is committed. |
 | `test_protected_nodes.py` | Automated tests for sync-mesh case 7: two protected processes converge and a policy crosses while a byte-capturing proxy proves the wire carries no plaintext, unauthenticated and rogue-credential peers are refused at the handshake with no plaintext fallback, Gate 3/2 verification still runs over the protected link (tampered entry diverges, opt-in still enforced, snapshot verifies on receipt), and a killed protected process's survivors still serve and converge. Credentials are generated per test into its temporary directory. |
 | `demo_protected_nodes.py` | Runnable walkthrough of case 7: two protected processes converge, the capture holds no plaintext, a credential-less client is refused, the second process is killed, and the first still serves. |
+| `anchored_sync.py` | Anchor consultation for sync (experiment 015): `AnchoredSyncNode`, a `SyncNode` subclass that reuses `anchor.py`'s experiment 012 check on the merged state before accepting a peer's entries; refusals roll back through `sync_mesh.py`'s `restore_to_entries` and are logged as divergences under the reasons `anchor_mismatch` / `anchor_stale`. Builds on `SyncNode` without modifying its receive logic. |
+| `test_anchor_consultation.py` | Automated tests for sync-mesh case 8: genuine peer accepted and converged, rewritten peer flagged `anchor_mismatch` and not accepted, no-anchor sync accepting the rewrite exactly as before (stated plainly), honest growth flagged `anchor_stale` until re-anchored. |
+| `demo_anchor_consultation.py` | Runnable walkthrough of case 8: genuine accept, rewrite flagged while a plain node accepts it, growth stale until re-anchored. |
 
 ## How to run it
 
@@ -82,6 +92,10 @@ python3 packages/synchronization/demo_coordinated_rollback.py
 # Protected node links (sync-mesh case 7)
 python3 packages/synchronization/test_protected_nodes.py
 python3 packages/synchronization/demo_protected_nodes.py
+
+# Anchor consultation in sync (sync-mesh case 8)
+python3 packages/synchronization/test_anchor_consultation.py
+python3 packages/synchronization/demo_anchor_consultation.py
 
 # One node server by hand (ephemeral port; prints LISTENING <port>)
 python3 packages/synchronization/node_server.py --node-id my-node \
@@ -227,9 +241,11 @@ by its post-checkpoint state being accepted as the checkpoint.
   written to a file outside the node and checked against a
   presented node, which catches the full rewrite in the tests. The
   anchor file is a stand-in - local, same machine, unsigned,
-  unwitnessed - nothing consults it automatically (sync and the
-  networked servers do not call it), and cross-node head comparison
-  at scale is still unbuilt.
+  unwitnessed. Since experiment 015 an `AnchoredSyncNode`
+  configured with an anchor path consults it automatically on
+  every receive; a plain `SyncNode` and the networked servers
+  still do not call it, and cross-node head comparison at scale
+  is still unbuilt.
 - Conflict resolution (deterministic last-writer-wins in the total
   order) is a stated prototype rule, not a claim about correct
   production semantics for every key.
