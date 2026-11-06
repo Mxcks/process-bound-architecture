@@ -25,10 +25,19 @@ watcher reads heartbeats from a shared liveness view on a modeled
 clock, declares a holder lost only after 3 missed beats (fewer is
 silent-short, still a holder, never healed over), and triggers
 experiment 010's `heal()` from that detection; a returned lost
-holder rejoins as a candidate only. Prototype only, not
-production. The module docstrings in `policy_node.py`,
-`replication.py`, and `liveness.py` are the authoritative lists
-of honest limits.
+holder rejoins as a candidate only, and **automatic snapshot
+delivery to placed policies built and passing** on top of
+experiment 021's reload path (2026-11-06, experiment
+`experiments/022-automatic-snapshot-delivery/`; availability
+case 7): a watcher in the liveness watcher's style compares the
+shared snapshot file's presented facts (entry count, chain head,
+file fingerprint) with the facts the placed policy last loaded
+and calls `reload_snapshot()` itself on a change, re-reporting a
+refused delivery on every check until its cause is fixed.
+Prototype only, not production. The module docstrings in
+`policy_node.py`, `replication.py`, `liveness.py`, and
+`snapshot_delivery.py` are the authoritative lists of honest
+limits.
 
 Authoring, signing, and registering a library is Gate 1's job
 (`packages/registration/`). This package is the other half: once a
@@ -56,6 +65,9 @@ central home, ever again in order to be served.
 | `liveness.py` | The experiment 016 prototype: `LivenessView` (shared heartbeat view on a deterministic modeled clock: tick counter plus last-beat ticks, no wall-clock time) and `LivenessWatcher` (three-state classification - alive / silent_short / lost at 3 missed beats - automatic `heal()` trigger on a lost declaration, `WatchReport` plus an event log, returning-holder-as-candidate rule). Reuses `replication.py`'s `lose_holder` / `heal` unchanged. |
 | `test_liveness.py` | Automated tests for availability case 5 (experiment 016): lost triggers automatic healing and the replacement alone serves verified; silent-short returns unhealed; lost with no eligible replacement keeps reporting below floor; a returned lost holder is a candidate, not a holder, until a later heal recruits it. |
 | `demo_liveness.py` | Runnable walkthrough of case 5, including both negative controls and the returning-holder rule. |
+| `snapshot_delivery.py` | The experiment 022 prototype: `SnapshotDeliveryWatcher` (one watcher over one `ReplicatedPolicy`, modeled tick counter, `DeliveryReport` plus an event log) and `snapshot_facts` (the presented facts: entry count, chain head, file fingerprint). On a changed snapshot the watcher calls `replication.py`'s `reload_snapshot()` (experiment 021) in the same check; a refused delivery is re-reported with its reason on every later check; an unchanged check calls nothing. |
+| `test_snapshot_delivery.py` | Automated tests for availability case 7 (experiment 022): a clean change is delivered automatically in one tick and the revoked placed policy stops serving while a non-revoked policy over the same snapshot keeps serving; an anchor_stale delivery is refused and re-reported until the same-signer re-anchor, then delivered; tampered and rewritten deliveries are refused under their own names; an unchanged check rebuilds no holder view; a heal after delivery recruits over the updated record. |
+| `demo_snapshot_delivery.py` | Runnable walkthrough of case 7: unchanged check, automatic delivery after revocation + re-anchor, anchor_stale refusal and re-reporting, tampered refusal. |
 
 ## How to run it
 
@@ -97,6 +109,13 @@ python3 packages/policy-library/demo_anchor_consultation.py
 # automatically; silent-short never does)
 python3 packages/policy-library/test_liveness.py
 python3 packages/policy-library/demo_liveness.py
+
+# Automatic snapshot delivery tests and demo (availability case 7:
+# a watcher compares the snapshot's presented facts on modeled
+# ticks and calls reload_snapshot() itself on a change; refused
+# deliveries re-report, unchanged checks do nothing)
+python3 packages/policy-library/test_snapshot_delivery.py
+python3 packages/policy-library/demo_snapshot_delivery.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -238,6 +257,48 @@ interval or jitter, one watcher watches one policy with no
 mesh-wide agreement, and candidates are the watcher's list plus
 returned holders - nothing is discovered.
 
+## Automatic snapshot delivery, in plain words (case 7)
+
+Experiment 022 closes the trigger gap experiment 021 left named,
+at prototype scale. `snapshot_delivery.py` adds one watcher in
+experiment 016's style and reuses everything else:
+
+1. **A delivery watcher** (`SnapshotDeliveryWatcher`) over one
+   `ReplicatedPolicy`, on a modeled tick counter. Each check
+   computes the shared snapshot file's **presented facts** -
+   entry count and chain head (the facts the anchor pins), plus
+   a SHA-256 fingerprint of the file's bytes, which is part of
+   the change fact because head and count alone cannot see an
+   in-place edit that leaves both untouched - and compares them
+   with the facts the placed policy last loaded. Construction
+   records the baseline and delivers nothing.
+2. **The trigger is the check.** On a difference the watcher
+   calls experiment 021's `reload_snapshot()` in that same
+   check: a clean delivery (snapshot verifies; with anchor
+   consultation, the same-signer re-anchor already done) takes
+   effect immediately - a revoked placed policy stops serving,
+   a non-revoked one keeps serving - and is recorded as a
+   `snapshot_delivered` event with the before/after heads and
+   counts. A refused delivery is recorded under the reload's
+   own refusal name (`anchor_stale`, `tampered_record`,
+   `anchor_mismatch`, `anchor_signature_invalid`), the previous
+   view keeps serving, the last-loaded facts do not move, and
+   every later check re-attempts and re-reports it until the
+   cause is fixed, the re-reporting discipline of case 5. An
+   unchanged check reports `no_change` and calls nothing, so
+   holder views are never rebuilt on quiet ticks. After a
+   delivery, a later `heal()` recruits over the updated record,
+   closing case 6's stale-recruit window on this path.
+
+Delivery limits, on top of everything above: "automatic" means
+triggered by a check the caller drives - no timer, scheduler,
+or file watcher fires it unattended; the watcher notices that
+the snapshot FILE changed, and how the new record got into the
+file remains the synchronization layer's delivery, exactly as
+before; one watcher watches one placed policy, and the
+networked server processes are not watched and still learn of
+a revocation only on restart.
+
 ## Revocation and the stale window, in plain words (case 6)
 
 Gate 1's channel now records revocations as new entries in the same
@@ -260,10 +321,15 @@ package honors them, with the gap stated plainly:
    node's view. A tampered update raises `TamperedRecord` and leaves
    the previous view untouched. After a successful reload the
    revoked policy is refused.
-4. Nothing here pushes the update: delivery is the synchronization
-   layer's job, the networked server processes of experiment 007
-   build their `PolicyNode` at startup and do not reload, and a node
-   that never receives the updated record stays stale indefinitely.
+4. Nothing here pushes the update into a node's snapshot file:
+   delivery of the record to the file is the synchronization
+   layer's job. Since experiment 022 a placed policy's delivery
+   watcher (case 7, previous section) calls the reload itself
+   once the updated record is in the file, so a watched placed
+   policy's window closes at the watcher's next check; the
+   networked server processes of experiment 007 build their
+   `PolicyNode` at startup and do not reload, and a node that
+   never receives the updated record stays stale indefinitely.
 
 ## Honest limits
 
@@ -288,9 +354,12 @@ package honors them, with the gap stated plainly:
   path when started with `--anchor`, so this consultation runs
   at server startup too; without the flag they consult nothing.
 - Revocation is honored only from the record a node actually holds:
-  there is no revocation push, broadcast, or staleness bound, so the
-  stale window above can stay open indefinitely on a node that never
-  syncs. Closing that is delivery work (sync scheduling, experiment
-  007's open list), not something this package claims.
+  there is no revocation push or broadcast into a snapshot file,
+  and no staleness bound, so the stale window above can stay open
+  indefinitely on a node that never syncs. For a placed policy,
+  experiment 022's delivery watcher bounds the window by its own
+  checks once the record reaches the file (case 7); the remaining
+  closing work is sync scheduling and transport (experiment 007's
+  open list), not something this package claims.
 - The node serves verified bytes; it does not sandbox or execute
   policy code (runtime package's job).
