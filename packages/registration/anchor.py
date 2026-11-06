@@ -36,6 +36,46 @@ WHAT THIS PROTOTYPE DEMONSTRATES
    the length, and moving the head legitimately means anchoring
    again (that is the anchor's lifecycle, stated not hidden).
 
+SIGNED ANCHORS WITH A KEPT HISTORY (experiment 019, test case 10)
+-------------------------------------------------------------------
+write_anchor may be called with a signer and that signer's
+enrollment secret (signer=..., secret_hex=...). That writes a
+SIGNED anchor, reusing Gate 1's signing machinery exactly: the
+same HMAC-SHA256 scheme as registration's sign_library /
+sign_revocation, over a domain-separated canonical encoding
+(canonical_anchor_bytes, prefix "PBA-ANCHOR-SIGN-v1"), so an
+anchor signature can never be replayed as a library or
+revocation signature. A signed anchor records its signer, and:
+
+- Re-anchoring a signed anchor requires a valid signature from
+  the SAME identity that signed the current anchor. An attempt
+  by a different enrolled identity is refused, the anchor is
+  left unchanged, and the refusal is appended to an anchor
+  audit log beside the anchor file (anchor_audit_path). A first
+  signed write over an unsigned anchor, or over no anchor,
+  establishes the signer: an unsigned anchor has no signer to
+  match, and that transition is the one stated exception.
+- Each accepted signed (re-)anchor APPENDS to a history kept
+  inside the anchor file instead of overwriting silently. A
+  history entry records the anchored head and count, its
+  sequence number, and its signer; entries are hash-chained
+  exactly like the registry's own entries (sequence 0..n-1,
+  prev-hash linkage, entry hash recomputed over the entry body,
+  signature included in the body), and each entry is signed.
+  verify_anchor_history recomputes that chain, and with a signer
+  and secret also verifies every entry's signature.
+- Checks take the same opt-in identity (signer=..., secret_hex=
+  ...). With an identity configured, a signed anchor's signature
+  AND history must verify, and the configured signer must be
+  the anchor's signer; a missing, wrong, or tampered signature,
+  or a history that does not verify, is the check status
+  anchor_signature_invalid - distinct from anchor_mismatch and
+  from honest-growth handling at the consultation points, and
+  never a valid anchor. With NO identity configured, checks
+  judge the anchor by its head exactly as experiment 012 built
+  them, signed or unsigned: signing is opt-in, and the unsigned
+  behavior of experiments 012-018 is unchanged.
+
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
 - The anchor location is a STAND-IN, not a real external service:
@@ -43,13 +83,24 @@ HONEST LIMITS (prototype, NOT production)
   registry directory, on the same machine, writable by the same
   operator. It proves the comparison logic and nothing about the
   anchor itself being safe. An attacker who can rewrite the
-  registry AND the anchor file defeats this completely. Production
-  needs the head written somewhere the registry's writer cannot
+  registry AND the anchor file defeats an UNSIGNED anchor
+  completely; against a SIGNED anchor (experiment 019) the same
+  attacker still cannot forge a signature or a history entry
+  without the signer's secret - but they can DELETE the anchor
+  or roll the file back to an older signed state (the check
+  pins a head, and an old signed anchor still verifies as a
+  signature while failing as a head match), and whoever holds
+  the signer's secret can re-anchor anything. Production needs
+  the head written somewhere the registry's writer cannot
   reach: a witnessed ledger, a second operator's countersignature,
   a public append-only log. None of that is built or claimed here.
-- The anchor is not signed. Anyone who can write the anchor file
-  can re-anchor a rewritten registry and it will verify. Signing /
-  witnessing an anchor is production work, out of scope here.
+- Anchor signing inherits Gate 1's signing limit in full: the
+  "signature" is HMAC with a shared secret the channel itself
+  issued, so verification REQUIRES the secret - a verifier
+  holding it can also forge - and the channel could forge any
+  signer's anchor. There is no witnessing, no asymmetric key,
+  and no identity proofing. Production signing is still
+  production work, out of scope here.
 - Anchoring is a point-in-time fact about one head. Checking a
   registry against an old anchor after the registry legitimately
   grew reports a mismatch, not a tamper verdict: the check object
@@ -124,18 +175,207 @@ def chain_head(entries: list[dict]) -> str:
     return entries[-1]["entry_hash"] if entries else GENESIS_HASH
 
 
+# -- anchor signing and kept history (experiment 019) -----------------------
+#
+# The signing scheme is Gate 1's, reused: HMAC-SHA256 with an
+# enrolled identity's secret, over a domain-separated canonical
+# encoding - the same construction as registration.py's
+# sign_library / sign_revocation, with its own prefix so no
+# signature can be replayed across purposes.
+
+
+def canonical_anchor_bytes(
+    signer: str,
+    chain_head: str,
+    entry_count: int,
+    anchor_seq: int,
+    prev_history_hash: str,
+) -> bytes:
+    """Deterministic encoding of one anchor (re-)signing act:
+    who signs, what head, at which history sequence, chained to
+    which previous history entry."""
+    return (
+        f"PBA-ANCHOR-SIGN-v1|registry|{signer}|{anchor_seq}|"
+        f"{chain_head}|{entry_count}|{prev_history_hash}"
+    ).encode("utf-8")
+
+
+def sign_anchor(
+    secret_hex: str,
+    signer: str,
+    chain_head: str,
+    entry_count: int,
+    anchor_seq: int,
+    prev_history_hash: str,
+) -> str:
+    """Prototype anchor 'signature': HMAC-SHA256 over the
+    canonical anchor bytes, with the signer's enrollment secret.
+
+    See the module docstring for why this is NOT production
+    signing (symmetric, channel-issued secrets)."""
+    return hmac.new(
+        bytes.fromhex(secret_hex),
+        canonical_anchor_bytes(
+            signer, chain_head, entry_count, anchor_seq, prev_history_hash
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _history_entry(
+    signer: str,
+    secret_hex: str,
+    seq: int,
+    head: str,
+    count: int,
+    prev_hash: str,
+) -> dict:
+    """One kept-history entry, in the registry chain's own style:
+    the signature is part of the hashed body, so editing any
+    field of an old entry - head, count, signer, or the
+    signature itself - breaks its entry hash."""
+    signature = sign_anchor(secret_hex, signer, head, count, seq, prev_hash)
+    body = {
+        "seq": seq,
+        "chain_head": head,
+        "entry_count": count,
+        "signer": signer,
+        "prev_hash": prev_hash,
+        "signature": signature,
+    }
+    entry = dict(body)
+    entry["entry_hash"] = _sha256_hex(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    return entry
+
+
+def _verify_history_entries(
+    history: list[dict],
+    signer: str | None = None,
+    secret_hex: str | None = None,
+) -> bool:
+    """Recompute a kept history: sequences 0..n-1 in order,
+    prev-hash linkage from genesis, entry-hash recomputation.
+    With a secret, every entry's signature must also verify
+    under it; with a signer, every entry's signer must be that
+    signer (the same-identity rule makes a genuine history
+    single-signer)."""
+    prev_hash = GENESIS_HASH
+    for expected_seq, entry in enumerate(history):
+        if entry.get("seq") != expected_seq:
+            return False
+        if entry.get("prev_hash") != prev_hash:
+            return False
+        if signer is not None and entry.get("signer") != signer:
+            return False
+        body = {k: v for k, v in entry.items() if k != "entry_hash"}
+        recomputed = _sha256_hex(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        if not hmac.compare_digest(recomputed, entry.get("entry_hash", "")):
+            return False
+        if secret_hex is not None:
+            expected_sig = sign_anchor(
+                secret_hex,
+                str(entry.get("signer")),
+                str(entry.get("chain_head")),
+                int(entry.get("entry_count", -1)),
+                expected_seq,
+                prev_hash,
+            )
+            if not hmac.compare_digest(expected_sig, entry.get("signature", "")):
+                return False
+        prev_hash = entry["entry_hash"]
+    return True
+
+
+def anchor_audit_path(anchor_path: str | Path) -> Path:
+    """The anchor audit log: a JSON-lines file beside the anchor,
+    the same style as Gate 1's audit log. Refused re-anchor
+    attempts are appended here; the anchor file itself is never
+    touched by a refusal."""
+    anchor_path = Path(anchor_path)
+    return anchor_path.parent / (anchor_path.name + ".audit.jsonl")
+
+
+def _append_anchor_audit(anchor_path: Path, event: dict) -> None:
+    path = anchor_audit_path(anchor_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def read_anchor_audit(anchor_path: str | Path) -> list[dict]:
+    """The anchor audit events beside an anchor ([] if none)."""
+    path = anchor_audit_path(anchor_path)
+    if not path.exists():
+        return []
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            events.append(json.loads(line))
+    return events
+
+
+def _signature_verifies(record: "AnchorRecord", signer: str, secret_hex: str) -> bool:
+    """True only if a record is a genuine signed anchor BY the
+    configured signer: the signer matches, a kept history is
+    present and verifies (chain and signatures), the top fields
+    are exactly the history's last entry, and the top signature
+    is that entry's signature, recomputed."""
+    if record.signer is None or record.signer != signer:
+        return False
+    if record.signature is None or record.anchor_seq is None:
+        return False
+    history = [dict(e) for e in record.history]
+    if not history or len(history) != record.anchor_seq + 1:
+        return False
+    if not _verify_history_entries(history, signer=signer, secret_hex=secret_hex):
+        return False
+    last = history[-1]
+    if last["chain_head"] != record.chain_head:
+        return False
+    if last["entry_count"] != record.entry_count:
+        return False
+    if not hmac.compare_digest(last["signature"], record.signature):
+        return False
+    expected = sign_anchor(
+        secret_hex,
+        signer,
+        record.chain_head,
+        record.entry_count,
+        record.anchor_seq,
+        last["prev_hash"],
+    )
+    return hmac.compare_digest(expected, record.signature)
+
+
 @dataclass(frozen=True)
 class AnchorRecord:
     chain_head: str
     entry_count: int
+    # Experiment 019, signed anchors: all None / empty for an
+    # unsigned anchor, exactly as experiments 012-018 wrote them.
+    signer: str | None = None
+    signature: str | None = None
+    anchor_seq: int | None = None
+    history: tuple = ()
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "format": ANCHOR_FORMAT,
             "chain": "registry",
             "chain_head": self.chain_head,
             "entry_count": self.entry_count,
         }
+        if self.signer is not None:
+            data["signer"] = self.signer
+            data["signature"] = self.signature
+            data["anchor_seq"] = self.anchor_seq
+            data["history"] = [dict(e) for e in self.history]
+        return data
 
 
 @dataclass(frozen=True)
@@ -155,15 +395,31 @@ class AnchorCheck:
     presented_head: str | None
     anchored_count: int
     presented_count: int
+    # Experiment 019: signature_checked is False (and
+    # signature_valid None) when no signing identity was
+    # configured for the check - the pre-019 judgement, by head
+    # alone. When an identity IS configured, signature_valid must
+    # also be True for ok, and its failure is its own status,
+    # anchor_signature_invalid, ahead of anchor_mismatch: a head
+    # edited after signing is a signature failure, not a head
+    # finding.
+    signature_checked: bool = False
+    signature_valid: bool | None = None
+    signer: str | None = None
 
     @property
     def ok(self) -> bool:
-        return self.internal_verifies and self.head_matches and self.count_matches
+        base = self.internal_verifies and self.head_matches and self.count_matches
+        if self.signature_checked:
+            return base and bool(self.signature_valid)
+        return base
 
     @property
     def status(self) -> str:
         if not self.internal_verifies:
             return "internal_verification_failed"
+        if self.signature_checked and not self.signature_valid:
+            return "anchor_signature_invalid"
         if self.ok:
             return "anchored"
         return "anchor_mismatch"
@@ -177,13 +433,20 @@ class AnchorCheck:
             "presented_head": self.presented_head,
             "anchored_count": self.anchored_count,
             "presented_count": self.presented_count,
+            "signature_checked": self.signature_checked,
+            "signature_valid": self.signature_valid,
+            "signer": self.signer,
             "ok": self.ok,
             "status": self.status,
         }
 
 
 def write_anchor(
-    registry_log_path: str | Path, anchor_path: str | Path
+    registry_log_path: str | Path,
+    anchor_path: str | Path,
+    *,
+    signer: str | None = None,
+    secret_hex: str | None = None,
 ) -> AnchorRecord:
     """Write the registry's current chain head to an anchor file
     outside the registry's own directory.
@@ -193,6 +456,19 @@ def write_anchor(
     AnchorError and writes nothing. An anchor path inside the
     registry file's directory is refused for the same reason a
     self-witnessed record proves nothing.
+
+    Unsigned (no signer): exactly the experiment 012 behavior -
+    the anchor file is overwritten with the current head.
+
+    Signed (experiment 019, signer + secret_hex both given): the
+    anchor is signed by that enrolled identity, under the
+    re-anchor rule stated in the module docstring. Re-anchoring
+    a signed anchor by a DIFFERENT identity, or over a signed
+    anchor whose existing signature/history does not verify
+    under the presented secret, is refused (AnchorError), the
+    anchor file is left unchanged, and the refusal is appended
+    to the anchor audit log. An accepted signed write appends
+    one entry to the kept history inside the anchor file.
     """
     registry_log_path = Path(registry_log_path)
     anchor_path = Path(anchor_path)
@@ -204,7 +480,79 @@ def write_anchor(
     entries = _read_entries(registry_log_path)
     if not _verify_entries(entries):
         raise AnchorError("registry does not verify internally; refusing to anchor it")
-    record = AnchorRecord(chain_head=chain_head(entries), entry_count=len(entries))
+    head = chain_head(entries)
+    count = len(entries)
+
+    if signer is None:
+        if secret_hex is not None:
+            raise AnchorError("secret_hex given without a signer")
+        record = AnchorRecord(chain_head=head, entry_count=count)
+        anchor_path.parent.mkdir(parents=True, exist_ok=True)
+        anchor_path.write_text(
+            json.dumps(record.to_dict(), sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return record
+
+    if secret_hex is None:
+        raise AnchorError("a signed anchor needs the signer's secret_hex")
+
+    history: list[dict] = []
+    if anchor_path.exists():
+        existing = read_anchor(anchor_path)
+        if existing.signer is not None:
+            if existing.signer != signer:
+                _append_anchor_audit(
+                    anchor_path,
+                    {
+                        "event": "reanchor_rejected",
+                        "reason": "different_signer",
+                        "attempted_signer": signer,
+                        "current_signer": existing.signer,
+                        "chain": "registry",
+                        "chain_head": head,
+                        "entry_count": count,
+                    },
+                )
+                raise AnchorError(
+                    f"re-anchor refused: anchor is signed by "
+                    f"{existing.signer}, not by {signer} "
+                    f"(same-identity rule, experiment 019)"
+                )
+            if not _signature_verifies(existing, signer, secret_hex):
+                _append_anchor_audit(
+                    anchor_path,
+                    {
+                        "event": "reanchor_rejected",
+                        "reason": "existing_signature_invalid",
+                        "attempted_signer": signer,
+                        "current_signer": existing.signer,
+                        "chain": "registry",
+                        "chain_head": head,
+                        "entry_count": count,
+                    },
+                )
+                raise AnchorError(
+                    "re-anchor refused: the existing signed anchor does "
+                    "not verify under the presented secret"
+                )
+            history = [dict(e) for e in existing.history]
+        # An existing UNSIGNED anchor has no signer to match: a
+        # first signed write establishes the signer and starts
+        # the history (the stated exception in case 10).
+
+    seq = len(history)
+    prev_hash = history[-1]["entry_hash"] if history else GENESIS_HASH
+    entry = _history_entry(signer, secret_hex, seq, head, count, prev_hash)
+    history.append(entry)
+    record = AnchorRecord(
+        chain_head=head,
+        entry_count=count,
+        signer=signer,
+        signature=entry["signature"],
+        anchor_seq=seq,
+        history=tuple(history),
+    )
     anchor_path.parent.mkdir(parents=True, exist_ok=True)
     anchor_path.write_text(
         json.dumps(record.to_dict(), sort_keys=True, indent=2) + "\n",
@@ -226,15 +574,67 @@ def read_anchor(anchor_path: str | Path) -> AnchorRecord:
     if data.get("format") != ANCHOR_FORMAT or data.get("chain") != "registry":
         raise AnchorError(f"not a {ANCHOR_FORMAT} registry anchor: {anchor_path}")
     try:
-        return AnchorRecord(
+        record = AnchorRecord(
             chain_head=str(data["chain_head"]), entry_count=int(data["entry_count"])
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise AnchorError(f"anchor file is missing its head or count: {anchor_path}") from exc
+    if data.get("signer") is not None:
+        # A signed anchor (experiment 019): its signer, signature,
+        # sequence, and kept history ride in the same file.
+        # Reading parses them; VERIFYING them is the check's job,
+        # with a configured identity.
+        try:
+            history = tuple(dict(e) for e in data["history"])
+            record = AnchorRecord(
+                chain_head=record.chain_head,
+                entry_count=record.entry_count,
+                signer=str(data["signer"]),
+                signature=str(data["signature"]),
+                anchor_seq=int(data["anchor_seq"]),
+                history=history,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AnchorError(
+                f"signed anchor is missing its signature or history: {anchor_path}"
+            ) from exc
+    return record
+
+
+def verify_anchor_history(
+    anchor_path: str | Path,
+    signer: str | None = None,
+    secret_hex: str | None = None,
+) -> bool:
+    """Verify an anchor file's kept history on its own: the
+    hash chain recomputes (sequences, linkage, entry hashes),
+    and with a secret every entry's signature verifies under
+    it; with a signer every entry names that signer. An
+    unsigned anchor has no history and returns False: there is
+    nothing to verify is a finding, not a pass."""
+    record = read_anchor(anchor_path)
+    if record.signer is None or not record.history:
+        return False
+    history = [dict(e) for e in record.history]
+    if not _verify_history_entries(history, signer=signer, secret_hex=secret_hex):
+        return False
+    # The history must also BE the anchor: its last entry is the
+    # anchor's own head, count, sequence, and signature.
+    last = history[-1]
+    return (
+        last["chain_head"] == record.chain_head
+        and last["entry_count"] == record.entry_count
+        and last["seq"] == record.anchor_seq
+        and hmac.compare_digest(last["signature"], record.signature or "")
+    )
 
 
 def check_registry_against_anchor(
-    registry_log_path: str | Path, anchor_path: str | Path
+    registry_log_path: str | Path,
+    anchor_path: str | Path,
+    *,
+    signer: str | None = None,
+    secret_hex: str | None = None,
 ) -> AnchorCheck:
     """Check a presented registry against an outside anchor.
 
@@ -242,11 +642,25 @@ def check_registry_against_anchor(
     verification, or whose head/count differ from the anchor, is
     reported in the AnchorCheck. Raises AnchorError only when the
     anchor itself cannot be read.
+
+    With a signing identity configured (experiment 019, signer +
+    secret_hex), the anchor's signature and kept history are ALSO
+    verified, and a failure there is reported in the check
+    (signature_checked / signature_valid / status
+    anchor_signature_invalid), never a silent pass and never a
+    raise: a consultation point must be able to name it. With no
+    identity, the check is experiment 012's, by head alone.
     """
     anchor = read_anchor(anchor_path)
     entries = _read_entries(registry_log_path)
     internal = _verify_entries(entries)
     presented_head = chain_head(entries) if entries else GENESIS_HASH
+    signature_checked = signer is not None
+    signature_valid: bool | None = None
+    if signature_checked:
+        if secret_hex is None:
+            raise AnchorError("checking a signed anchor needs secret_hex")
+        signature_valid = _signature_verifies(anchor, signer, secret_hex)
     return AnchorCheck(
         internal_verifies=internal,
         head_matches=hmac.compare_digest(presented_head, anchor.chain_head),
@@ -255,12 +669,23 @@ def check_registry_against_anchor(
         presented_head=presented_head,
         anchored_count=anchor.entry_count,
         presented_count=len(entries),
+        signature_checked=signature_checked,
+        signature_valid=signature_valid,
+        signer=anchor.signer,
     )
 
 
 def verify_registry_against_anchor(
-    registry_log_path: str | Path, anchor_path: str | Path
+    registry_log_path: str | Path,
+    anchor_path: str | Path,
+    *,
+    signer: str | None = None,
+    secret_hex: str | None = None,
 ) -> bool:
     """True only if the presented registry verifies internally AND
-    its head and length match the outside anchor exactly."""
-    return check_registry_against_anchor(registry_log_path, anchor_path).ok
+    its head and length match the outside anchor exactly - and,
+    when a signing identity is configured, the anchor's signature
+    and history verify for that signer."""
+    return check_registry_against_anchor(
+        registry_log_path, anchor_path, signer=signer, secret_hex=secret_hex
+    ).ok
