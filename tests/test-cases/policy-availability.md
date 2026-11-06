@@ -51,3 +51,35 @@
    experiment 016 (modeled beats and a modeled clock only; no real
    heartbeat transport, timer, or machine-death detection is
    claimed).
+6. Revocation delivery to a placed policy (added 2026-11-06,
+   experiment 021; finding F1 in experiment 020): a policy is
+   placed at a replication floor on opted-in holders (the case
+   2/4 machinery), and its author then revokes it (registration
+   case 6). The updated record is delivered the way this layer
+   delivers every record: the grown registry is copied over the
+   placement's shared snapshot file, following the anchor
+   lifecycle the earlier experiments stated when an anchor is
+   configured (a reload of the honestly grown snapshot before
+   re-anchoring is refused as anchor_stale, and after the grown
+   registry is re-anchored by the SAME signing identity the
+   reload can stand). Expected: the placed policy object gains
+   a reload path in the same style as a standalone node's
+   `reload_snapshot` (experiments 008/015): calling it
+   re-verifies the delivered snapshot and re-consults the
+   anchor BEFORE any holder's view changes, then rebuilds
+   every holder's view from it, so `serve()` on the placed
+   policy raises the revocation refusal and no holder serves
+   the revoked policy. Negative controls, in the style of
+   case 1: a reload over a tampered snapshot is refused and
+   leaves the previous serving state untouched (the placed
+   policy still serves exactly as before the attempt), exactly
+   as a standalone node behaves; a policy that was NOT revoked
+   keeps serving after the same reload; and with NO reload
+   called, the placed object keeps serving from its
+   placement-time view - that remaining fact is stated, not
+   hidden: delivery is an explicit reload call, not a push,
+   and nothing here bounds how long a placed policy that is
+   never reloaded stays stale. Status: implemented at
+   prototype scale in experiment 021 (explicit reload call on
+   in-process holders over one shared snapshot file; no push,
+   broadcast, or automatic delivery is claimed).
