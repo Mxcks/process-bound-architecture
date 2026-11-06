@@ -304,3 +304,28 @@ persistence, and Gate 5's open production benchmark.
 experiment. Nothing here is deployed beyond the localhost
 test processes the tests themselves spawned and cleaned up,
 and nothing in this experiment changes that.
+
+[Superseded in part, 2026-11-06, experiment 025: the limit
+above - "How the updated record gets into that file is still
+an explicit copy performed outside the process, as in every
+earlier experiment: there is no push, no broadcast, and no
+network transport of the record to a running server" - and
+the matching item in the Next section ("a transport that
+moves the updated record into snapshot files (sync
+scheduling, discovery)") were built in experiment 025
+(`experiments/025-snapshot-wire-transport/`), under
+sync-mesh case 14, written tests-first. A running server
+now also accepts the record itself over the wire
+(POST /deliver-snapshot): the delivered entries are verified
+and consulted against the server's anchor (and signature)
+before anything changes, and a delivery that stands rewrites
+the server's snapshot file from the verified entries and
+reloads through this experiment's path, so this
+experiment's file-driven check and the new push meet on the
+same record (a case 13 check right after a stood delivery
+reports no_change). What still stands from the limit above:
+delivery on both surfaces is driven, never unattended -
+nothing solicits a push, and there is no broadcast, gossip,
+or discovery; and the anchor still arrives out of band,
+since experiment 025 transports the record, not the
+anchor.]
