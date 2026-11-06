@@ -68,10 +68,22 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
-- Localhost only, plain HTTP: no TLS, no authentication, no
-  authorization on any endpoint. Anyone who can reach the port can
-  mutate, sync, and (on an opted-in node) fetch policies. That is
-  acceptable for a localhost experiment and for nothing else.
+- Localhost only. Started without TLS arguments (the experiment
+  007 default, unchanged), the transport is plain HTTP: no TLS, no
+  authentication, no authorization on any endpoint, and anyone who
+  can reach the port can mutate, sync, and (on an opted-in node)
+  fetch policies. Started with --tls-cert/--tls-key/--tls-ca, the
+  SAME endpoints run over mutual TLS (experiment 014,
+  protected_link.py): the wire is encrypted and a client must
+  present a certificate chaining to the given CA or the handshake
+  is refused before any endpoint is reached. That authenticates
+  possession of a CA-issued credential and nothing more: no check
+  binds a certificate to the node id a process claims, there is no
+  authorization beyond opt-in policy serving, no certificate
+  revocation or rotation, and no identity proofing. Plain HTTP is
+  acceptable for a localhost experiment and for nothing else;
+  mutual TLS at this scale is a prototype, not production
+  transport security.
 - No discovery: peer addresses are configured by whoever starts the
   processes and whoever calls /sync. No gossip schedule, no peer
   list, no automatic re-sync: sync happens when a client or a /sync
@@ -116,6 +128,7 @@ from policy_node import (  # noqa: E402
     PolicyNotFound,
     TamperedRecord,
 )
+import protected_link  # noqa: E402
 from sync_mesh import StateEntry, SyncNode  # noqa: E402
 
 
@@ -185,6 +198,36 @@ class NetworkNode:
 
 
 # -- HTTP client helpers (used by /sync, the tests, and the demo) ------------
+#
+# Protected links (experiment 014): when set_client_tls has been
+# called, every https:// request through these helpers presents the
+# configured client certificate and verifies the server against the
+# configured CA, via protected_link.client_context. Plain http://
+# requests keep experiment 007's original behavior exactly, so the
+# unmodified network tests exercise the same code path as before.
+
+_CLIENT_CONTEXT = None
+
+
+def set_client_tls(cert, key, ca_cert) -> None:
+    """Configure the credential these client helpers present on
+    https:// connections, until clear_client_tls is called. The
+    server process sets this from its own node certificate in main,
+    so a server initiating /sync authenticates to its peer with the
+    same credential it requires from clients."""
+    global _CLIENT_CONTEXT
+    _CLIENT_CONTEXT = protected_link.client_context(cert, key, ca_cert)
+
+
+def clear_client_tls() -> None:
+    global _CLIENT_CONTEXT
+    _CLIENT_CONTEXT = None
+
+
+def _urlopen(req: urllib.request.Request, timeout: float = 10):
+    if req.full_url.startswith("https://") and _CLIENT_CONTEXT is not None:
+        return urllib.request.urlopen(req, timeout=timeout, context=_CLIENT_CONTEXT)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def _request_json(method: str, url: str, payload: dict | None = None) -> tuple[int, dict]:
@@ -195,7 +238,7 @@ def _request_json(method: str, url: str, payload: dict | None = None) -> tuple[i
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen(req, timeout=10) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8")
@@ -269,7 +312,7 @@ def fetch_snapshot_bytes(base_url: str) -> bytes:
     responsible for verifying them (Gate 2's verify_registry_
     snapshot over a file written from these bytes) before use."""
     req = urllib.request.Request(base_url.rstrip("/") + "/snapshot", method="GET")
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with _urlopen(req, timeout=10) as resp:
         assert resp.status == 200
         return resp.read()
 
@@ -443,9 +486,17 @@ def make_handler(node: NetworkNode):
     return Handler
 
 
-def build_server(node: NetworkNode, host: str, port: int) -> ThreadingHTTPServer:
+def build_server(node: NetworkNode, host: str, port: int,
+                 tls_context=None) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer((host, port), make_handler(node))
     server.daemon_threads = True
+    if tls_context is not None:
+        # Protected link (experiment 014): the listening socket
+        # itself speaks TLS and the context requires a client
+        # certificate, so an unauthenticated peer cannot reach any
+        # endpoint - the handshake is refused before HTTP begins,
+        # and there is no plaintext mode on this port.
+        server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     return server
 
 
@@ -463,7 +514,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="opt in to serving policies (Gate 2 choice)")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
+    parser.add_argument("--tls-cert", default=None,
+                        help="certificate file for a protected link (experiment 014); "
+                             "requires --tls-key and --tls-ca")
+    parser.add_argument("--tls-key", default=None,
+                        help="private key file matching --tls-cert")
+    parser.add_argument("--tls-ca", default=None,
+                        help="CA that must have issued every peer's certificate")
     args = parser.parse_args(argv)
+
+    tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
+    if any(tls_values) and not all(tls_values):
+        parser.error("--tls-cert, --tls-key, and --tls-ca must be given together")
 
     payloads: dict[str, bytes] = {}
     if args.payloads:
@@ -478,7 +540,17 @@ def main(argv: list[str] | None = None) -> int:
         payloads=payloads,
         serve_policies=args.serve_policies,
     )
-    server = build_server(node, args.host, args.port)
+    tls_context = None
+    if all(tls_values):
+        tls_context = protected_link.server_context(
+            args.tls_cert, args.tls_key, args.tls_ca
+        )
+        # Outgoing connections from this process (server-to-server
+        # /sync) present this node's own certificate, so the peer
+        # authenticates this process exactly as it authenticates
+        # any other client.
+        set_client_tls(args.tls_cert, args.tls_key, args.tls_ca)
+    server = build_server(node, args.host, args.port, tls_context=tls_context)
     bound_port = server.server_address[1]
     if args.port_file:
         Path(args.port_file).write_text(str(bound_port), encoding="utf-8")
