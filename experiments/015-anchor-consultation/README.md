@@ -190,7 +190,17 @@ modified.
   attacker who rewrites the record AND re-anchors it passes
   consultation exactly as they passed the bare check. Production
   still needs the head held where the record's writer cannot
-  reach it, and a rule for who may re-anchor.
+  reach it, and a rule for who may re-anchor. SUPERSEDED IN PART
+  by experiment 019 (2026-11-06): the anchor can now be signed,
+  the rule for who may re-anchor is the same-identity rule
+  (re-anchoring a signed anchor requires the identity that
+  signed it; a different identity is refused and logged, and
+  accepted re-anchors append to a signed, kept history), and
+  this consultation verifies the signature when a signing
+  identity is configured for the node, refusing under the name
+  anchor_signature_invalid. An anchor written unsigned still
+  passes this consultation exactly as before, and nothing here
+  witnesses an anchor.
 - Consultation is per-node and opt-in. A node configured without
   an anchor serves and syncs exactly as before this experiment -
   including, as the tests state plainly, serving and accepting a
@@ -262,8 +272,9 @@ paths. The honest distance to utilization is unchanged in kind
 and shorter by one item: deliberate-removal notification
 (availability case 3, blocked on Max's answers in experiment
 011), anchor consultation in the networked server processes and
-the Gate 5 verdict, a witnessed or signed anchor for production
-(plus a rule for who may re-anchor), liveness detection and
+the Gate 5 verdict (done, experiment 018), a signed anchor plus
+the rule for who may re-anchor (done at prototype scale,
+experiment 019; a witnessed anchor is still open), liveness detection and
 automatic healing triggers, discovery and automatic sync,
 persistence and restart recovery, production crypto and identity
 proofing, consensus, revocation delivery to placed policies, and
