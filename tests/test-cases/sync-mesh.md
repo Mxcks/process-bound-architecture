@@ -130,3 +130,30 @@
    who SHOULD hold a certificate, no certificate revocation or
    lifecycle, and no per-endpoint authorization beyond the
    identity check is claimed).
+10. Anchor consultation in the networked server processes and in
+   the Gate 5 verdict (added 2026-11-06, experiment 018): the
+   server-process half of registration case 9 (a server started
+   with `--anchor` consults experiment 012's registry anchor for
+   its snapshot at startup and refuses a rewritten snapshot as
+   anchor_mismatch and honest growth as anchor_stale, over
+   plaintext and protected transports alike, while a server
+   without an anchor behaves exactly as experiments 007/014 left
+   it), and the mesh half of the Gate 5 verdict: run_gate can be
+   given a mesh anchor path (experiment 012's mesh anchor for the
+   canary node's converged state), consulted with
+   check_node_against_anchor and classified by experiment 015's
+   AnchoredSyncNode classification, entering the verdict as its
+   own named check. Expected: a converged mesh holding exactly
+   the anchored entry set keeps the verdict passing exactly as
+   before; a mesh that grew honestly past its anchor (every
+   anchored origin head still present intact, entries only
+   appended, all nodes converged on the grown state) makes the
+   verdict FAIL under the name anchor_stale for the mesh check,
+   not as a mismatch and not as a silent pass. With no mesh
+   anchor given, no mesh anchor check is in the verdict and its
+   behavior is unchanged. Detailed case:
+   `tests/test-cases/registration.md` case 9. Status:
+   IMPLEMENTED at prototype scale in experiment 018 (the
+   server-process mesh side still holds a plain SyncNode and
+   consults no mesh anchor; the mesh anchor enters through the
+   Gate 5 verdict, as this case states).
