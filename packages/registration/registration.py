@@ -22,6 +22,38 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the six Gate 1 outcomes)
 6. A validation channel identifier is bound if and only if registration
    succeeds. Rejected and unregistered code never gets one.
 
+REVOCATION (test case 6 in tests/test-cases/registration.md, built in
+experiment 008)
+----------------------------------------------------------
+7. A registered policy can be revoked, but only by its author, and
+   only through the same authenticated channel: the caller must be
+   enrolled, must be the record's author, and must present a valid
+   revocation signature (HMAC over a revocation-specific canonical
+   string, signed with the author's enrollment secret). A non-author
+   attempt, an unknown author, an unknown policy, and a bad signature
+   are all rejected and written to the audit log.
+8. Revocation is a NEW entry in the same hash-chained registry log
+   (event "revoked", chained to the registration entry exactly like a
+   second registration would be). The original registration entry is
+   never deleted or rewritten, and the chain still verifies with the
+   revocation entry in it. Registering is append-only; revoking is
+   append-only too.
+9. After revocation, in this channel's view: the execution boundary
+   refuses the policy (BlockedRevoked), and validation_channel_for
+   returns None, so the policy's validation channel is no longer
+   honored. The historical registration record is still readable via
+   get_record (the record happened; it is the *standing* of the
+   policy that changed), and is_revoked / get_revocation expose the
+   new standing. Revoking twice is idempotent: the second call
+   returns the existing revocation record and writes no new entry.
+10. STALE WINDOW, stated not hidden: revocation takes effect wherever
+    the updated record has arrived. A PolicyNode (Gate 2) holding
+    only the pre-revocation snapshot does not know, and keeps
+    serving, until it receives the updated record (see
+    packages/policy-library/policy_node.py, reload_snapshot). There
+    is no push, no broadcast, and no bound on how long a stale node
+    that never syncs stays stale in this prototype.
+
 HONEST LIMITS (prototype, NOT production crypto)
 ------------------------------------------------
 - "Signatures" are HMAC-SHA256 with a per-user shared secret that the
@@ -40,6 +72,12 @@ HONEST LIMITS (prototype, NOT production crypto)
 - Everything is local files and in-process calls. There is no server,
   no HTTP, and no concurrency control beyond a simple in-process lock
   assumption (single-threaded prototype).
+- Revocation inherits the signing limit above: because the channel
+  issues the secrets, the channel itself could forge a revocation
+  signature. Revocation is also final in this prototype: there is no
+  un-revoke / reinstatement entry type, and no notification to nodes
+  holding the policy (deliberate-removal notification, availability
+  test case 3, remains unbuilt).
 """
 
 from __future__ import annotations
@@ -86,12 +124,52 @@ def sign_library(secret_hex: str, author: str, name: str, version: str, code: by
     ).hexdigest()
 
 
+def canonical_revocation_bytes(policy_hash: str) -> bytes:
+    """Deterministic encoding of a revocation request's identity.
+
+    Domain-separated from library signing (different prefix, no code),
+    so a registration signature can never be replayed as a revocation
+    signature or the other way round.
+    """
+    return f"PBA-REVOKE-v1|{policy_hash}".encode("utf-8")
+
+
+def sign_revocation(secret_hex: str, policy_hash: str) -> str:
+    """Prototype revocation 'signature': HMAC-SHA256 over the canonical
+    revocation bytes, with the author's enrollment secret.
+
+    See the module docstring for why this is NOT production signing.
+    """
+    return hmac.new(
+        bytes.fromhex(secret_hex),
+        canonical_revocation_bytes(policy_hash),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 class RegistrationRejected(Exception):
     """Registration failed; the attempt was written to the audit log."""
 
 
+class RevocationRejected(RegistrationRejected):
+    """Revocation failed; the attempt was written to the audit log.
+
+    Subclasses RegistrationRejected so existing callers that catch
+    channel rejections catch revocation rejections too.
+    """
+
+
 class BlockedUnregistered(Exception):
     """Execution boundary refused code that is not registered (or mismatched)."""
+
+
+class BlockedRevoked(BlockedUnregistered):
+    """Execution boundary refused code whose registration was revoked.
+
+    Subclasses BlockedUnregistered so existing callers that treat any
+    boundary refusal alike keep working; callers that care can catch
+    this type specifically.
+    """
 
 
 @dataclass(frozen=True)
@@ -112,6 +190,31 @@ class RegistrationRecord:
             "name": self.name,
             "version": self.version,
             "code_hash": self.code_hash,
+            "validation_channel": self.validation_channel,
+            "log_index": self.log_index,
+            "record_hash": self.record_hash,
+        }
+
+
+@dataclass(frozen=True)
+class RevocationRecord:
+    """The revocation entry for one policy, as written to the chain.
+
+    This is a separate record from RegistrationRecord on purpose: the
+    registration record is historical fact and is never mutated, so
+    revocation standing lives here, keyed by the same policy hash.
+    """
+
+    policy_hash: str
+    author: str
+    validation_channel: str  # the channel that is no longer honored
+    log_index: int
+    record_hash: str
+
+    def to_dict(self) -> dict:
+        return {
+            "policy_hash": self.policy_hash,
+            "author": self.author,
             "validation_channel": self.validation_channel,
             "log_index": self.log_index,
             "record_hash": self.record_hash,
@@ -140,6 +243,7 @@ class RegistrationChannel:
 
         self._secrets: dict[str, str] = {}  # user_id -> secret hex (memory only)
         self._records: dict[str, RegistrationRecord] = {}  # policy_hash -> record
+        self._revocations: dict[str, RevocationRecord] = {}  # policy_hash -> revocation
         self._lock = threading.Lock()
         self._load_existing_chain()
 
@@ -282,12 +386,156 @@ class RegistrationChannel:
             )
             return record, True
 
+    # -- revocation (test case 6) -------------------------------------------
+
+    def revoke(
+        self,
+        *,
+        author: str,
+        policy_hash: str,
+        signature: str,
+    ) -> tuple[RevocationRecord, bool]:
+        """Revoke a registered policy. Returns (revocation, created).
+
+        Only the policy's author can revoke it, authenticated the same
+        way registration is: the caller must be enrolled on this
+        channel, must be the record's author, and must present the
+        revocation signature for this policy hash under their own
+        enrollment secret (sign_revocation). Every failure raises
+        RevocationRejected and is written to the audit log; nothing is
+        appended to the registry chain on failure.
+
+        On success exactly one NEW entry (event "revoked") is appended
+        to the hash chain; the original registration entry is not
+        deleted or rewritten. created=False means this policy was
+        already revoked and the existing revocation record was
+        returned unchanged; no second entry is written.
+        """
+        with self._lock:
+            secret_hex = self._secrets.get(author)
+            if secret_hex is None:
+                self._audit(
+                    {
+                        "event": "revocation_rejected",
+                        "reason": "unknown_author",
+                        "author": author,
+                        "policy_hash": policy_hash,
+                    }
+                )
+                raise RevocationRejected(f"unknown author (not enrolled): {author}")
+
+            record = self._records.get(policy_hash)
+            if record is None:
+                self._audit(
+                    {
+                        "event": "revocation_rejected",
+                        "reason": "unknown_policy",
+                        "author": author,
+                        "policy_hash": policy_hash,
+                    }
+                )
+                raise RevocationRejected(f"no registration for policy hash: {policy_hash}")
+
+            # Ownership is checked before the signature, so an enrolled
+            # non-author signing correctly *as themselves* is rejected
+            # for the honest reason (not_author), not bad_signature.
+            if record.author != author:
+                self._audit(
+                    {
+                        "event": "revocation_rejected",
+                        "reason": "not_author",
+                        "author": author,
+                        "policy_author": record.author,
+                        "policy_hash": policy_hash,
+                    }
+                )
+                raise RevocationRejected(
+                    f"only the author ({record.author}) can revoke this policy"
+                )
+
+            expected = sign_revocation(secret_hex, policy_hash)
+            if not hmac.compare_digest(expected, signature):
+                self._audit(
+                    {
+                        "event": "revocation_rejected",
+                        "reason": "bad_signature",
+                        "author": author,
+                        "policy_hash": policy_hash,
+                    }
+                )
+                raise RevocationRejected("bad signature")
+
+            existing = self._revocations.get(policy_hash)
+            if existing is not None:
+                self._audit(
+                    {
+                        "event": "duplicate_revocation",
+                        "author": author,
+                        "policy_hash": policy_hash,
+                    }
+                )
+                return existing, False
+
+            entries = self._read_registry_entries()
+            prev_hash = entries[-1]["entry_hash"] if entries else GENESIS_HASH
+            log_index = len(entries)
+
+            entry_body = {
+                "event": "revoked",
+                "log_index": log_index,
+                "policy_hash": policy_hash,
+                "author": author,
+                "revoked_by": author,
+                "validation_channel": record.validation_channel,
+                "prev_hash": prev_hash,
+            }
+            entry_hash = _sha256_hex(
+                json.dumps(entry_body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            )
+            entry = dict(entry_body)
+            entry["entry_hash"] = entry_hash
+            with self.registry_log_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, sort_keys=True) + "\n")
+
+            revocation = RevocationRecord(
+                policy_hash=policy_hash,
+                author=author,
+                validation_channel=record.validation_channel,
+                log_index=log_index,
+                record_hash=entry_hash,
+            )
+            self._revocations[policy_hash] = revocation
+            self._audit(
+                {
+                    "event": "revoked",
+                    "author": author,
+                    "policy_hash": policy_hash,
+                    "validation_channel": record.validation_channel,
+                }
+            )
+            return revocation, True
+
     # -- lookups used by the execution boundary ----------------------------
 
     def get_record(self, policy_hash: str) -> RegistrationRecord | None:
+        """The historical registration record, revoked or not.
+
+        Registration happened and stays readable; whether the policy
+        still stands is is_revoked()'s question, not this one's.
+        """
         return self._records.get(policy_hash)
 
+    def is_revoked(self, policy_hash: str) -> bool:
+        return policy_hash in self._revocations
+
+    def get_revocation(self, policy_hash: str) -> RevocationRecord | None:
+        return self._revocations.get(policy_hash)
+
     def validation_channel_for(self, policy_hash: str) -> str | None:
+        """The policy's validation channel, or None if it is not honored:
+        never registered, or registered and since revoked (case 6)."""
+        if policy_hash in self._revocations:
+            return None
         record = self._records.get(policy_hash)
         return record.validation_channel if record else None
 
@@ -303,6 +551,16 @@ class RegistrationChannel:
 
     def _load_existing_chain(self) -> None:
         for entry in self._read_registry_entries():
+            if entry.get("event") == "revoked":
+                revocation = RevocationRecord(
+                    policy_hash=entry["policy_hash"],
+                    author=entry["author"],
+                    validation_channel=entry["validation_channel"],
+                    log_index=entry["log_index"],
+                    record_hash=entry["entry_hash"],
+                )
+                self._revocations[revocation.policy_hash] = revocation
+                continue
             record = RegistrationRecord(
                 policy_hash=entry["policy_hash"],
                 author=entry["author"],
@@ -351,10 +609,13 @@ class ExecutionBoundary:
     """The execution boundary: code runs (is admitted) only if registered.
 
     'Admitted' here means the boundary returns a handle for the registered
-    library after checking (a) a record exists for the policy hash and
-    (b) the presented code hashes to the registered code hash. Anything
-    else raises BlockedUnregistered. Actually sandboxing admitted code is
-    the runtime package's job, not this prototype's (see module docstring).
+    library after checking (a) a record exists for the policy hash,
+    (b) the presented code hashes to the registered code hash, and
+    (c) the policy has not been revoked (case 6: a revoked policy is
+    refused with BlockedRevoked even when its code matches exactly).
+    Anything else raises BlockedUnregistered. Actually sandboxing
+    admitted code is the runtime package's job, not this prototype's
+    (see module docstring).
     """
 
     def __init__(self, channel: RegistrationChannel):
@@ -364,6 +625,10 @@ class ExecutionBoundary:
         record = self._channel.get_record(policy_hash)
         if record is None:
             raise BlockedUnregistered(f"no registration for policy hash: {policy_hash}")
+        if self._channel.is_revoked(policy_hash):
+            raise BlockedRevoked(
+                f"registration revoked by its author: {policy_hash}"
+            )
         if _sha256_hex(code) != record.code_hash:
             raise BlockedUnregistered(
                 "presented code does not match the registered code hash"
