@@ -104,3 +104,79 @@
    accepts the rewritten chain exactly as before, honest growth
    flagged anchor_stale and refused until re-anchored and then
    accepted).
+9. Anchor consultation in the networked server processes and in
+   the Gate 5 verdict (added 2026-11-06, experiment 018; gap
+   flagged in experiment 015: anchor consultation was wired into
+   the in-process Gate 2 and Gate 3 nodes, but the experiment
+   007/014 server processes in
+   `packages/synchronization/node_server.py` built their
+   PolicyNode without an anchor path, so networked serving never
+   consulted an anchor, and the Gate 5 verification verdict in
+   `packages/validation/gate5_harness.py` included no anchor
+   evidence at all): a node server process started with an anchor
+   configured for its registry snapshot (a new opt-in `--anchor`
+   argument, experiment 012's registry anchor for that snapshot's
+   chain, passed to the PolicyNode it builds, reusing experiment
+   015's consultation and classification exactly) consults that
+   anchor at startup, in the same plain style as its existing
+   refusal to start over a tampered snapshot. Expected: a server
+   whose snapshot is the genuine anchored chain starts and serves
+   normally over BOTH existing transports (experiment 007's
+   plaintext mode and experiment 014's mutual-TLS mode), and its
+   health response reports the anchor as configured and anchored;
+   a server whose snapshot was rewritten from genesis with
+   different content (internally consistent, so it passes the
+   snapshot's own chain verification - experiment 012's negative
+   control, and the exact snapshot a server without an anchor
+   serves) REFUSES TO START, exits nonzero, and its log names the
+   refusal anchor_mismatch (experiment 012's check status,
+   experiment 015's AnchorMismatch). Negative control, in the
+   style of availability case 1: a server started WITHOUT an
+   anchor over that same rewritten snapshot starts and serves it
+   exactly as before this case existed, and reports no anchor
+   configured - absence of an anchor is not an error, behavior
+   without one is exactly the pre-018 behavior, and the earlier
+   networked and protected suites pass unmodified in the same
+   run. Honest growth, stated explicitly as in case 8: a snapshot
+   that grew honestly after anchoring (the anchored head is still
+   the head of the presented chain's prefix of the anchored
+   length, entries only appended) is refused at startup as
+   anchor_stale, under its own name - not as anchor_mismatch, and
+   never silently started as anchored - until the new head is
+   re-anchored, after which the same server starts and serves.
+   Gate 5 verdict, same case: the Gate 5 harness's run_gate can
+   take anchor evidence into account (opt-in arguments carrying
+   a registry anchor path and a mesh anchor path; with neither
+   given, the verdict's checks and behavior are exactly
+   experiment 006's). When anchor checks are part of a gate run,
+   each configured anchor is consulted with experiment 012's
+   check functions and classified with experiment 015's
+   classification (anchored / anchor_mismatch / anchor_stale),
+   and the result enters the verdict as its own named check.
+   Expected: a genuine registry chain and a genuine mesh state
+   with matching anchors keep the verdict exactly as experiments
+   006/009 produced it (passed, every earlier check unchanged and
+   passing, the anchor checks additional and passing); a registry
+   chain rewritten so that it passes every internal check the
+   gate already runs (the snapshot verifies on its own, the
+   canary policy is present and serves, the mesh lineage
+   verifies) makes the verdict FAIL, and the anchor check is the
+   failing check, named anchor_mismatch; honest growth of either
+   anchored chain past its anchor makes the verdict FAIL under
+   the name anchor_stale for that chain's check, never a pass as
+   anchored and never reported as a mismatch. Status:
+   IMPLEMENTED at prototype scale (2026-11-06, experiment
+   `experiments/018-anchor-in-servers-and-verdict/`); the case
+   was written before the build, and the tests-first failure and
+   passing results are recorded in that experiment's
+   `test-output.txt`. Tests:
+   `packages/synchronization/test_anchor_in_servers.py` (genuine
+   anchored server serves over plaintext and mutual TLS,
+   rewritten snapshot refused at startup as anchor_mismatch,
+   anchorless server serves the rewrite exactly as before,
+   honest growth refused as anchor_stale until re-anchored) and
+   `packages/validation/test_gate5_anchor.py` (no-anchor verdict
+   unchanged, genuine anchors keep the verdict passing, rewrite
+   passing every internal check fails the verdict on the anchor
+   check alone, honest growth of either chain fails the verdict
+   as anchor_stale).
