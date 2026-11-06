@@ -40,9 +40,16 @@ What remains open at real scale:
 - Real holders: network transport, discovery, and a placement
   protocol. Prototype holders are in-process objects over one shared
   snapshot file.
-- Liveness: nothing detects a real machine dying. There is no
-  heartbeat or liveness check yet; the candidate direction assigns
-  that to the verification gate (Gate 5, not yet built).
+- Liveness: TESTED at prototype scale (2026-11-06, experiment
+  `experiments/016-liveness-auto-healing/`, availability case 5).
+  Holders beat into a shared liveness view on a deterministic
+  modeled clock; a watcher declares a holder lost only after 3
+  missed beats (fewer is silent-short, the temporary case: still
+  a holder, no healing), and that declaration triggers experiment
+  010's heal automatically. Still open at real scale: the
+  heartbeat is a method call and the clock is a counter - no real
+  heartbeat transport, timer, or machine-death detection exists,
+  and the Gate 5 verification gate does not consult liveness.
 - Self-healing: TESTED at prototype scale (2026-11-06, experiment
   `experiments/010-self-healing/`, availability case 4). A
   permanently lost holder drops the count below the floor, the
@@ -51,10 +58,12 @@ What remains open at real scale:
   policy to it (verified there like any holder), and restores the
   floor; with no eligible replacement it reports below_floor
   honestly. Still open at real scale: healing here is an explicit
-  call against a caller-supplied candidate list, in-process - no
-  liveness detection decides a holder is lost, nothing discovers
-  candidates or triggers healing automatically, and no copy moves
-  over a network.
+  call against a caller-supplied candidate list, in-process, and
+  no copy moves over a network. (The liveness detection and the
+  automatic trigger that were open here are now tested at
+  prototype scale, experiment 016, availability case 5 - on a
+  modeled clock, with candidate discovery still open, and a
+  returned lost holder rejoining as a candidate only.)
 - Real independence: the prototype counts distinct node ids. It
   cannot verify different machines, operators, or failure domains.
 - Deliberate removal: `tests/test-cases/policy-availability.md`
