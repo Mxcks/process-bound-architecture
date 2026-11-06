@@ -21,7 +21,10 @@ OS processes exchanging entries and registry snapshots over HTTP on
 localhost, and an **external anchor for mesh chain heads built and
 passing** (2026-11-06, experiment
 `experiments/012-external-chain-anchor/`; `tests/test-cases/sync-mesh.md`
-case 5). Prototype only, not production. The module docstrings in
+case 5), and **coordinated rollback across nodes built and
+passing** (2026-11-06, experiment
+`experiments/013-coordinated-rollback/`; `tests/test-cases/sync-mesh.md`
+case 6). Prototype only, not production. The module docstrings in
 `sync_mesh.py` and `node_server.py` are the authoritative lists of
 honest limits. The layer contract above is unchanged; what follows
 documents the prototypes that now implement it at prototype scale.
@@ -38,6 +41,9 @@ documents the prototypes that now implement it at prototype scale.
 | `demo_network_nodes.py` | Runnable walkthrough of the networked outcomes: two processes sync and converge, the second serves the policy, it is killed, and the first still serves. |
 | `anchor.py` | The external anchor for mesh chain heads (experiment 012): writes each origin's head (top seq + entry hash) plus the state hash from a node's view to a file outside the node, and checks a presented node against it. Builds on `SyncNode` without modifying it. |
 | `test_anchor.py` | Automated tests for sync-mesh case 5: converged nodes verify against the anchor, and the negative control (a fully rewritten origin chain that passes internal checks fails the anchor check). |
+| `coordinated_rollback.py` | Coordinated rollback (experiment 013): a shared checkpoint captured from a verified-converged set of nodes (entry set, state, state hash, per-origin chain heads), a coordinator that restores every participating node to that one checkpoint through `sync_mesh.py`'s `restore_to_entries`, and a checkpoint check that names a node that skipped the rollback divergent. Builds on `SyncNode` and reuses `anchor.py`'s `origin_heads`. |
+| `test_coordinated_rollback.py` | Automated tests for sync-mesh case 6: coordinated rollback restores the shared checkpoint on all nodes after a fork fault (whose local rollback observably lands elsewhere), the mesh converges on new changes afterward, and the negative control (a node that skips the rollback is detected divergent and rejoins only by restoring the checkpoint itself). |
+| `demo_coordinated_rollback.py` | Runnable walkthrough of case 6: checkpoint, fault, local rollback missing the shared checkpoint, coordinated rollback, skipped node detected, rejoin. |
 
 ## How to run it
 
@@ -60,6 +66,10 @@ python3 packages/synchronization/demo_network_nodes.py
 
 # External anchor for mesh chain heads (sync-mesh case 5)
 python3 packages/synchronization/test_anchor.py
+
+# Coordinated rollback (sync-mesh case 6)
+python3 packages/synchronization/test_coordinated_rollback.py
+python3 packages/synchronization/demo_coordinated_rollback.py
 
 # One node server by hand (ephemeral port; prints LISTENING <port>)
 python3 packages/synchronization/node_server.py --node-id my-node \
@@ -119,6 +129,25 @@ already synced to another process, no more: the network tests prove
 that shape (a killed node's entries live on in its peers, its
 unsynced ones would not).
 
+## Coordinated rollback, in plain words
+
+Local rollback (point 4) returns a node to its OWN last verified
+checkpoint, and checkpoints move with every verified merge - so after
+the mesh has moved on, nodes can hold different checkpoints and local
+rollback alone leaves them at different recovery points.
+`coordinated_rollback.py` (experiment 013) names one recovery point
+for the whole set: `take_shared_checkpoint` captures the entry set a
+set of nodes is verified to share (it refuses, naming the node, when
+they do not share one), and `coordinate_rollback` restores every
+participating node to that set through `SyncNode.restore_to_entries`,
+which judges the given set with the same verification a received
+batch gets before keeping it. Each node's result is then checked
+against the checkpoint itself - entry set, materialized state, state
+hash, and per-origin chain heads - and a node that skipped the
+rollback is reported divergent by that same check, with each
+mismatched fact named. It rejoins by restoring the checkpoint, not
+by its post-checkpoint state being accepted as the checkpoint.
+
 ## Honest limits
 
 - Gate 3's nodes are in-process objects exchanging Python objects by
@@ -134,9 +163,19 @@ unsynced ones would not).
   Detection is local hash/chain verification plus fork comparison
   when two views meet. A fork nobody ever compares is not detected.
   Gate 5's forced-Byzantine canary test is still ahead.
-- Rollback is local to the detecting node. There is no coordinated
-  mesh-wide rollback, and peers are not signalled beyond the
-  `SyncResult` handed to the caller.
+- Rollback in Gate 3's sync itself is local to the detecting node,
+  and peers are not signalled beyond the `SyncResult` handed to the
+  caller. Coordinated rollback is now built at prototype scale on
+  top of it (experiment 013, `coordinated_rollback.py`): an
+  explicit, caller-driven, in-process step that restores every
+  participating node to one shared checkpoint and checks each
+  against it. There is still no network signalling, no automatic
+  trigger on a peer's divergence, and no consensus or vote on the
+  checkpoint; rolling back discards legitimate post-checkpoint
+  entries along with the fault's context, and detection of a node
+  that skipped the rollback is by checkpoint comparison, not by
+  sync (its extra entries are valid chain entries, so the check
+  must run before sync resumes with that node).
 - Whole-chain rewrite limit inherited from Gates 1/2: one edited
   entry is caught, and a fork is caught when both versions are seen,
   but one origin's entire chain rewritten from genesis, shown to a
