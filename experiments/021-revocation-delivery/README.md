@@ -244,3 +244,31 @@ not the sending end), and Gate 5's open production benchmark.
 `PBA-FIX-001` remains talk-first and untouched by this
 experiment. Nothing here is deployed beyond the localhost test
 processes the tests themselves spawned and cleaned up.
+
+[Superseded in part, 2026-11-06, experiment 022: the first
+honest limit above - "nothing calls `reload_snapshot()`
+automatically", the liveness watcher does not trigger a
+reload, and a heal between revocation and reload recruits
+over the stale record - was built in experiment 022
+(`experiments/022-automatic-snapshot-delivery/`), under its
+own tests-first run. A `SnapshotDeliveryWatcher` in the style
+of experiment 016's liveness watcher now calls this
+experiment's `reload_snapshot()` itself, in the check that
+notices the shared snapshot file changed (comparing its
+presented entry count, chain head, and file fingerprint with
+the facts the placed policy last loaded): a clean delivery
+takes effect in that check, a refused delivery (tampered,
+anchor_stale, anchor_mismatch) is re-reported on every later
+check until its cause is fixed, an unchanged check calls
+nothing, and a heal after a delivery recruits over the
+updated record. This experiment's receiving end is unchanged
+and is exactly what the watcher reuses. What still stands
+from the limit, restated in 022's own record: nothing pushes
+or broadcasts the updated record INTO the snapshot file,
+nothing schedules the watcher's checks unattended (its clock
+is modeled and caller-driven), the watcher watches placed
+policies only - a running server still learns of a revocation
+only on restart - and the "revocation PUSH delivery" item in
+the Next section above is superseded only to that extent: the
+receiving trigger now exists, the sending transport does
+not.]
