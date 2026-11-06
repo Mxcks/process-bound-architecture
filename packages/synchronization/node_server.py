@@ -77,13 +77,21 @@ HONEST LIMITS (prototype, NOT production)
   protected_link.py): the wire is encrypted and a client must
   present a certificate chaining to the given CA or the handshake
   is refused before any endpoint is reached. That authenticates
-  possession of a CA-issued credential and nothing more: no check
-  binds a certificate to the node id a process claims, there is no
-  authorization beyond opt-in policy serving, no certificate
-  revocation or rotation, and no identity proofing. Plain HTTP is
-  acceptable for a localhost experiment and for nothing else;
-  mutual TLS at this scale is a prototype, not production
-  transport security.
+  possession of a CA-issued credential. Started additionally with
+  --tls-bind-identity (experiment 017), the certificate is also
+  bound to the node id a process claims: the process refuses to
+  start if its own certificate was issued for a different id, an
+  accepting node refuses a peer whose claimed id (the
+  X-PBA-Node-Id header) differs from the id in its certificate,
+  and an initiating node checks a peer server's certificate id
+  against that peer's claimed id before pulling any entries.
+  Without the flag, no such check runs and behavior is exactly
+  experiment 014's. There is still no authorization beyond the
+  identity check and opt-in policy serving, no certificate
+  revocation or rotation, and no identity proofing of who SHOULD
+  hold a certificate. Plain HTTP is acceptable for a localhost
+  experiment and for nothing else; mutual TLS at this scale is a
+  prototype, not production transport security.
 - No discovery: peer addresses are configured by whoever starts the
   processes and whoever calls /sync. No gossip schedule, no peer
   list, no automatic re-sync: sync happens when a client or a /sync
@@ -106,9 +114,11 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import socket
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -176,8 +186,15 @@ class NetworkNode:
         registry_snapshot_path: str | Path | None = None,
         payloads: dict[str, bytes] | None = None,
         serve_policies: bool = False,
+        bind_identity: bool = False,
     ):
         self.node_id = node_id
+        # Experiment 017: when True (and the process runs over
+        # mutual TLS), the handler checks every connecting peer's
+        # certificate id against the id that peer claims, and this
+        # node's own /sync checks a peer server's certificate id
+        # against its claim before pulling entries.
+        self.bind_identity = bool(bind_identity)
         self.sync_node = SyncNode(node_id)
         self.snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path else None
@@ -207,21 +224,69 @@ class NetworkNode:
 # unmodified network tests exercise the same code path as before.
 
 _CLIENT_CONTEXT = None
+_CLIENT_NODE_ID = None
+
+# The header a client uses to CLAIM its node id on a protected
+# link (experiment 017). A binding-enabled server compares this
+# claim against the id inside the certificate the client actually
+# presented; the header alone grants nothing.
+CLAIM_HEADER = "X-PBA-Node-Id"
 
 
-def set_client_tls(cert, key, ca_cert) -> None:
+def set_client_tls(cert, key, ca_cert, node_id: str | None = None) -> None:
     """Configure the credential these client helpers present on
     https:// connections, until clear_client_tls is called. The
     server process sets this from its own node certificate in main,
     so a server initiating /sync authenticates to its peer with the
-    same credential it requires from clients."""
-    global _CLIENT_CONTEXT
+    same credential it requires from clients. `node_id` is the id
+    these helpers CLAIM on each request (sent as the X-PBA-Node-Id
+    header); a binding-enabled peer checks it against the
+    certificate's own id."""
+    global _CLIENT_CONTEXT, _CLIENT_NODE_ID
     _CLIENT_CONTEXT = protected_link.client_context(cert, key, ca_cert)
+    _CLIENT_NODE_ID = node_id
 
 
 def clear_client_tls() -> None:
-    global _CLIENT_CONTEXT
+    global _CLIENT_CONTEXT, _CLIENT_NODE_ID
     _CLIENT_CONTEXT = None
+    _CLIENT_NODE_ID = None
+
+
+def probe_peer_node_id(base_url: str) -> str | None:
+    """The node id inside the SERVER certificate at base_url, read
+    from a fresh TLS connection's peer certificate. The handshake
+    is the same mutual TLS as any other link, so this succeeds for
+    any CA-issued server certificate, matching claim or not - the
+    comparison against the claim is the caller's check."""
+    if _CLIENT_CONTEXT is None:
+        raise RuntimeError("probe_peer_node_id needs set_client_tls first")
+    parts = urllib.parse.urlparse(base_url)
+    host = parts.hostname or "127.0.0.1"
+    port = parts.port
+    raw = socket.create_connection((host, port), timeout=10)
+    try:
+        with _CLIENT_CONTEXT.wrap_socket(raw, server_hostname=host) as tls:
+            return protected_link.peercert_node_id(tls.getpeercert())
+    except Exception:
+        raw.close()
+        raise
+
+
+def verify_peer_identity(base_url: str, expected_node_id: str | None = None) -> str:
+    """Initiating-side identity check (experiment 017): the peer
+    server's certificate id must equal the node id the peer claims
+    in its health response (and `expected_node_id`, when given).
+    Returns the verified node id; raises
+    protected_link.IdentityMismatch, naming claimed and certified
+    ids, on any disagreement."""
+    claimed = fetch_health(base_url)["node_id"]
+    certified = probe_peer_node_id(base_url)
+    if certified != claimed:
+        raise protected_link.IdentityMismatch(claimed, certified)
+    if expected_node_id is not None and certified != expected_node_id:
+        raise protected_link.IdentityMismatch(expected_node_id, certified)
+    return certified
 
 
 def _urlopen(req: urllib.request.Request, timeout: float = 10):
@@ -233,6 +298,8 @@ def _urlopen(req: urllib.request.Request, timeout: float = 10):
 def _request_json(method: str, url: str, payload: dict | None = None) -> tuple[int, dict]:
     data = None
     headers = {}
+    if _CLIENT_NODE_ID is not None:
+        headers[CLAIM_HEADER] = _CLIENT_NODE_ID
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -312,6 +379,8 @@ def fetch_snapshot_bytes(base_url: str) -> bytes:
     responsible for verifying them (Gate 2's verify_registry_
     snapshot over a file written from these bytes) before use."""
     req = urllib.request.Request(base_url.rstrip("/") + "/snapshot", method="GET")
+    if _CLIENT_NODE_ID is not None:
+        req.add_header(CLAIM_HEADER, _CLIENT_NODE_ID)
     with _urlopen(req, timeout=10) as resp:
         assert resp.status == 200
         return resp.read()
@@ -349,9 +418,48 @@ def make_handler(node: NetworkNode):
             raw = self.rfile.read(length) if length else b"{}"
             return json.loads(raw.decode("utf-8"))
 
+        def _check_peer_identity(self) -> bool:
+            """Accepting-side identity check (experiment 017).
+            With binding off this always passes, exactly as in
+            experiment 014. With binding on, the connecting peer's
+            certificate id (read from THIS connection's peer
+            certificate) must equal the node id the peer claims in
+            the X-PBA-Node-Id header. A mismatch is refused here,
+            before any endpoint runs, with a plainly stated
+            identity_mismatch naming both ids - over HTTP, because
+            the handshake itself already succeeded on possession
+            of a valid CA-issued certificate."""
+            if not node.bind_identity:
+                return True
+            try:
+                peercert = self.connection.getpeercert()
+            except (ValueError, OSError):
+                peercert = None
+            certified = (
+                protected_link.peercert_node_id(peercert) if peercert else None
+            )
+            claimed = self.headers.get(CLAIM_HEADER)
+            if certified is not None and claimed == certified:
+                return True
+            mismatch = protected_link.IdentityMismatch(claimed, certified)
+            print(
+                f"identity_mismatch refused: claimed={claimed} "
+                f"certified={certified} path={self.path}",
+                flush=True,
+            )
+            self._send_json(403, {
+                "error": "identity_mismatch",
+                "claimed": claimed,
+                "certified": certified,
+                "detail": str(mismatch),
+            })
+            return False
+
         # -- GET ----------------------------------------------------------
 
         def do_GET(self):  # noqa: N802 (BaseHTTPRequestHandler API)
+            if not self._check_peer_identity():
+                return
             if self.path == "/health":
                 with node.lock:
                     self._send_json(200, {
@@ -421,6 +529,8 @@ def make_handler(node: NetworkNode):
             except (ValueError, UnicodeDecodeError) as exc:
                 self._send_json(400, {"error": f"bad JSON body: {exc}"})
                 return
+            if not self._check_peer_identity():
+                return
             if self.path == "/mutate":
                 key, value = payload.get("key"), payload.get("value")
                 if not isinstance(key, str) or not isinstance(value, str):
@@ -456,6 +566,30 @@ def make_handler(node: NetworkNode):
             self._send_json(404, {"error": f"unknown path: {self.path}"})
 
         def _sync_with_peer(self, peer: str) -> None:
+            # Initiating-side identity check (experiment 017): with
+            # binding on, the peer server's certificate id is
+            # checked against the node id the peer claims in its
+            # health response BEFORE any entries are pulled. A
+            # mismatch refuses the sync outright; no state moves.
+            if node.bind_identity:
+                try:
+                    verify_peer_identity(peer)
+                except protected_link.IdentityMismatch as exc:
+                    print(
+                        f"identity_mismatch refused sync with {peer}: "
+                        f"claimed={exc.claimed} certified={exc.certified}",
+                        flush=True,
+                    )
+                    self._send_json(502, {
+                        "error": "identity_mismatch",
+                        "claimed": exc.claimed,
+                        "certified": exc.certified,
+                        "detail": str(exc),
+                    })
+                    return
+                except (AssertionError, urllib.error.URLError, OSError) as exc:
+                    self._send_json(502, {"error": f"peer unreachable: {exc}"})
+                    return
             # Pull: the peer's entries are untrusted data until this
             # node's receive_entries verifies them in the merge.
             try:
@@ -521,11 +655,27 @@ def main(argv: list[str] | None = None) -> int:
                         help="private key file matching --tls-cert")
     parser.add_argument("--tls-ca", default=None,
                         help="CA that must have issued every peer's certificate")
+    parser.add_argument("--tls-bind-identity", action="store_true",
+                        help="bind certificates to claimed node ids "
+                             "(experiment 017); requires the TLS arguments")
     args = parser.parse_args(argv)
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
         parser.error("--tls-cert, --tls-key, and --tls-ca must be given together")
+    if args.tls_bind_identity and not all(tls_values):
+        parser.error("--tls-bind-identity requires --tls-cert, --tls-key, and --tls-ca")
+    if args.tls_bind_identity:
+        # Startup self-check: this process may not even claim a
+        # node id its own certificate was not issued for. Refusing
+        # to start states the mismatch plainly on stderr.
+        certified = protected_link.cert_file_node_id(args.tls_cert)
+        if certified != args.node_id:
+            parser.error(
+                f"identity_mismatch: this process claims node id "
+                f"{args.node_id!r} but its certificate was issued for "
+                f"{certified!r}; refusing to start"
+            )
 
     payloads: dict[str, bytes] = {}
     if args.payloads:
@@ -539,6 +689,7 @@ def main(argv: list[str] | None = None) -> int:
         registry_snapshot_path=args.snapshot,
         payloads=payloads,
         serve_policies=args.serve_policies,
+        bind_identity=args.tls_bind_identity,
     )
     tls_context = None
     if all(tls_values):
@@ -548,8 +699,14 @@ def main(argv: list[str] | None = None) -> int:
         # Outgoing connections from this process (server-to-server
         # /sync) present this node's own certificate, so the peer
         # authenticates this process exactly as it authenticates
-        # any other client.
-        set_client_tls(args.tls_cert, args.tls_key, args.tls_ca)
+        # any other client. The claim sent with them is this
+        # process's node id, always: with binding on, a peer checks
+        # it against the certificate; with binding off (experiment
+        # 014 mode), a binding peer still checks it - which is what
+        # lets a false-claiming 014-mode process be refused by a
+        # binding node it initiates toward.
+        set_client_tls(args.tls_cert, args.tls_key, args.tls_ca,
+                       node_id=args.node_id)
     server = build_server(node, args.host, args.port, tls_context=tls_context)
     bound_port = server.server_address[1]
     if args.port_file:
