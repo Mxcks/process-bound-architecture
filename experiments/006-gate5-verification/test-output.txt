@@ -1,0 +1,102 @@
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.411s
+
+OK
+
+$ python3 packages/validation/test_gate5.py -v
+test_canary_measures_real_lineage_times (__main__.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (__main__.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (__main__.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (__main__.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.592s
+
+OK
+
+$ python3 packages/validation/demo.py
+=== Outcome 1: canary measures end-to-end lineage time under load ===
+load: 100 mesh entries, 3 registry entries, 200 timed runs
+end-to-end lineage verification: min 0.9000 ms, median 1.7278 ms, mean 6.8591 ms, p95 63.4444 ms, max 69.1323 ms (n=200)
+per transformation (one entry):  min 0.0116 ms, median 0.0133 ms, mean 0.0139 ms, p95 0.0214 ms, max 0.0345 ms (n=100)
+target from docs/architecture/06: under 1.0 ms
+per-transformation median meets target: True
+end-to-end median meets target:      False
+policy served verified on every run: True
+
+=== Outcome 2: forced fault halts rollout and rolls back exactly ===
+checkpoint state hash: 67f69ffcfce28a9fac666bd28c1b61981d177082648f7d08460d1c72b895f731
+forked: divergence=True (reason=forked_entry), rolled_back=True, restored_exactly=True, halt=True
+tampered: divergence=True (reason=tampered_entry), rolled_back=True, restored_exactly=True, halt=True
+rollout state now: halted_and_rolled_back
+
+=== Outcome 3: one verdict from measured evidence ===
+  [OK] scenario_built: policy registered (Gate 1), serving node holds a verified snapshot (Gate 2), mesh converged (Gate 3)
+  [OK] clean_run_no_divergence: mesh state hashes equal: True; divergence events in clean run: 0
+  [OK] canary_path_completed: register -> sync -> serve ran end to end; served bytes match the registered policy on every timed run
+  [OK] lineage_measured: 50 end-to-end samples and 100 per-transformation samples, real perf_counter_ns measurements from this machine
+  [OK] forced_fault_forked_detected: receive_entries reported divergence (reason=forked_entry) for the injected forked entry
+  [OK] rollback_exact_after_forked: state, state hash, and entry set identical to the pre-fault checkpoint
+  [OK] forced_fault_tampered_detected: receive_entries reported divergence (reason=tampered_entry) for the injected tampered entry
+  [OK] rollback_exact_after_tampered: state, state hash, and entry set identical to the pre-fault checkpoint
+  [OK] halt_triggered: rollout_state=halted_and_rolled_back
+benchmark: per-transformation median 0.0116 ms (target 1.0 ms, met: True); end-to-end median 1.6757 ms (met: False)
+gate verdict: PASS
+
+outcome 1: True
+outcome 2: True
+outcome 3: True
+Demo state left in: /tmp/pba-gate5-49c6kqv5
+
+$ python3 - <<'EOF'  (five repeated canary runs, 200 iterations each, medians only)
+run 1: end_to_end median 1.1249 ms, mean 5.4775 ms, p95 46.1687 ms | per-transformation median 0.0079 ms | e2e meets 1.0 ms target: False | per-transformation meets: True
+run 2: end_to_end median 1.0553 ms, mean 5.4166 ms, p95 60.0635 ms | per-transformation median 0.0080 ms | e2e meets 1.0 ms target: False | per-transformation meets: True
+run 3: end_to_end median 0.9984 ms, mean 5.0543 ms, p95 58.4484 ms | per-transformation median 0.0080 ms | e2e meets 1.0 ms target: True | per-transformation meets: True
+run 4: end_to_end median 1.5239 ms, mean 5.4722 ms, p95 56.5905 ms | per-transformation median 0.0080 ms | e2e meets 1.0 ms target: False | per-transformation meets: True
+run 5: end_to_end median 1.8959 ms, mean 5.9823 ms, p95 58.7577 ms | per-transformation median 0.0079 ms | e2e meets 1.0 ms target: False | per-transformation meets: True
+
+$ python3 -m unittest discover -s packages/registration -v
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.078s
+
+OK
+
+$ python3 -m unittest discover -s packages/policy-library -v
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.022s
+
+OK
+
+$ python3 -m unittest discover -s packages/synchronization -v
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.073s
+
+OK
+
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
