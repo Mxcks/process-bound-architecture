@@ -1,0 +1,22 @@
+$ python3 packages/registration/test_registration.py
+test_any_user_can_register_own_library (__main__.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (__main__.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (__main__.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (__main__.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (__main__.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (__main__.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.012s
+
+OK
+
+$ python3 packages/registration/demo.py
+1. Channel exists before use: True
+2. Alice registered her own library: True dcab37d1f0094a82...
+3. Bad signature rejected and audit-logged: True
+4. Unregistered code blocked at the execution boundary: True
+5. Re-registering gives the same record, chain verifies: True
+6. Validation channel bound on registration: val-43f4d36f3398e31be772049aee3bf45e
+   Admitted at boundary: member-access
+Demo state (registry + audit logs) left in: /tmp/pba-gate1-demo-sdcxbt6y
