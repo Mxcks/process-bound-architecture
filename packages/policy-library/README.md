@@ -33,11 +33,20 @@ case 7): a watcher in the liveness watcher's style compares the
 shared snapshot file's presented facts (entry count, chain head,
 file fingerprint) with the facts the placed policy last loaded
 and calls `reload_snapshot()` itself on a change, re-reporting a
-refused delivery on every check until its cause is fixed.
+refused delivery on every check until its cause is fixed, and
+**the two watchers composed over one placed policy built and
+passing** (2026-11-06, experiment
+`experiments/023-composed-watchers/`; availability case 8): a
+thin coordinator drives the delivery watcher and the liveness
+watcher over the same placement in one cycle, delivery before
+liveness, so a revocation and a lost holder in the same window
+are delivered, declared, and healed over the updated record in
+that cycle, and a refused delivery does not block a heal, which
+recruits over the last good record.
 Prototype only, not production. The module docstrings in
-`policy_node.py`, `replication.py`, `liveness.py`, and
-`snapshot_delivery.py` are the authoritative lists of honest
-limits.
+`policy_node.py`, `replication.py`, `liveness.py`,
+`snapshot_delivery.py`, and `composed_watchers.py` are the
+authoritative lists of honest limits.
 
 Authoring, signing, and registering a library is Gate 1's job
 (`packages/registration/`). This package is the other half: once a
@@ -68,6 +77,9 @@ central home, ever again in order to be served.
 | `snapshot_delivery.py` | The experiment 022 prototype: `SnapshotDeliveryWatcher` (one watcher over one `ReplicatedPolicy`, modeled tick counter, `DeliveryReport` plus an event log) and `snapshot_facts` (the presented facts: entry count, chain head, file fingerprint). On a changed snapshot the watcher calls `replication.py`'s `reload_snapshot()` (experiment 021) in the same check; a refused delivery is re-reported with its reason on every later check; an unchanged check calls nothing. |
 | `test_snapshot_delivery.py` | Automated tests for availability case 7 (experiment 022): a clean change is delivered automatically in one tick and the revoked placed policy stops serving while a non-revoked policy over the same snapshot keeps serving; an anchor_stale delivery is refused and re-reported until the same-signer re-anchor, then delivered; tampered and rewritten deliveries are refused under their own names; an unchanged check rebuilds no holder view; a heal after delivery recruits over the updated record. |
 | `demo_snapshot_delivery.py` | Runnable walkthrough of case 7: unchanged check, automatic delivery after revocation + re-anchor, anchor_stale refusal and re-reporting, tampered refusal. |
+| `composed_watchers.py` | The experiment 023 prototype: `ComposedWatcher`, a thin coordinator that constructs one `SnapshotDeliveryWatcher` and one `LivenessWatcher` over the same `ReplicatedPolicy` and drives them in one cycle, delivery before liveness, returning one `ComposedReport` (plus a `composed_cycle` event) per cycle. Reuses both watchers and `replication.py` unchanged; in a refused-delivery cycle it points the placement's heal path at a last-good sidecar file for that cycle's liveness tick only, so healing recruits over the last record that stood. |
+| `test_composed_watchers.py` | Automated tests for availability case 8 (experiment 023): quiet cycles reload nothing and heal nothing; a delivery-only cycle delivers without healing; a loss-only cycle heals without delivering; the hard case (revocation + threshold-crossing loss in one window) delivers, declares, and heals over the updated record in one cycle, the recruit refusing the revoked policy while a non-revoked policy keeps serving; anchor_stale and tampered refusals in a loss window do not block the heal, which recruits over the last good record, and the refused delivery is not forced through. |
+| `demo_composed_watchers.py` | Runnable walkthrough of case 8: quiet composed cycles, the hard case in one window, and refusal composition with the heal over the last good record. |
 
 ## How to run it
 
@@ -116,6 +128,13 @@ python3 packages/policy-library/demo_liveness.py
 # deliveries re-report, unchanged checks do nothing)
 python3 packages/policy-library/test_snapshot_delivery.py
 python3 packages/policy-library/demo_snapshot_delivery.py
+
+# Composed watchers tests and demo (availability case 8: one
+# coordinator ticks the delivery and liveness watchers over one
+# placement, delivery before liveness; quiet cycles do nothing,
+# a refusal in a cycle does not block that cycle's heal)
+python3 packages/policy-library/test_composed_watchers.py
+python3 packages/policy-library/demo_composed_watchers.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -298,6 +317,58 @@ file remains the synchronization layer's delivery, exactly as
 before; one watcher watches one placed policy, and the
 networked server processes are not watched and still learn of
 a revocation only on restart.
+
+## Composed watchers, in plain words (case 8)
+
+Experiment 023 closes the composition gap experiment 022 left
+named, at prototype scale. `composed_watchers.py` adds one
+coordinator and reuses both watchers exactly:
+
+1. **One cycle, one order.** `ComposedWatcher` constructs the
+   delivery watcher and the liveness watcher over the SAME
+   `ReplicatedPolicy`. Each `tick(beating=[...])` is one
+   composed cycle: the delivery watcher's tick runs first, the
+   liveness watcher's tick (beats recorded, holders classified)
+   runs second, and the cycle returns one `ComposedReport`
+   carrying both sub-reports, with one `composed_cycle` event
+   naming the delivery's status and reason, the lost holders,
+   and the heal's result. The order - delivery before
+   liveness - is the point: a heal recruits by constructing a
+   holder over the placement's snapshot, so delivering first
+   means a same-cycle heal recruits over the newest record,
+   and healing first would reopen case 6's stale-recruit
+   window by ordering alone.
+2. **The hard case and the quiet case are both proven.** A
+   revocation (delivered over the file, anchor lifecycle
+   followed) and a holder crossing the lost threshold in the
+   same window produce, in one cycle: delivered, declared
+   lost, healed over the updated record - the recruit refuses
+   the revoked policy and a non-revoked policy over the same
+   snapshot keeps serving. Quiet cycles do neither watcher's
+   work (no reload, no view rebuild, no heal); a delivery-only
+   cycle does not heal and a loss-only cycle does not deliver.
+3. **A refusal does not block healing, and healing does not
+   force a delivery.** When a cycle's delivery is refused, the
+   file on disk holds the refused record, so the coordinator
+   keeps the bytes of the last record that stood (recorded at
+   construction, moved only when a delivery stands), writes
+   them to a sidecar file next to the snapshot, and points the
+   placement's heal path at the sidecar for that cycle's
+   liveness tick only, restoring the delivery path before the
+   cycle returns. A genuinely lost holder is therefore healed
+   over the last good record in the same cycle, the delivery
+   watcher's refusal stays pending and keeps being reported,
+   and once the cause is fixed a normal cycle delivers to
+   every holder, the sidecar recruit included.
+
+Composition limits, on top of everything above: one
+coordinator composes the watchers over ONE placement and
+nothing coordinates two coordinators (two over the same
+placement could still double-act); the last-good record is
+bytes in the coordinator's memory and a sidecar file left
+next to the snapshot, unprotected and uncleaned; the clocks
+are still the watchers' modeled counters and no tick fires
+unattended.
 
 ## Revocation and the stale window, in plain words (case 6)
 
