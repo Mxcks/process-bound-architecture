@@ -300,3 +300,22 @@ Gate 5's open production benchmark. `PBA-FIX-001` remains
 talk-first and untouched by this experiment. Nothing here is
 deployed beyond the local working copy, and nothing in this
 experiment changes that.
+
+[Superseded in part, 2026-11-06, experiment 024: the limit
+above - "the experiment 007/014 server processes are
+watched by nothing here - a running server still learns of
+a revocation only on restart, as experiment 021 stated" -
+and the matching item in the Next section ("revocation
+delivery to running server processes (a restart is still
+the only path there)") were built in experiment 024
+(`experiments/024-server-live-reload/`), under sync-mesh
+case 13, written tests-first. A running server now reloads
+through its own caller-driven snapshot check
+(POST /check-snapshot), reusing experiment 022's change
+facts and refusal discipline and the PolicyNode's reload;
+this experiment's composed in-process watchers are
+unchanged and remain the composition proof for placed
+policies. What still stands: the server check is driven,
+not scheduled; no coordinator watches a server process;
+and no transport delivers the updated record into a
+server's snapshot file.]
