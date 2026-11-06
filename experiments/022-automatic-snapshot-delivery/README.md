@@ -172,6 +172,10 @@ possible today by constructing both over the same placement -
 the tests here construct the delivery watcher alongside
 explicit `lose_holder`/`heal()` calls for row 7 - and is
 recorded as unbuilt composition, not claimed (see limits).
+(Update, experiment 023: that composition is now built and
+proven - a thin coordinator drives both watchers over one
+placement in one cycle, delivery before liveness - see the
+limit bullet below, as amended by 023.)
 
 ## What failed
 
@@ -214,17 +218,25 @@ and only the rewritten demo's output is quoted.
   restart, as experiment 021 stated.
 - One watcher watches one placed policy. Two placed policies
   over the same snapshot need two watchers (the tests run
-  exactly that), nothing coordinates them, and the delivery
+  exactly that), and nothing in THIS experiment coordinates
+  them. As written, this bullet also stated that the delivery
   watcher and the liveness watcher (016) over the SAME
-  placement have never been run composed in one scenario:
-  each is proven against the placement separately, and their
-  interaction (a liveness heal firing between a delivery
-  check's comparison and its reload, two event logs over one
-  placement) is unbuilt and unclaimed. Row 7 proves the
-  ordering case 7 states - delivery first, then a heal
-  recruits over the updated record - through explicit
+  placement had never been run composed, and that Row 7 proved
+  the delivery-then-heal ordering only through explicit
   `lose_holder()` / `heal()` calls, not through 016's
-  automatic trigger.
+  automatic trigger. That statement is superseded by
+  experiment 023 (availability case 8), which composed the
+  two watchers over one placement under a single coordinator
+  (delivery before liveness in every cycle) and proved, with
+  016's automatic trigger: a revocation and a threshold-
+  crossing loss in the same cycle window deliver, declare,
+  and heal over the updated record in that one cycle; quiet
+  cycles double-act in neither watcher; and a refused
+  delivery in a cycle does not block that cycle's heal, which
+  recruits over the last good record. What remains unbuilt
+  after 023 is narrower: no coordination between separate
+  placements' coordinators, no unattended scheduling, and the
+  server processes still unwatched.
 - Detection costs a full read of the snapshot file (parse
   for head/count, hash for the fingerprint) on every check,
   and delivery still costs 021's full chain verification on
@@ -277,6 +289,8 @@ scenario (liveness + delivery over one placement, a loss and
 a revocation landing in the same tick window) its own test
 case up front, so the two triggers' interaction is proven by
 its own row instead of recorded as an unbuilt composition.
+(Done: experiment 023, availability case 8, written before
+its code in exactly that way.)
 
 ## Next, per the build order
 
@@ -290,8 +304,7 @@ removal (availability case 3, blocked on Max in experiment
 restart is still the only path there), a transport that
 moves the updated record into snapshot files (sync
 scheduling, discovery), unattended watcher scheduling with a
-real clock, the composed liveness + delivery watchers, a
-witnessed anchor, production crypto and identity proofing,
+real clock, a witnessed anchor, production crypto and identity proofing,
 consensus, persistence, and Gate 5's open production
 benchmark. `PBA-FIX-001` remains talk-first and untouched by
 this experiment. Nothing here is deployed beyond the local
