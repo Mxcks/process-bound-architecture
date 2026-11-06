@@ -87,8 +87,12 @@ HONEST LIMITS (prototype, NOT production)
   against a local stand-in anchor file that is unsigned and
   unwitnessed (all of experiment 012's anchor limits stand). The
   experiment 007/014 server processes do not construct anchored
-  nodes in this experiment, so networked sync does not consult an
-  anchor yet, and the Gate 5 verdict does not either.
+  nodes, so networked sync does not consult a mesh anchor (their
+  --anchor, added in experiment 018, consults the registry anchor
+  for their snapshot at startup instead). Since experiment 018
+  the Gate 5 verdict DOES take anchor evidence into account when
+  configured, and its mesh classification is this module's
+  anchor_status(), reused by the harness.
 """
 
 from __future__ import annotations
