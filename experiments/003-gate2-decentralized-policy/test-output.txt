@@ -1,0 +1,17 @@
+$ python3 packages/policy-library/test_policy_node.py
+test_node_verifies_from_registration_record_not_channel (__main__.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (__main__.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (__main__.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.022s
+
+OK
+
+$ python3 packages/policy-library/demo.py
+Setup. Policy registered centrally: dcab37d1f0094a82...
+1a. Central registration point offline (files moved away): True
+1b. Second node served the policy from the registration record alone: True
+2. Node that did not opt in holds the policy but does not serve it: True
+   The same user node, after opting in, serves it: True
+Demo state left in: /tmp/pba-gate2-demo-g67zebvn
