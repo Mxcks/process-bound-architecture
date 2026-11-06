@@ -202,3 +202,31 @@
    the signed anchor is judged by its heads exactly as before)
    and `packages/validation/test_gate5_signed_anchor.py` (the
    verdict's mesh half, shared with registration case 10).
+12. A revoked policy requested over the network transport
+   (added 2026-11-06, experiment 021; finding F2 in experiment
+   020): a node server process (experiment 007) serves a
+   registered policy over HTTP; the policy's author revokes it
+   (registration case 6), the updated record is delivered to
+   the server's own snapshot copy, and the process is restarted
+   over it - the delivery shape experiment 008 stated for
+   servers, which build their PolicyNode at startup. Expected:
+   a request for the revoked policy returns a clean HTTP
+   refusal in the policy endpoint's existing refusal shape
+   (a JSON body whose `error` names the refusal, with a
+   `detail`), naming the revocation - error `policy_revoked`,
+   status 410 - instead of the connection dropping with no
+   response at all, which is what experiment 020 found (the
+   endpoint caught NotServing, PolicyNotFound, and
+   TamperedRecord, but not PolicyRevoked, a sibling refusal, so
+   it propagated out of the handler). The revoked policy's
+   bytes are never served, over experiment 007's plaintext
+   transport and over experiment 014's protected (mutual TLS)
+   transport alike. Negative control, in the style of
+   availability case 1: the refusal must not wedge the server -
+   after refusing the revoked policy, the same process still
+   answers health and still serves a policy that was NOT
+   revoked. Status: implemented at prototype scale in
+   experiment 021 (localhost processes, delivery by restart
+   over an updated snapshot as in experiment 008; a running
+   server still gains no reload path in this case, and no push
+   delivery is claimed).
