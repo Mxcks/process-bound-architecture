@@ -23,3 +23,33 @@
    `packages/policy-library/test_revocation_serving.py` (a node with
    the updated record stops serving; a stale node keeps serving until
    the updated record arrives, then stops).
+7. External chain anchor (gap flagged in experiments 002-010):
+   the chain head (the registry record's latest entry hash, with the
+   entry count) is written to an anchor file that lives OUTSIDE the
+   registry's own directory, and a verifier presented with a registry
+   (the channel's log or a Gate 2 snapshot copy of it, which is the
+   same chain) checks it against that outside anchor, not only
+   against itself. Expected: the genuine registry verifies against
+   its anchor; a registry whose head or length has moved on from the
+   anchor (a truncated or extended presentation) fails the anchor
+   check; and the mesh's per-origin chain heads, the second chain
+   the docs name (packages/synchronization/sync_mesh.py), are
+   anchored and checked the same way. Negative control, in the
+   style of availability case 1: a registry rewritten from genesis
+   with different content, recomputed so that it passes its own
+   internal chain verification cleanly, must FAIL the anchor check,
+   because its head does not match the head that was anchored from
+   outside it; a fully rewritten mesh origin chain that verifies on
+   its own must fail the same way. The anchor location at prototype
+   scale is a stand-in (a separate file outside the registry
+   directory), not a real external service, and the case claims
+   nothing about anchoring itself being witnessed or unforgeable.
+   Status: IMPLEMENTED at prototype scale (2026-11-06, experiment
+   `experiments/012-external-chain-anchor/`). Tests:
+   `packages/registration/test_anchor.py` (anchor captures the head
+   outside the registry directory and the genuine registry
+   verifies, full-rewrite negative control, single-entry tamper,
+   truncation/extension until re-anchored) and
+   `packages/synchronization/test_anchor.py` (per-origin mesh heads
+   anchored, converged peers verify, rewritten origin chain
+   negative control).
