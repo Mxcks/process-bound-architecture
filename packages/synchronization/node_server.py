@@ -17,7 +17,8 @@ it only over HTTP; nothing is shared by memory or by file at runtime.
 ENDPOINTS
 ---------
 GET  /health     -> {node_id, ok, entries, state_hash,
-                     serve_policies, policy_configured}
+                     serve_policies, policy_configured,
+                     anchor_configured, anchor_status}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -63,6 +64,19 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
 - The PolicyNode verifies the snapshot's hash chain at server
   startup: a server pointed at a tampered snapshot refuses to start
   (also covered by a test).
+- Started with --anchor (experiment 018), the PolicyNode ALSO
+  consults experiment 012's registry anchor for its snapshot at
+  startup, exactly as experiment 015 built for the in-process
+  node: a snapshot rewritten from genesis (internally consistent,
+  passing the chain check above) refuses to start as
+  anchor_mismatch, and a snapshot that grew honestly past its
+  anchor refuses to start as anchor_stale, until the new head is
+  re-anchored. Without --anchor no consultation happens and
+  startup behavior is exactly experiments 007/014's. The anchor
+  consulted here is the REGISTRY snapshot's; this process's mesh
+  entries are still held by a plain SyncNode and networked sync
+  does not consult a mesh anchor (the in-process AnchoredSyncNode
+  of experiment 015 does, in-process).
 - A fetched snapshot is verified by the receiver with Gate 2's
   verifier before any PolicyNode is built over it.
 
@@ -105,8 +119,12 @@ HONEST LIMITS (prototype, NOT production)
   ways), now serialized as JSON. No streaming, no deltas, and no
   performance, scale, or latency numbers are measured or claimed.
 - Inherited limits stand unchanged: no Byzantine consensus or
-  quorum, local-only rollback, no external chain anchor, no
-  revocation, and HMAC prototype signing in Gate 1.
+  quorum, local-only rollback, no revocation, and HMAC prototype
+  signing in Gate 1. An external chain anchor exists (experiment
+  012) and, since experiment 018, a server started with --anchor
+  consults the registry anchor at startup (see above); the anchor
+  itself is still experiment 012's unsigned local stand-in, and
+  the mesh chain in this process consults no anchor.
 """
 
 from __future__ import annotations
@@ -187,6 +205,7 @@ class NetworkNode:
         payloads: dict[str, bytes] | None = None,
         serve_policies: bool = False,
         bind_identity: bool = False,
+        anchor_path: str | Path | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -199,19 +218,39 @@ class NetworkNode:
         self.snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path else None
         )
+        # Experiment 018: an optional experiment 012 registry
+        # anchor for the snapshot's chain. Passed straight to the
+        # PolicyNode, whose experiment 015 consultation runs at
+        # construction; None (the default) means no consultation
+        # and behavior exactly as experiments 007/014 left it.
+        self.anchor_path = Path(anchor_path) if anchor_path else None
         self.policy_node: PolicyNode | None = None
         if self.snapshot_path is not None:
             # PolicyNode construction verifies the snapshot hash
             # chain; a tampered snapshot raises here and the server
-            # refuses to start. That refusal is deliberate.
+            # refuses to start. That refusal is deliberate. With an
+            # anchor configured, a rewritten snapshot raises
+            # AnchorMismatch and an honestly grown one AnchorStale
+            # at the same place, with the same effect.
             self.policy_node = PolicyNode(
                 node_id=node_id,
                 registry_snapshot_path=self.snapshot_path,
                 payloads=payloads or {},
                 serve_policies=serve_policies,
+                anchor_path=self.anchor_path,
             )
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
+
+    @property
+    def anchor_status(self) -> str:
+        """This process's anchor standing, for /health: the
+        PolicyNode's experiment 015 status when a policy node
+        exists, otherwise "no_anchor" (no snapshot, so nothing to
+        consult an anchor about)."""
+        if self.policy_node is not None:
+            return self.policy_node.anchor_status
+        return "no_anchor"
 
 
 # -- HTTP client helpers (used by /sync, the tests, and the demo) ------------
@@ -469,6 +508,8 @@ def make_handler(node: NetworkNode):
                         "state_hash": node.sync_node.state_hash(),
                         "serve_policies": node.serve_policies,
                         "policy_configured": node.policy_node is not None,
+                        "anchor_configured": node.anchor_path is not None,
+                        "anchor_status": node.anchor_status,
                     })
                 return
             if self.path == "/state":
@@ -646,6 +687,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="JSON file mapping policy_hash -> code hex")
     parser.add_argument("--serve-policies", action="store_true",
                         help="opt in to serving policies (Gate 2 choice)")
+    parser.add_argument("--anchor", default=None,
+                        help="path to an experiment 012 registry anchor for "
+                             "--snapshot's chain (experiment 018); requires "
+                             "--snapshot. The PolicyNode consults it at "
+                             "startup and the process refuses to start on "
+                             "anchor_mismatch or anchor_stale")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -659,6 +706,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="bind certificates to claimed node ids "
                              "(experiment 017); requires the TLS arguments")
     args = parser.parse_args(argv)
+
+    if args.anchor and not args.snapshot:
+        parser.error("--anchor requires --snapshot (the anchor is for "
+                     "the snapshot's registry chain)")
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
@@ -684,12 +735,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # A tampered snapshot raises here (PolicyNode verifies the chain
     # at construction) and the process exits nonzero: refused start.
+    # With --anchor, a rewritten snapshot (AnchorMismatch) or an
+    # honestly grown one (AnchorStale) raises at the same place with
+    # the same effect (experiment 018).
     node = NetworkNode(
         node_id=args.node_id,
         registry_snapshot_path=args.snapshot,
         payloads=payloads,
         serve_policies=args.serve_policies,
         bind_identity=args.tls_bind_identity,
+        anchor_path=args.anchor,
     )
     tls_context = None
     if all(tls_values):
