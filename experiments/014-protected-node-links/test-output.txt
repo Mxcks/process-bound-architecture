@@ -1,0 +1,134 @@
+$ python3 --version
+Python 3.12.3
+
+=== Tests-first evidence (run BEFORE protected_link.py was built) ===
+$ python3 packages/synchronization/test_protected_nodes.py (tests-first, before protected_link.py exists)
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_protected_nodes.py", line 68, in <module>
+    import protected_link  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'protected_link'
+
+$ python3 -m unittest discover -s packages/registration -v
+test_anchor_captures_head_outside_registry_and_genuine_registry_verifies (test_anchor.ExternalAnchorTests.test_anchor_captures_head_outside_registry_and_genuine_registry_verifies) ... ok
+test_anchor_pins_length_truncation_and_extension_fail_until_reanchored (test_anchor.ExternalAnchorTests.test_anchor_pins_length_truncation_and_extension_fail_until_reanchored) ... ok
+test_negative_control_full_rewrite_passes_internal_but_fails_anchor (test_anchor.ExternalAnchorTests.test_negative_control_full_rewrite_passes_internal_but_fails_anchor) ... ok
+test_single_entry_tamper_fails_internal_and_anchor_check (test_anchor.ExternalAnchorTests.test_single_entry_tamper_fails_internal_and_anchor_check) ... ok
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+test_author_can_revoke_and_boundary_and_validation_refuse (test_revocation.RevocationTests.test_author_can_revoke_and_boundary_and_validation_refuse) ... ok
+test_non_author_cannot_revoke (test_revocation.RevocationTests.test_non_author_cannot_revoke) ... ok
+test_revocation_is_new_chain_entry_original_untouched (test_revocation.RevocationTests.test_revocation_is_new_chain_entry_original_untouched) ... ok
+test_revocation_requires_valid_signature_and_real_policy (test_revocation.RevocationTests.test_revocation_requires_valid_signature_and_real_policy) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.020s
+
+OK
+
+$ python3 -m unittest discover -s packages/policy-library -v
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+test_node_with_updated_snapshot_stops_serving (test_revocation_serving.RevocationServingTests.test_node_with_updated_snapshot_stops_serving) ... ok
+test_reload_by_path_and_tampered_reload_leaves_view_untouched (test_revocation_serving.RevocationServingTests.test_reload_by_path_and_tampered_reload_leaves_view_untouched) ... ok
+test_stale_node_serves_until_updated_record_arrives (test_revocation_serving.RevocationServingTests.test_stale_node_serves_until_updated_record_arrives) ... ok
+test_healing_noop_at_floor_and_recruits_exact_shortfall (test_self_healing.SelfHealingTests.test_healing_noop_at_floor_and_recruits_exact_shortfall) ... ok
+test_healing_restores_floor_after_holder_is_lost (test_self_healing.SelfHealingTests.test_healing_restores_floor_after_holder_is_lost) ... ok
+test_negative_control_no_eligible_replacement_reports_below_floor (test_self_healing.SelfHealingTests.test_negative_control_no_eligible_replacement_reports_below_floor) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.019s
+
+OK
+
+$ python3 -m unittest discover -s packages/synchronization -v
+test_mesh_anchor_captures_origin_heads_and_converged_nodes_verify (test_anchor.MeshAnchorTests.test_mesh_anchor_captures_origin_heads_and_converged_nodes_verify) ... ok
+test_negative_control_rewritten_origin_chain_passes_internal_but_fails_anchor (test_anchor.MeshAnchorTests.test_negative_control_rewritten_origin_chain_passes_internal_but_fails_anchor) ... ok
+test_coordinated_rollback_restores_shared_checkpoint_on_all_nodes (test_coordinated_rollback.CoordinatedRollbackTests.test_coordinated_rollback_restores_shared_checkpoint_on_all_nodes) ... ok
+test_mesh_converges_on_new_changes_after_coordinated_rollback (test_coordinated_rollback.CoordinatedRollbackTests.test_mesh_converges_on_new_changes_after_coordinated_rollback) ... ok
+test_negative_control_node_that_skips_rollback_is_detected_divergent (test_coordinated_rollback.CoordinatedRollbackTests.test_negative_control_node_that_skips_rollback_is_detected_divergent) ... ok
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+test_killed_protected_process_survivors_still_serve_and_converge (test_protected_nodes.ProtectedNodeTests.test_killed_protected_process_survivors_still_serve_and_converge) ... ok
+test_policy_crosses_protected_link_verified_and_tamper_still_caught (test_protected_nodes.ProtectedNodeTests.test_policy_crosses_protected_link_verified_and_tamper_still_caught) ... ok
+test_protected_processes_converge_and_wire_capture_has_no_plaintext (test_protected_nodes.ProtectedNodeTests.test_protected_processes_converge_and_wire_capture_has_no_plaintext) ... ok
+test_unauthenticated_and_rogue_peers_are_refused (test_protected_nodes.ProtectedNodeTests.test_unauthenticated_and_rogue_peers_are_refused) ... ok
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 18.144s
+
+OK
+
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+test_canary_at_modest_size_reports_honest_target_comparison (test_scale_harness.ScaleHarnessTests.test_canary_at_modest_size_reports_honest_target_comparison) ... ok
+test_registration_at_modest_size (test_scale_harness.ScaleHarnessTests.test_registration_at_modest_size) ... ok
+test_serve_at_modest_size (test_scale_harness.ScaleHarnessTests.test_serve_at_modest_size) ... ok
+test_small_profile_suite_is_sane_end_to_end (test_scale_harness.ScaleHarnessTests.test_small_profile_suite_is_sane_end_to_end) ... ok
+test_sync_converges_at_modest_size (test_scale_harness.ScaleHarnessTests.test_sync_converges_at_modest_size) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.359s
+
+OK
+
+$ python3 packages/synchronization/test_protected_nodes.py -v
+test_killed_protected_process_survivors_still_serve_and_converge (__main__.ProtectedNodeTests.test_killed_protected_process_survivors_still_serve_and_converge) ... ok
+test_policy_crosses_protected_link_verified_and_tamper_still_caught (__main__.ProtectedNodeTests.test_policy_crosses_protected_link_verified_and_tamper_still_caught) ... ok
+test_protected_processes_converge_and_wire_capture_has_no_plaintext (__main__.ProtectedNodeTests.test_protected_processes_converge_and_wire_capture_has_no_plaintext) ... ok
+test_unauthenticated_and_rogue_peers_are_refused (__main__.ProtectedNodeTests.test_unauthenticated_and_rogue_peers_are_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 16.760s
+
+OK
+
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+$ python3 packages/synchronization/demo_protected_nodes.py
+started protected process demo-a at https://127.0.0.1:44917 (pid 24403)
+started protected process demo-b at https://127.0.0.1:36671 (pid 24405)
+
+=== Outcome 1: two protected processes sync and converge ===
+before sync, hashes differ: True
+sync result (A's merge): {'accepted': 1, 'divergence_detected': False, 'rolled_back': False, 'reason': None, 'state_hash': '7b50bce04786c55e6ec453ba7042f5e7915fe142e10d96f87f51989d4535df77'}
+sync result (B's merge): {'accepted': 1, 'divergence_detected': False, 'rolled_back': False, 'reason': None, 'state_hash': '7b50bce04786c55e6ec453ba7042f5e7915fe142e10d96f87f51989d4535df77'}
+states: {'region': 'us-central', 'tier': 'member'}
+hashes equal: True
+
+=== Outcome 2: the wire is encrypted (capture through a proxy) ===
+exchange over the captured path succeeded: True
+bytes captured: 16222
+secret value in the capture: False
+policy code in the capture: False
+
+=== Outcome 3: an unauthenticated peer is refused ===
+client with no credential refused at the handshake: True
+policy served to the credentialed client by: demo-a
+
+=== Outcome 4: kill the second process; the first still serves ===
+process demo-b (pid 24405) killed
+A's state still holds both nodes' entries: True
+policy still served, now by: demo-a
+
+Protected node outcomes: {1: True, 2: True, 3: True, 4: True}
+
+$ pgrep -af "node_serve[r].py" (leftover network-test server processes)
+none
