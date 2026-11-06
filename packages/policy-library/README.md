@@ -3,9 +3,11 @@
 Authoring, signing, versioning, and serving of policy libraries as polymorphic payloads.
 
 Status: **Gate 2 prototype built and passing** (2026-11-06, experiment
-`experiments/003-gate2-decentralized-policy/`). Prototype only, not
-production. The module docstring in `policy_node.py` is the
-authoritative list of honest limits.
+`experiments/003-gate2-decentralized-policy/`), and **Gate 4
+availability prototype built and passing** on top of it (2026-11-06,
+experiment `experiments/005-gate4-availability/`). Prototype only,
+not production. The module docstrings in `policy_node.py` and
+`replication.py` are the authoritative lists of honest limits.
 
 Authoring, signing, and registering a library is Gate 1's job
 (`packages/registration/`). This package is the other half: once a
@@ -16,9 +18,12 @@ central home, ever again in order to be served.
 
 | File | What it is |
 |---|---|
-| `policy_node.py` | The prototype: `PolicyNode`, standalone snapshot verification. Python standard library only. Builds on Gate 1's registration record format; does not modify or re-implement Gate 1. |
+| `policy_node.py` | The Gate 2 prototype: `PolicyNode`, standalone snapshot verification. Python standard library only. Builds on Gate 1's registration record format; does not modify or re-implement Gate 1. |
 | `test_policy_node.py` | Automated tests, one per Gate 2 outcome, plus the verification refusals. |
 | `demo.py` | Runnable walkthrough of both Gate 2 outcomes. |
+| `replication.py` | The Gate 4 prototype: registration-time placement of a policy on independent opted-in holders with a replication floor (`place_policy`, `ReplicatedPolicy`, placement/availability reports). Builds on `PolicyNode` without modifying it. |
+| `test_availability.py` | Automated tests, one per Gate 4 outcome: sole-holder negative control, floor-3 failover, honest below-floor reporting. |
+| `demo_availability.py` | Runnable walkthrough of the Gate 4 outcomes. |
 
 ## How to run it
 
@@ -32,6 +37,11 @@ python3 packages/policy-library/test_policy_node.py
 # Demo (registers a policy, copies it to a second node, takes the
 # central channel offline, and serves from the node)
 python3 packages/policy-library/demo.py
+
+# Gate 4 availability tests and demo (sole-holder failure, floor
+# failover, honest below-floor reporting)
+python3 packages/policy-library/test_availability.py
+python3 packages/policy-library/demo_availability.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -55,6 +65,31 @@ Requires Python 3.10+. No dependencies, no network, nothing is deployed.
    not opt in can hold a verified policy and still will not serve it.
    That flag is how a user's own computer becomes a policy source *by
    their choice* (Gate 2, outcome 2).
+
+## Gate 4: availability, in plain words
+
+`replication.py` answers layer 07's risk (a policy drops when its
+host goes offline) at prototype scale. At registration time a policy
+is placed, through `place_policy`, on independent opted-in holders
+with a **replication floor**: the minimum number of holders that must
+hold it before anything calls it available. Holders that did not opt
+in, and repeat offers of the same node, never count. The placement
+report always pairs the real holder count with the floor: floor met
+means status `available`; anything less means `below_floor`, stated,
+never hidden. After placement, `ReplicatedPolicy.serve()` asks the
+first online holder (Gate 2 verification runs on every serve), so
+the policy survives holders going offline down to the last one, and
+raises `PolicyUnavailable` when none is online, including the
+negative control the risk predicts: one holder, offline, policy
+gone.
+
+Gate 4 limits, on top of the Gate 2 limits below: the floor is
+enforced and reported at placement time only (no replacement holder
+is recruited if one dies for good, no self-healing), "offline" is a
+modeled flag with no real liveness detection, and "independent"
+means distinct node ids, not verified machines or operators.
+Deliberate removal by the owner (availability test case 3) is not
+implemented.
 
 ## Honest limits
 
