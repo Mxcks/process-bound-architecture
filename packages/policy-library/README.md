@@ -281,8 +281,10 @@ package honors them, with the gap stated plainly:
   when serving (at load and on reload) and refuses the rewrite;
   a node built without one does not consult anything and behaves
   exactly as before, and the anchor file is still a local
-  stand-in, not a witnessed external service. The experiment
-  007/014 server processes do not pass an anchor path yet.
+  stand-in, not a witnessed external service. Since experiment
+  018, the experiment 007/014 server processes pass an anchor
+  path when started with `--anchor`, so this consultation runs
+  at server startup too; without the flag they consult nothing.
 - Revocation is honored only from the record a node actually holds:
   there is no revocation push, broadcast, or staleness bound, so the
   stale window above can stay open indefinitely on a node that never
