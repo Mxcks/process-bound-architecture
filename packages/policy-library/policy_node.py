@@ -128,9 +128,32 @@ no import of the registration channel and no copy of the check):
   path only when started with --anchor (experiment 018), in which
   case this same consultation runs at server startup and a
   mismatch or a stale chain refuses the start; a server started
-  without one consults nothing, exactly as before. The anchor
-  itself is still experiment 012's unsigned local stand-in, with
-  all of its stated limits.
+  without one consults nothing, exactly as before.
+
+SIGNED ANCHOR CONSULTATION (test case 10, built in experiment 019)
+-------------------------------------------------------------------
+Experiment 019 lets the anchor itself be signed (see
+packages/registration/anchor.py). A node constructed with
+anchor_signer + anchor_secret_hex (the signer's enrolled
+identity and its verification secret - both or neither)
+verifies the anchor's signature and kept history as part of
+the same consultation, before the head judgement:
+
+- anchor_signature_invalid: the anchor is unsigned, was signed
+  by a different identity, its signature was tampered with, or
+  its kept history does not verify. Construction (or a reload)
+  raises AnchorSignatureInvalid and the snapshot is never
+  served; the name is distinct from anchor_mismatch and
+  anchor_stale, and no head finding is reported for it.
+- A correctly signed anchor over the genuine snapshot is
+  anchored and serves exactly as before, with the check's
+  signature fields recording that the signature was verified.
+- No signing identity: the consultation is exactly experiment
+  015's, judging a signed anchor by its head alone. The anchor
+  file is still experiment 012's local stand-in, now optionally
+  signed; its stated limits (a local file, symmetric HMAC
+  signing where the verifier holds the secret, deletion and
+  rollback to an older signed state not prevented) stand.
 """
 
 from __future__ import annotations
@@ -282,6 +305,23 @@ class AnchorStale(AnchorRefused):
     status = "anchor_stale"
 
 
+class AnchorSignatureInvalid(AnchorRefused):
+    """The anchor's signature does not verify (case 10, experiment
+    019).
+
+    Raised only on a node configured with a signing identity
+    (anchor_signer + anchor_secret_hex): the anchor is unsigned,
+    was signed by a different identity, its signature was
+    tampered with, or its kept history does not verify. Distinct
+    from AnchorMismatch and AnchorStale by construction: the
+    signature judgement runs before the head judgement, because
+    a head edited after signing is a signature failure, not a
+    head finding.
+    """
+
+    status = "anchor_signature_invalid"
+
+
 @dataclass(frozen=True)
 class ServedPolicy:
     policy_hash: str
@@ -334,12 +374,25 @@ class PolicyNode:
         payloads: dict[str, bytes],
         serve_policies: bool = False,
         anchor_path: str | Path | None = None,
+        anchor_signer: str | None = None,
+        anchor_secret_hex: str | None = None,
     ):
+        if (anchor_signer is None) != (anchor_secret_hex is None):
+            raise ValueError(
+                "anchor_signer and anchor_secret_hex must be given "
+                "together (a signing identity is an id plus its "
+                "verification secret)"
+            )
         self.node_id = node_id
         self.registry_snapshot_path = Path(registry_snapshot_path)
         self._payloads = dict(payloads)
         self.serve_policies = bool(serve_policies)
         self.anchor_path = Path(anchor_path) if anchor_path is not None else None
+        # Experiment 019: the signing identity this node verifies
+        # its anchor's signature with, when configured. Both None
+        # (the default) is experiment 015's head-only judgement.
+        self.anchor_signer = anchor_signer
+        self.anchor_secret_hex = anchor_secret_hex
         self.anchor_check = None
         self.anchor_status: str = "no_anchor"
         # Raises TamperedRecord if the copied chain does not verify.
@@ -367,9 +420,29 @@ class PolicyNode:
         check is expected True; it is still honored if it is not.
         """
         anchor_mod = _load_registry_anchor_module()
-        check = anchor_mod.check_registry_against_anchor(snapshot_path, self.anchor_path)
+        if self.anchor_signer is not None:
+            check = anchor_mod.check_registry_against_anchor(
+                snapshot_path, self.anchor_path,
+                signer=self.anchor_signer, secret_hex=self.anchor_secret_hex,
+            )
+        else:
+            check = anchor_mod.check_registry_against_anchor(
+                snapshot_path, self.anchor_path
+            )
         if check.ok:
             return check, "anchored"
+        if check.signature_checked and not check.signature_valid:
+            # Experiment 019: the signature judgement precedes the
+            # head judgement. A missing, wrong, or tampered
+            # signature - or a kept history that does not verify -
+            # is refused under its own name and never reaches the
+            # mismatch / stale classification.
+            raise AnchorSignatureInvalid(
+                f"registry snapshot's anchor signature does not "
+                f"verify for signer {self.anchor_signer}: refusing "
+                f"as anchor_signature_invalid",
+                check,
+            )
         if not check.internal_verifies:
             raise TamperedRecord(
                 "registry snapshot failed internal verification in the anchor check"
@@ -456,6 +529,8 @@ class PolicyNode:
         registry_snapshot_path: str | Path,
         payloads: dict[str, bytes],
         anchor_path: str | Path | None = None,
+        anchor_signer: str | None = None,
+        anchor_secret_hex: str | None = None,
     ) -> "PolicyNode":
         """Build a node from the operator's own JSON config file.
 
@@ -475,6 +550,8 @@ class PolicyNode:
             payloads=payloads,
             serve_policies=bool(config.get("serve_policies", False)),
             anchor_path=anchor_path,
+            anchor_signer=anchor_signer,
+            anchor_secret_hex=anchor_secret_hex,
         )
 
     # -- introspection (holding is not serving) ---------------------------
