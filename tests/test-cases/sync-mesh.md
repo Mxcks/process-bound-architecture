@@ -32,3 +32,34 @@
    013 (explicit, caller-driven coordination step in-process; no
    network signalling, consensus vote, or automatic trigger is
    claimed).
+7. Protected node links (added 2026-11-06, experiment 014):
+   experiment 007's networked node processes talk over a local
+   connection that is unencrypted, with no sign-in or authentication,
+   and nodes find each other only by set addresses. This case closes
+   the first two parts of that limit; discovery by set addresses
+   stays as-is and remains a stated limit. Expected: two node
+   processes exchange entries and a registered policy over a
+   connection that is encrypted in transit, proven by a plaintext
+   capture of the traffic through a forwarding proxy: the captured
+   bytes contain neither the policy code nor any entry key or value,
+   while the exchange itself succeeds over that same captured path.
+   A connection from an unauthenticated peer is refused: a client
+   holding no credential, and a client holding a credential issued
+   by a different authority, each fail to connect at all, so neither
+   can sync entries nor receive a policy. A tampered entry sent over
+   the protected link is still caught by the existing Gate 3
+   verification on receipt (divergence detected, rolled back, state
+   unchanged), so encryption does not bypass Gate 3 or Gate 1/2
+   registration checks: a node that did not opt in to serving still
+   refuses over the protected link, and the snapshot still verifies
+   on receipt. The experiment 007 behaviors still pass over the
+   protected link: two processes converge, a policy crosses with
+   verification, and the survivors still serve and keep converging
+   after one process is killed. Negative control, in the style of
+   availability case 1: the same servers, reached with plain HTTP
+   instead of the protected transport, answer nothing usable, so
+   the protected port does not fall back to plaintext. Status:
+   implemented at prototype scale in experiment 014 (mutual TLS
+   between localhost processes, test credentials generated inside
+   the tests at runtime; no production identity proofing, no
+   certificate lifecycle, and no discovery is claimed).
