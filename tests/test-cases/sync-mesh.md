@@ -230,3 +230,107 @@
    over an updated snapshot as in experiment 008; a running
    server still gains no reload path in this case, and no push
    delivery is claimed).
+13. A running server learns of a revocation without a restart
+   (added 2026-11-06, experiment 024): since experiment 007, a
+   node server process builds its PolicyNode once at startup
+   and never reloads, so a revocation (registration case 6)
+   reaches a network client only after the process is restarted
+   over an updated snapshot - the delivery shape cases 10-12
+   all used. Experiments 022/023 closed the trigger half of
+   that gap for in-process placed policies (a watcher notices
+   the shared snapshot file changed and calls experiment 021's
+   reload itself); the experiment 007/014 server processes were
+   explicitly left out of both. This case closes it for them. A
+   running server - started over a registry snapshot, with
+   `--anchor` and, where configured, `--anchor-signer` plus
+   `--anchor-secret-file` as in cases 10/11 - exposes a
+   snapshot check on its existing POST surface:
+   `POST /check-snapshot`, driven by a new client helper
+   (`check_snapshot`, in the style of `mutate` and
+   `request_sync`). One check compares the server's own
+   snapshot file's presented facts - the entry count, the
+   chain head, and a SHA-256 fingerprint of the file's raw
+   bytes, experiment 022's change fact, reused from
+   `snapshot_delivery.snapshot_facts` - with the facts the
+   running PolicyNode last loaded (recorded at startup, and
+   moved only by a reload that stood, experiment 022's state
+   discipline). Expected:
+   - No change: the check reports status `no_change`, calls
+     nothing, and serving is undisturbed - the same policy
+     serves with the same bytes before and after the check,
+     and the check's report carries `loaded_entries` null (no
+     reload occurred), in the no-churn discipline of
+     experiment 022.
+   - A clean change: the updated record is delivered into the
+     server's own snapshot copy (an explicit file copy, the
+     delivery shape of every earlier experiment - no push,
+     broadcast, or network transport of the record is added)
+     and the anchor lifecycle is followed (the grown head
+     re-anchored, by the same signer where the anchor is
+     signed, experiments 012/019). ONE check then reloads the
+     running PolicyNode in that same check, with experiment
+     015's reload semantics (verify the chain and consult the
+     anchor before the view changes; the reload is experiment
+     021's mechanism, reused, not a new one). Afterward, a
+     request for the revoked policy over the wire returns case
+     12's clean refusal - status 410, error `policy_revoked` -
+     on experiment 007's plaintext transport and on experiment
+     014's protected (mutual TLS) transport alike; a policy
+     that was NOT revoked keeps serving with status 200 and
+     its exact registered bytes; and `/health` reports the
+     server's current standing after the reload: its anchor
+     status, the loaded snapshot entry count, and the last
+     check's report.
+   - A change that should not be trusted is refused by the
+     reload under its own names, exactly as in-process
+     (experiments 015/019/022): honest growth delivered
+     WITHOUT the re-anchor is refused as `anchor_stale`; an
+     entry edited in place (experiment 021's tamper - the
+     fingerprint is what lets the check see an edit that head
+     and count cannot) as `tampered_record`; and a snapshot
+     file replaced with a full rewrite from genesis
+     (experiment 012's negative control, internally
+     consistent) as `anchor_mismatch`. On every refusal the
+     running server keeps serving its previous view - the
+     policy whose revocation it has not yet accepted still
+     serves, which is the stale window, stated and not hidden
+     - the check's report names the refusal, `/health` carries
+     the last check's report with the refusal's name, and
+     every later check re-reports the same refusal until the
+     cause is fixed; after the cause is fixed (the re-anchor,
+     an untampered delivery), the next check delivers, exactly
+     as experiment 022's watcher behaves.
+   - Restart behavior is unchanged: a server STARTED over a
+     rewritten snapshot with an anchor configured still
+     refuses to start as `anchor_mismatch`, exactly as in
+     cases 10/11 (the unmodified experiment 018/019 suites
+     assert it, and this case's suite asserts it again) - the
+     live check is an addition to a running server, not a
+     weakening of the startup gate.
+   - A server with no snapshot configured reports the check
+     as `no_snapshot` and is otherwise undisturbed (its mesh
+     endpoints behave exactly as in experiment 007).
+   The check is driven by the caller through the endpoint: no
+   timer, scheduler, background thread, or file watcher inside
+   the server fires it unattended, and nothing here claims
+   more than experiment 022's meaning of automatic, at the
+   process surface. Status: implemented at prototype scale
+   in experiment 024 (`experiments/024-server-live-reload/`);
+   the case was written before the build. Tests:
+   `packages/synchronization/test_server_live_reload.py`
+   (no-change check reloads nothing and serving is
+   undisturbed; clean delivery reloads in one check and the
+   revoked policy is refused 410 over plaintext while a
+   non-revoked policy keeps serving and health reports the
+   new standing; anchor_stale refused and re-reported until
+   the re-anchor, then delivered; tampered delivery refused
+   as tampered_record with the previous view serving, then
+   delivered once the genuine record is delivered and
+   anchored; rewritten delivery refused as anchor_mismatch
+   with the previous view serving, and restoring the genuine
+   file reports no_change; the full flow over mutual TLS
+   with a signed anchor - stale refusal, same-signer
+   re-anchor, reload in one check, clean 410 over the
+   protected link; restart over a rewritten snapshot still
+   refused at startup; a mesh-only server reports
+   no_snapshot).
