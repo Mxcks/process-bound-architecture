@@ -1,0 +1,317 @@
+=== TESTS FIRST: new suites and the updated 020 suite run against the unfixed code, before any implementation ===
+--- python3 packages/policy-library/test_revocation_delivery.py
+test_no_reload_keeps_placement_time_view (__main__.RevocationDeliveryTests.test_no_reload_keeps_placement_time_view) ... ok
+test_non_revoked_policy_keeps_serving_after_same_reload (__main__.RevocationDeliveryTests.test_non_revoked_policy_keeps_serving_after_same_reload) ... ERROR
+test_reload_delivers_revocation_to_every_holder (__main__.RevocationDeliveryTests.test_reload_delivers_revocation_to_every_holder) ... FAIL
+test_tampered_reload_refused_and_state_untouched (__main__.RevocationDeliveryTests.test_tampered_reload_refused_and_state_untouched) ... ERROR
+
+======================================================================
+ERROR: test_non_revoked_policy_keeps_serving_after_same_reload (__main__.RevocationDeliveryTests.test_non_revoked_policy_keeps_serving_after_same_reload)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/policy-library/test_revocation_delivery.py", line 231, in test_non_revoked_policy_keeps_serving_after_same_reload
+    self.assertEqual(alice_placed.reload_snapshot(), 3)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ReplicatedPolicy' object has no attribute 'reload_snapshot'
+
+======================================================================
+ERROR: test_tampered_reload_refused_and_state_untouched (__main__.RevocationDeliveryTests.test_tampered_reload_refused_and_state_untouched)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/policy-library/test_revocation_delivery.py", line 219, in test_tampered_reload_refused_and_state_untouched
+    placed.reload_snapshot(tampered)
+    ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ReplicatedPolicy' object has no attribute 'reload_snapshot'
+
+======================================================================
+FAIL: test_reload_delivers_revocation_to_every_holder (__main__.RevocationDeliveryTests.test_reload_delivers_revocation_to_every_holder)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/policy-library/test_revocation_delivery.py", line 159, in test_reload_delivers_revocation_to_every_holder
+    self.assertTrue(hasattr(placed, "reload_snapshot"))
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.402s
+
+FAILED (failures=1, errors=2)
+F1 REMAINING FACT: with no reload called, the placed object still serves from its placement-time view
+--- python3 packages/synchronization/test_revoked_policy_network.py
+test_revoked_policy_clean_refusal_over_plaintext (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_plaintext) ... ERROR
+test_revoked_policy_clean_refusal_over_tls (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_tls) ... ERROR
+
+======================================================================
+ERROR: test_revoked_policy_clean_refusal_over_plaintext (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_plaintext)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_revoked_policy_network.py", line 244, in test_revoked_policy_clean_refusal_over_plaintext
+    self._assert_clean_revoked_refusal(restarted.base_url)
+  File ".../packages/synchronization/test_revoked_policy_network.py", line 209, in _assert_clean_revoked_refusal
+    status, body = node_server.fetch_policy(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 427, in fetch_policy
+    return get_json(base_url, f"/policy/{policy_hash}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 372, in get_json
+    return _request_json("GET", base_url.rstrip("/") + path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 361, in _request_json
+    with _urlopen(req, timeout=10) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 348, in _urlopen
+    return urllib.request.urlopen(req, timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 215, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 515, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 532, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 492, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1373, in http_open
+    return self.do_open(http.client.HTTPConnection, req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1348, in do_open
+    r = h.getresponse()
+        ^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 1457, in getresponse
+    response.begin()
+  File "/usr/lib/python3.12/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+======================================================================
+ERROR: test_revoked_policy_clean_refusal_over_tls (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_tls)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_revoked_policy_network.py", line 267, in test_revoked_policy_clean_refusal_over_tls
+    self._assert_clean_revoked_refusal(restarted.base_url)
+  File ".../packages/synchronization/test_revoked_policy_network.py", line 209, in _assert_clean_revoked_refusal
+    status, body = node_server.fetch_policy(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 427, in fetch_policy
+    return get_json(base_url, f"/policy/{policy_hash}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 372, in get_json
+    return _request_json("GET", base_url.rstrip("/") + path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 361, in _request_json
+    with _urlopen(req, timeout=10) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 347, in _urlopen
+    return urllib.request.urlopen(req, timeout=timeout, context=_CLIENT_CONTEXT)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 215, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 515, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 532, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 492, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1392, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1348, in do_open
+    r = h.getresponse()
+        ^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 1457, in getresponse
+    response.begin()
+  File "/usr/lib/python3.12/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+----------------------------------------------------------------------
+Ran 2 tests in 10.697s
+
+FAILED (errors=2)
+--- python3 packages/synchronization/test_full_chain_integration.py (updated in this experiment to assert the fixed behavior, run before the fix)
+test_full_chain_end_to_end (__main__.FullChainTests.test_full_chain_end_to_end) ... ok
+test_gate5_verdict_genuine_passes_rewritten_fails (__main__.FullChainTests.test_gate5_verdict_genuine_passes_rewritten_fails) ... ok
+test_placed_holders_reload_delivers_revocation (__main__.FullChainTests.test_placed_holders_reload_delivers_revocation) ... FAIL
+test_revoked_policy_over_network_transport_clean_refusal (__main__.FullChainTests.test_revoked_policy_over_network_transport_clean_refusal) ... ERROR
+
+======================================================================
+ERROR: test_revoked_policy_over_network_transport_clean_refusal (__main__.FullChainTests.test_revoked_policy_over_network_transport_clean_refusal)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_full_chain_integration.py", line 602, in test_revoked_policy_over_network_transport_clean_refusal
+    status, body = node_server.fetch_policy(srv_b2.base_url,
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 427, in fetch_policy
+    return get_json(base_url, f"/policy/{policy_hash}")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 372, in get_json
+    return _request_json("GET", base_url.rstrip("/") + path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 361, in _request_json
+    with _urlopen(req, timeout=10) as resp:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ".../packages/synchronization/node_server.py", line 347, in _urlopen
+    return urllib.request.urlopen(req, timeout=timeout, context=_CLIENT_CONTEXT)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 215, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 515, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 532, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 492, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1392, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/urllib/request.py", line 1348, in do_open
+    r = h.getresponse()
+        ^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 1457, in getresponse
+    response.begin()
+  File "/usr/lib/python3.12/http/client.py", line 336, in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/http/client.py", line 305, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+http.client.RemoteDisconnected: Remote end closed connection without response
+
+======================================================================
+FAIL: test_placed_holders_reload_delivers_revocation (__main__.FullChainTests.test_placed_holders_reload_delivers_revocation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_full_chain_integration.py", line 558, in test_placed_holders_reload_delivers_revocation
+    self.assertTrue(has_reload)
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 4 tests in 54.223s
+
+FAILED (failures=1, errors=1)
+STAGE 1 registration: PASS
+STAGE 2 signed registry anchor: PASS
+STAGE 3 placement floor 3 with anchor consultation: PASS
+STAGE 4 Gate 2 serving from second holder: PASS
+STAGE 5 protected identity-bound process serving + sync: PASS
+STAGE 6 mesh convergence + mesh anchor consultation: PASS
+STAGE 7 liveness auto-healing, floor restored: PASS
+STAGE 8 revocation delivered, serving stopped: PASS
+STAGE 9 Gate 5 verdict: genuine PASS, rewritten FAIL on anchor_evidence_registry only (anchor_mismatch)
+FIXED F1 placed-holders-reload (experiment 021): ReplicatedPolicy exposes reload_snapshot: False; before the reload the placed object still serves from its placement-time view: True; reload loaded entries: None; after the reload serve() refuses as PolicyRevoked: False
+
+(The failing-before evidence is exactly the two findings as
+experiment 020 recorded them. F1: ReplicatedPolicy has no
+reload_snapshot - one assertion failure on the hasattr check
+and two AttributeErrors; the fourth F1 test (no reload called)
+passes pre-fix because it asserts a property of the pre-existing
+code, the placement-time view, which the fix does not change.
+F2: both new network tests error with RemoteDisconnected - the
+dropped connection itself - on plaintext and on TLS, and the
+updated 020 suite's F2 test errors the same way while its F1
+test fails on the missing reload. Those shapes cannot be
+artifacts of this experiment's fixes: they were captured
+before any fix existed.)
+
+=== PRE-BUILD BASELINE (before this experiment's code) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests  OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 24 tests  OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 41 tests  OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests  OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly
+(103 tests total, the baseline this experiment started from;
+leftover node_server processes: 0)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.406s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 28 tests in 1.667s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 43 tests in 242.660s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 2.343s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(109 tests total: the 103 baseline plus this experiment's 6
+new - 4 in policy-library, 2 in synchronization. The
+synchronization count includes experiment 020's suite at its
+same 4 tests, now asserting the fixed F1/F2 behavior. Every
+earlier suite passes in the same run, including the
+unmodified revocation, anchor, healing, and liveness suites.)
+
+=== NEW SUITES BY DIRECT FILE RUN ===
+--- python3 packages/policy-library/test_revocation_delivery.py
+test_no_reload_keeps_placement_time_view (__main__.RevocationDeliveryTests.test_no_reload_keeps_placement_time_view) ... ok
+test_non_revoked_policy_keeps_serving_after_same_reload (__main__.RevocationDeliveryTests.test_non_revoked_policy_keeps_serving_after_same_reload) ... ok
+test_reload_delivers_revocation_to_every_holder (__main__.RevocationDeliveryTests.test_reload_delivers_revocation_to_every_holder) ... ok
+test_tampered_reload_refused_and_state_untouched (__main__.RevocationDeliveryTests.test_tampered_reload_refused_and_state_untouched) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 1.451s
+
+OK
+F1 REMAINING FACT: with no reload called, the placed object still serves from its placement-time view
+FIXED F1 placed-holders-reload: reload_snapshot delivered the revocation; serve() on the placed policy raises PolicyRevoked
+--- python3 packages/synchronization/test_revoked_policy_network.py
+test_revoked_policy_clean_refusal_over_plaintext (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_plaintext) ... ok
+test_revoked_policy_clean_refusal_over_tls (__main__.RevokedPolicyNetworkTests.test_revoked_policy_clean_refusal_over_tls) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 18.106s
+
+OK
+FIXED F2 revoked-over-network: clean HTTP 410 refusal naming policy_revoked; server keeps serving other policies
+FIXED F2 revoked-over-network: clean HTTP 410 refusal naming policy_revoked; server keeps serving other policies
+
+=== EXPERIMENT 020 SUITE BY DIRECT FILE RUN (updated assertions) ===
+--- python3 packages/synchronization/test_full_chain_integration.py
+test_full_chain_end_to_end (__main__.FullChainTests.test_full_chain_end_to_end) ... ok
+test_gate5_verdict_genuine_passes_rewritten_fails (__main__.FullChainTests.test_gate5_verdict_genuine_passes_rewritten_fails) ... ok
+test_placed_holders_reload_delivers_revocation (__main__.FullChainTests.test_placed_holders_reload_delivers_revocation) ... ok
+test_revoked_policy_over_network_transport_clean_refusal (__main__.FullChainTests.test_revoked_policy_over_network_transport_clean_refusal) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 53.003s
+
+OK
+STAGE 1 registration: PASS
+STAGE 2 signed registry anchor: PASS
+STAGE 3 placement floor 3 with anchor consultation: PASS
+STAGE 4 Gate 2 serving from second holder: PASS
+STAGE 5 protected identity-bound process serving + sync: PASS
+STAGE 6 mesh convergence + mesh anchor consultation: PASS
+STAGE 7 liveness auto-healing, floor restored: PASS
+STAGE 8 revocation delivered, serving stopped: PASS
+STAGE 9 Gate 5 verdict: genuine PASS, rewritten FAIL on anchor_evidence_registry only (anchor_mismatch)
+FIXED F1 placed-holders-reload (experiment 021): ReplicatedPolicy exposes reload_snapshot: True; before the reload the placed object still serves from its placement-time view: True; reload loaded entries: 2; after the reload serve() refuses as PolicyRevoked: True
+FIXED F2 revoked-over-network (experiment 021): policy request after revocation produced: http_410 {"error": "policy_revoked", "detail": "policy revoked by its author (alice): dcab37d1f0094a82d399c4615d115a81460f82d9d8ac8249a3d6cf67a1a1b77a"}
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server" | wc -l  ->  0
+(Checked after the tests-first runs, after the direct suite
+runs, and after the full regression: 0 each time.)
