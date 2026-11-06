@@ -16,8 +16,12 @@ Status: **Gate 5 verification gate prototype built and passing**
 (2026-11-06, experiment `experiments/006-gate5-verification/`).
 Gate 1 passed in experiment 002, which unblocked this layer's build
 per the build order above; the Gate 5 harness is this layer's first
-code. Prototype only, not production. The module docstring in
-`gate5_harness.py` is the authoritative list of honest limits.
+code. A scale harness (`scale_harness.py`, experiment
+`experiments/009-scale-run/`) now measures this layer's timed path
+and the whole stack at sizes up to a 5,000-entry registry and a
+10,000-entry mesh; see "Scale, measured" below. Prototype only,
+not production. The module docstrings in `gate5_harness.py` and
+`scale_harness.py` are the authoritative lists of honest limits.
 
 ## What is here
 
@@ -26,6 +30,8 @@ code. Prototype only, not production. The module docstring in
 | `gate5_harness.py` | The Gate 5 prototype: a canary scenario built on Gates 1-3 (registration, verified serving node, converged sync mesh), real lineage timing, forced-fault injection with halt-and-rollback, and one verdict computed from the checks. Python standard library only. Builds on the earlier packages; does not modify them. |
 | `test_gate5.py` | Automated tests, one per Gate 5 outcome, plus a negative test proving the verdict fails on bad evidence. |
 | `demo.py` | Runnable walkthrough of all three Gate 5 outcomes, printing the measured numbers and the verdict. |
+| `scale_harness.py` | The scale harness (experiment 009): registration at volume (200 / 1,000 / 5,000 entries, 200 users), sync convergence at size (10 nodes, up to 10,000 entries, shuffled delivery), verified serve against large snapshots, and the Gate 5 canary lineage path across a registry × mesh size grid. Runnable as a CLI: `python3 packages/validation/scale_harness.py --profile full`. |
+| `test_scale_harness.py` | Automated tests that the scale harness runs and reports sane results at modest size. The big numbers are measured results in experiment 009, not unit assertions. |
 
 ## How to run it
 
@@ -89,6 +95,35 @@ is that lineage is measured and faults halt and roll back, observed.
 A production runtime (Wasm/eBPF, per the proposals) would have to
 re-measure on its own hardware before claiming the number.
 
+## Scale, measured (experiment 009)
+
+The scale harness ran the full stack at size on this machine
+(99 s wall for the full profile; tables and verbatim output in
+`experiments/009-scale-run/`). Headline medians:
+
+- Registration, 200 users: building a 5,000-entry registry took
+  74.5 s because the per-registration cost grows with registry
+  size (median 0.54 ms at 200 entries, 2.45 ms at 1,000,
+  12.68 ms at 5,000 - Gate 1's `register()` re-reads the whole
+  log per call). Full chain verify stays cheap: 72 ms at 5,000.
+- Sync: 10 nodes converged 10,000 entries under shuffled delivery
+  with identical state hashes, 0.24-0.39 s of delivery per node.
+- Serve: verified serve is flat at ~0.005 ms at every registry
+  size; building a serving node (one full chain verify) is
+  79 ms at 5,000 entries.
+- Canary lineage end to end misses the 1 ms target at every
+  measured size: 3.57 ms at registry 200 / mesh 100 up to
+  168.99 ms at registry 5,000 / mesh 10,000 (miss factor ×169).
+  The cost is the two whole-set re-verifications (registry chain
+  + mesh lineage); per-transformation lineage stays at 0.008 ms
+  at every size. Meeting 1 ms end to end would need incremental
+  verification, a design change, not tuning.
+
+The size the evidence supports utilizing at: ~1,000 policies and
+10,000 mesh entries comfortably; 5,000 policies with the
+registration write path as the named caveat. What breaks first
+is the registration write path.
+
 ## Honest limits
 
 - In-process, one machine, four mesh nodes, 100 entries. Not a
@@ -104,4 +139,9 @@ re-measure on its own hardware before claiming the number.
 - Timings include Python interpreter and JSON costs a production
   runtime would not have, and exclude network costs it would.
 - Proof verification from the proposals (zk-SNARK / Merkle
-  attestations) is unbuilt; revocation still does not exist.
+  attestations) is unbuilt. (Revocation, absent when this layer
+  was first built, was added in experiment 008; its stale-window
+  limit is recorded there.)
+- Scale limits are now measured, not guessed: see "Scale,
+  measured" above and experiment 009 for what breaks first (the
+  registration write path) and the sizes the evidence supports.
