@@ -10,7 +10,14 @@ honored on the serving side** (2026-11-06, experiment
 `experiments/008-revocation/`; registration case 6), and
 **self-healing holder replacement built and passing** on top of
 Gate 4 (2026-11-06, experiment `experiments/010-self-healing/`;
-availability case 4). Prototype only, not production. The module
+availability case 4), and **anchor consultation in serving built
+and passing** (2026-11-06, experiment
+`experiments/015-anchor-consultation/`; registration case 8): a
+node built with an anchor path consults experiment 012's anchor
+at load and on reload, refusing a rewritten snapshot as
+`anchor_mismatch` and an honestly grown one as `anchor_stale`
+until re-anchored; a node built without one behaves exactly as
+before. Prototype only, not production. The module
 docstrings in `policy_node.py` and `replication.py` are the
 authoritative lists of honest limits.
 
@@ -33,6 +40,8 @@ central home, ever again in order to be served.
 | `demo_revocation.py` | Runnable walkthrough of the stale window opening and closing. |
 | `test_self_healing.py` | Automated tests for availability case 4 (experiment 010), extending `replication.py` (no Gate 4 code rewritten): floor restored after a permanent holder loss, the replacement alone serving verified bytes, the no-eligible-replacement negative control, and the at-floor / exact-shortfall boundaries. |
 | `demo_self_healing.py` | Runnable walkthrough of case 4, including the negative control. |
+| `test_anchor_consultation.py` | Automated tests for registration case 8 (experiment 015): a `PolicyNode` built with `anchor_path` (in `policy_node.py`, reusing the registration package's experiment 012 check by file-path load) serves a genuine snapshot, refuses the full-rewrite snapshot at load as `AnchorMismatch`, treats no-anchor behavior as exactly pre-015 (including serving the rewrite, stated plainly), and refuses honest growth as `AnchorStale` at load and on reload until re-anchored. |
+| `demo_anchor_consultation.py` | Runnable walkthrough of case 8 on the serving side: anchored serve, rewrite refused while an anchorless node serves it, growth stale until re-anchored. |
 
 ## How to run it
 
@@ -62,6 +71,12 @@ python3 packages/policy-library/demo_revocation.py
 # replacement reports below_floor honestly)
 python3 packages/policy-library/test_self_healing.py
 python3 packages/policy-library/demo_self_healing.py
+
+# Anchor consultation tests and demo (registration case 8: an
+# anchored node refuses a rewritten snapshot at load and honest
+# growth until re-anchored; no anchor means pre-015 behavior)
+python3 packages/policy-library/test_anchor_consultation.py
+python3 packages/policy-library/demo_anchor_consultation.py
 ```
 
 Requires Python 3.10+. No dependencies, no network, nothing is deployed.
@@ -197,9 +212,13 @@ package honors them, with the gap stated plainly:
   `packages/registration/anchor.py`: head + entry count in a file
   outside the registry's directory, checked against a presented
   snapshot copy as well as the log), and the full-rewrite negative
-  control fails that anchor check in its tests. This package's
-  nodes do not consult an anchor when serving, and the anchor file
-  is a local stand-in, not a witnessed external service.
+  control fails that anchor check in its tests. Since experiment
+  015, a node built with `anchor_path` DOES consult that anchor
+  when serving (at load and on reload) and refuses the rewrite;
+  a node built without one does not consult anything and behaves
+  exactly as before, and the anchor file is still a local
+  stand-in, not a witnessed external service. The experiment
+  007/014 server processes do not pass an anchor path yet.
 - Revocation is honored only from the record a node actually holds:
   there is no revocation push, broadcast, or staleness bound, so the
   stale window above can stay open indefinitely on a node that never
