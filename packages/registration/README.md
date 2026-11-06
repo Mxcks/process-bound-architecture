@@ -141,9 +141,12 @@ Requires Python 3.10+. No dependencies, no network, nothing is deployed.
   write the anchor can re-anchor a rewrite. Production needs the
   head held somewhere the registry's writer cannot reach (a
   witnessed ledger, another operator's countersignature, a public
-  append-only log). Nothing here is that, and no component consults
-  an anchor automatically: Gate 2 serving, Gate 3 sync, and Gate 5's
-  verdict do not call the anchor check.
+  append-only log). Nothing here is that. Since experiment 015,
+  Gate 2 serving and Gate 3 sync DO consult an anchor automatically
+  when one is configured for the node (registration case 8), and
+  refuse a rewritten record; Gate 5's verdict still does not call
+  the anchor check, and no node consults an anchor it was not
+  configured with.
 - The execution boundary admits or blocks based on registration and code
   hash. It does not sandbox or execute arbitrary code; that is the
   runtime package's job.
