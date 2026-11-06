@@ -3,6 +3,11 @@
 Plain rule: a layer unlocks the next build only when its outcome is
 **observed in a test**, not when its spec is written.
 
+Per `AUTHORIZATION.md` (2026-11-06), these gates are Maren's own internal
+build order for the entire architecture, which Max authorized as a whole.
+They are NOT per-step approvals to ask Max for. Max authorized the whole
+architecture; Maren works the gates herself and reports results.
+
 ## Gate 0 - Workspace exists (DONE 2026-11-06)
 Outcome: this clean monorepo is public, holds every layer, its tests, its
 instructions, and an idea dump lane.
@@ -50,5 +55,6 @@ Outcomes:
 Unlocks: any production claim. The sub-millisecond number is a benchmark
 to measure at this gate, not a promise before it.
 
-## The next build, in one line
-Gate 1, outcomes 1 to 6, in a small prototype. That is the next build.
+## The build order, in one line
+Gate 1 first, then 2 to 5 in order, all under the standing authorization
+in `AUTHORIZATION.md`. Maren proceeds gate to gate without asking.
