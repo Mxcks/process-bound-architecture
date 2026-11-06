@@ -106,6 +106,19 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 4 outcomes)
    nothing here pushes, broadcasts, schedules, or transports
    the updated record into the snapshot file.
 
+8. Composed watchers (experiment 023, availability test case
+   8). A third module, composed_watchers.py, drives outcomes
+   5's liveness watcher (016) and 7's delivery watcher (022)
+   over one placement in one composed cycle, delivery before
+   liveness, reusing both watchers exactly: a revocation and
+   a threshold-crossing holder loss in the same cycle window
+   deliver, declare, and heal over the updated record in that
+   one cycle, and a delivery refused in a cycle does not
+   block that cycle's heal, which recruits over the last good
+   record the coordinator keeps. This module is unchanged by
+   that experiment too; the coordinator composes the two
+   existing watchers and adds no mechanism here.
+
 HOW IT WORKS, IN PLAIN WORDS
 ----------------------------
 Placement happens once, at registration time (in the tests, directly
