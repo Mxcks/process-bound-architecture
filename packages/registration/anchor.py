@@ -57,9 +57,13 @@ HONEST LIMITS (prototype, NOT production)
   neither says WHY a head moved. Deciding that is the operator's.
 - This module anchors the registry chain. The sync mesh's
   per-origin chains are anchored the same way by
-  packages/synchronization/anchor.py. Gate 2's PolicyNode does not
-  consult an anchor when it serves; wiring anchor checks into
-  serving, sync, or the Gate 5 verdict is not built here.
+  packages/synchronization/anchor.py. Consultation of this check
+  was wired in later, in stages: Gate 2 serving and Gate 3 sync
+  consult it in-process (experiment 015), the networked server
+  processes consult it at startup when started with --anchor
+  (experiment 018), and the Gate 5 verdict takes it as opt-in
+  evidence (experiment 018). None of that changes what this
+  module's check itself is worth (see the stand-in limits above).
 """
 
 from __future__ import annotations
