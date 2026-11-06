@@ -41,7 +41,11 @@ HONEST LIMITS (prototype, NOT production)
 - Verification trusts the copied chain exactly as far as Gate 1 does:
   the chain is tamper-evident against edits to a single entry, but a
   whole-file rewrite from genesis would recompute cleanly. Detecting
-  that needs an external anchor / witnessed head hash, still unbuilt.
+  that needs an external anchor / witnessed head hash: a prototype
+  anchor for this chain now exists (experiment 012,
+  packages/registration/anchor.py, a stand-in file outside the
+  registry directory), but this node does not consult an anchor when
+  it serves, so serving here still trusts the chain alone.
 - The node serves policy *bytes* after verifying them. It does not
   sandbox or execute policy code (runtime package's job).
 
