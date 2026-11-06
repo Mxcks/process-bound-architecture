@@ -1,0 +1,193 @@
+======================================================================
+Experiment 009 - scale run - verbatim output
+Date: 2026-11-06
+Python: Python 3.12.3
+Machine: Linux 7.0.0-43-generic x86_64, 4 cores, 7934 MB RAM
+======================================================================
+
+########## A. Full scale run (packages/validation/scale_harness.py --profile full)
+########## wall clock: 99 s, exit code 0
+
+machine: python 3.12.3, Linux-7.0.0-43-generic-x86_64-with-glibc2.39
+
+=== 1. Registration at volume ===
+  200 entries, 200 users, completed=True, file 98380 bytes
+    enroll all users: 0.004 s
+    register total: 0.114 s; per registration: min 0.109 ms, median 0.538 ms, mean 0.569 ms, p95 0.962 ms, max 2.781 ms (n=200)
+    verify full chain (live channel): min 2.565 ms, median 2.611 ms, mean 2.597 ms, p95 2.621 ms, max 2.621 ms (n=5)
+    verify full chain (reload from disk): min 4.079 ms, median 4.161 ms, mean 4.209 ms, p95 4.387 ms, max 4.387 ms (n=3)
+  1000 entries, 200 users, completed=True, file 492340 bytes
+    enroll all users: 0.004 s
+    register total: 2.847 s; per registration: min 0.092 ms, median 2.447 ms, mean 2.844 ms, p95 5.669 ms, max 30.587 ms (n=1000)
+    verify full chain (live channel): min 16.531 ms, median 17.802 ms, mean 17.969 ms, p95 19.090 ms, max 19.090 ms (n=5)
+    verify full chain (reload from disk): min 20.576 ms, median 21.308 ms, mean 22.672 ms, p95 26.131 ms, max 26.131 ms (n=3)
+  5000 entries, 200 users, completed=True, file 2469140 bytes
+    enroll all users: 0.004 s
+    register total: 74.514 s; per registration: min 0.095 ms, median 12.676 ms, mean 14.896 ms, p95 33.485 ms, max 103.776 ms (n=5000)
+    verify full chain (live channel): min 69.704 ms, median 71.966 ms, mean 72.003 ms, p95 75.572 ms, max 75.572 ms (n=5)
+    verify full chain (reload from disk): min 106.129 ms, median 119.238 ms, mean 114.898 ms, p95 119.328 ms, max 119.328 ms (n=3)
+
+=== 2. Sync convergence at size (shuffled delivery) ===
+  10 nodes x 200 = 2000 entries: mutate 0.024 s, delivery 0.397 s (per node: 0.042, 0.039, 0.040, 0.038, 0.041, 0.041, 0.038, 0.040, 0.039, 0.039), converged=True, entries per node=[2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]
+    shared state hash: d339bedfb1aa5d1f63ae0708d7f7c371e2683aa4881d692f08398e7c022ba6bd
+  10 nodes x 1000 = 10000 entries: mutate 0.139 s, delivery 2.841 s (per node: 0.262, 0.239, 0.390, 0.277, 0.333, 0.354, 0.242, 0.256, 0.238, 0.250), converged=True, entries per node=[10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000]
+    shared state hash: ee66f1a9578363d3d4889a74bd1d40f1c67693de27f67c6c226218a706280c19
+
+=== 3. Serve path at size ===
+  registry 200 entries: snapshot verify+load 3.060 ms; verified serve: min 0.005 ms, median 0.005 ms, mean 0.006 ms, p95 0.006 ms, max 0.028 ms (n=300); served_ok=True
+  registry 1000 entries: snapshot verify+load 14.129 ms; verified serve: min 0.005 ms, median 0.005 ms, mean 0.006 ms, p95 0.006 ms, max 0.017 ms (n=300); served_ok=True
+  registry 5000 entries: snapshot verify+load 78.956 ms; verified serve: min 0.005 ms, median 0.006 ms, mean 0.006 ms, p95 0.007 ms, max 0.069 ms (n=300); served_ok=True
+
+=== 4. Gate 5 canary lineage at size (target 1.0 ms) ===
+  registry 200, mesh 100, 50 iterations, all_verified=True
+    stage registry chain: min 2.589 ms, median 2.656 ms, mean 2.993 ms, p95 2.806 ms, max 19.109 ms (n=50)
+    stage mesh lineage:   min 0.881 ms, median 0.902 ms, mean 1.298 ms, p95 0.976 ms, max 19.550 ms (n=50)
+    stage verified serve: min 0.006 ms, median 0.007 ms, mean 0.008 ms, p95 0.013 ms, max 0.017 ms (n=50)
+    end to end:           min 3.490 ms, median 3.570 ms, mean 4.302 ms, p95 4.329 ms, max 22.201 ms (n=50)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.008 ms, p95 0.009 ms, max 0.017 ms (n=100)
+    end-to-end meets 1 ms target: False (miss factor x3.6); per-transformation meets target: True
+  registry 200, mesh 1000, 30 iterations, all_verified=True
+    stage registry chain: min 2.670 ms, median 2.976 ms, mean 4.124 ms, p95 5.812 ms, max 25.498 ms (n=30)
+    stage mesh lineage:   min 9.039 ms, median 9.469 ms, mean 13.806 ms, p95 35.485 ms, max 36.706 ms (n=30)
+    stage verified serve: min 0.009 ms, median 0.017 ms, mean 0.018 ms, p95 0.029 ms, max 0.035 ms (n=30)
+    end to end:           min 11.721 ms, median 12.767 ms, mean 17.965 ms, p95 40.761 ms, max 45.032 ms (n=30)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.018 ms, p95 0.009 ms, max 5.429 ms (n=1000)
+    end-to-end meets 1 ms target: False (miss factor x12.8); per-transformation meets target: True
+  registry 200, mesh 10000, 15 iterations, all_verified=True
+    stage registry chain: min 2.877 ms, median 3.143 ms, mean 3.206 ms, p95 3.791 ms, max 3.791 ms (n=15)
+    stage mesh lineage:   min 93.721 ms, median 95.590 ms, mean 97.326 ms, p95 103.785 ms, max 103.785 ms (n=15)
+    stage verified serve: min 0.020 ms, median 0.023 ms, mean 0.025 ms, p95 0.036 ms, max 0.036 ms (n=15)
+    end to end:           min 96.634 ms, median 98.737 ms, mean 100.566 ms, p95 107.611 ms, max 107.611 ms (n=15)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.009 ms, max 0.124 ms (n=10000)
+    end-to-end meets 1 ms target: False (miss factor x98.7); per-transformation meets target: True
+  registry 1000, mesh 100, 50 iterations, all_verified=True
+    stage registry chain: min 12.822 ms, median 13.108 ms, mean 13.461 ms, p95 14.355 ms, max 22.891 ms (n=50)
+    stage mesh lineage:   min 0.891 ms, median 0.910 ms, mean 0.921 ms, p95 0.972 ms, max 1.018 ms (n=50)
+    stage verified serve: min 0.008 ms, median 0.011 ms, mean 0.013 ms, p95 0.019 ms, max 0.073 ms (n=50)
+    end to end:           min 13.732 ms, median 14.032 ms, mean 14.399 ms, p95 15.337 ms, max 23.943 ms (n=50)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.009 ms, max 0.037 ms (n=100)
+    end-to-end meets 1 ms target: False (miss factor x14.0); per-transformation meets target: True
+  registry 1000, mesh 1000, 30 iterations, all_verified=True
+    stage registry chain: min 12.984 ms, median 13.356 ms, mean 13.746 ms, p95 14.642 ms, max 20.361 ms (n=30)
+    stage mesh lineage:   min 8.986 ms, median 9.091 ms, mean 9.099 ms, p95 9.194 ms, max 9.271 ms (n=30)
+    stage verified serve: min 0.010 ms, median 0.012 ms, mean 0.012 ms, p95 0.017 ms, max 0.017 ms (n=30)
+    end to end:           min 22.014 ms, median 22.480 ms, mean 22.862 ms, p95 23.801 ms, max 29.575 ms (n=30)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.008 ms, max 0.031 ms (n=1000)
+    end-to-end meets 1 ms target: False (miss factor x22.5); per-transformation meets target: True
+  registry 1000, mesh 10000, 15 iterations, all_verified=True
+    stage registry chain: min 13.515 ms, median 15.319 ms, mean 20.660 ms, p95 79.811 ms, max 79.811 ms (n=15)
+    stage mesh lineage:   min 95.483 ms, median 97.416 ms, mean 104.418 ms, p95 145.498 ms, max 145.498 ms (n=15)
+    stage verified serve: min 0.023 ms, median 0.028 ms, mean 0.030 ms, p95 0.054 ms, max 0.054 ms (n=15)
+    end to end:           min 109.040 ms, median 113.085 ms, mean 125.119 ms, p95 203.920 ms, max 203.920 ms (n=15)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.009 ms, max 0.209 ms (n=10000)
+    end-to-end meets 1 ms target: False (miss factor x113.1); per-transformation meets target: True
+  registry 5000, mesh 100, 50 iterations, all_verified=True
+    stage registry chain: min 68.875 ms, median 72.032 ms, mean 81.700 ms, p95 139.834 ms, max 168.996 ms (n=50)
+    stage mesh lineage:   min 0.998 ms, median 1.032 ms, mean 1.084 ms, p95 1.357 ms, max 1.494 ms (n=50)
+    stage verified serve: min 0.020 ms, median 0.024 ms, mean 0.025 ms, p95 0.033 ms, max 0.034 ms (n=50)
+    end to end:           min 69.920 ms, median 73.086 ms, mean 82.824 ms, p95 141.163 ms, max 170.552 ms (n=50)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.009 ms, max 0.019 ms (n=100)
+    end-to-end meets 1 ms target: False (miss factor x73.1); per-transformation meets target: True
+  registry 5000, mesh 1000, 30 iterations, all_verified=True
+    stage registry chain: min 67.451 ms, median 69.716 ms, mean 69.864 ms, p95 72.681 ms, max 73.604 ms (n=30)
+    stage mesh lineage:   min 9.334 ms, median 9.505 ms, mean 9.561 ms, p95 9.977 ms, max 10.610 ms (n=30)
+    stage verified serve: min 0.020 ms, median 0.023 ms, mean 0.024 ms, p95 0.030 ms, max 0.032 ms (n=30)
+    end to end:           min 77.002 ms, median 79.511 ms, mean 79.461 ms, p95 82.207 ms, max 83.211 ms (n=30)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.010 ms, max 0.106 ms (n=1000)
+    end-to-end meets 1 ms target: False (miss factor x79.5); per-transformation meets target: True
+  registry 5000, mesh 10000, 15 iterations, all_verified=True
+    stage registry chain: min 66.565 ms, median 72.670 ms, mean 72.757 ms, p95 80.883 ms, max 80.883 ms (n=15)
+    stage mesh lineage:   min 95.555 ms, median 96.676 ms, mean 96.780 ms, p95 98.040 ms, max 98.040 ms (n=15)
+    stage verified serve: min 0.024 ms, median 0.027 ms, mean 0.028 ms, p95 0.032 ms, max 0.032 ms (n=15)
+    end to end:           min 164.650 ms, median 168.986 ms, mean 169.580 ms, p95 178.779 ms, max 178.779 ms (n=15)
+    per transformation:   min 0.008 ms, median 0.008 ms, mean 0.009 ms, p95 0.009 ms, max 0.463 ms (n=10000)
+    end-to-end meets 1 ms target: False (miss factor x169.0); per-transformation meets target: True
+
+scale state left in: /tmp/pba-scale-full
+results JSON: experiments/009-scale-run/results.json
+scale run sane: True
+
+########## B. New suite, direct file run
+$ python3 packages/validation/test_scale_harness.py -v
+test_canary_at_modest_size_reports_honest_target_comparison (__main__.ScaleHarnessTests.test_canary_at_modest_size_reports_honest_target_comparison) ... ok
+test_registration_at_modest_size (__main__.ScaleHarnessTests.test_registration_at_modest_size) ... ok
+test_serve_at_modest_size (__main__.ScaleHarnessTests.test_serve_at_modest_size) ... ok
+test_small_profile_suite_is_sane_end_to_end (__main__.ScaleHarnessTests.test_small_profile_suite_is_sane_end_to_end) ... ok
+test_sync_converges_at_modest_size (__main__.ScaleHarnessTests.test_sync_converges_at_modest_size) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.167s
+
+OK
+
+########## C. Full regression: unittest discover per package
+----- packages/registration
+$ python3 -m unittest discover -s packages/registration -v
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+test_author_can_revoke_and_boundary_and_validation_refuse (test_revocation.RevocationTests.test_author_can_revoke_and_boundary_and_validation_refuse) ... ok
+test_non_author_cannot_revoke (test_revocation.RevocationTests.test_non_author_cannot_revoke) ... ok
+test_revocation_is_new_chain_entry_original_untouched (test_revocation.RevocationTests.test_revocation_is_new_chain_entry_original_untouched) ... ok
+test_revocation_requires_valid_signature_and_real_policy (test_revocation.RevocationTests.test_revocation_requires_valid_signature_and_real_policy) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.007s
+
+OK
+
+----- packages/policy-library
+$ python3 -m unittest discover -s packages/policy-library -v
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+test_node_with_updated_snapshot_stops_serving (test_revocation_serving.RevocationServingTests.test_node_with_updated_snapshot_stops_serving) ... ok
+test_reload_by_path_and_tampered_reload_leaves_view_untouched (test_revocation_serving.RevocationServingTests.test_reload_by_path_and_tampered_reload_leaves_view_untouched) ... ok
+test_stale_node_serves_until_updated_record_arrives (test_revocation_serving.RevocationServingTests.test_stale_node_serves_until_updated_record_arrives) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.009s
+
+OK
+
+----- packages/synchronization
+$ python3 -m unittest discover -s packages/synchronization -v
+test_killed_process_survivors_still_serve_and_converge (test_network_nodes.NetworkedNodeTests.test_killed_process_survivors_still_serve_and_converge) ... ok
+test_server_refuses_to_start_over_tampered_snapshot (test_network_nodes.NetworkedNodeTests.test_server_refuses_to_start_over_tampered_snapshot) ... ok
+test_snapshot_and_policy_cross_boundary_with_verification (test_network_nodes.NetworkedNodeTests.test_snapshot_and_policy_cross_boundary_with_verification) ... ok
+test_two_processes_exchange_entries_and_converge (test_network_nodes.NetworkedNodeTests.test_two_processes_exchange_entries_and_converge) ... ok
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 1.446s
+
+OK
+
+----- packages/validation
+$ python3 -m unittest discover -s packages/validation -v
+test_canary_measures_real_lineage_times (test_gate5.Gate5VerificationTests.test_canary_measures_real_lineage_times) ... ok
+test_forced_fault_halts_and_rolls_back_to_checkpoint (test_gate5.Gate5VerificationTests.test_forced_fault_halts_and_rolls_back_to_checkpoint) ... ok
+test_gate_verdict_fails_on_bad_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_fails_on_bad_evidence) ... ok
+test_gate_verdict_from_measured_evidence (test_gate5.Gate5VerificationTests.test_gate_verdict_from_measured_evidence) ... ok
+test_canary_at_modest_size_reports_honest_target_comparison (test_scale_harness.ScaleHarnessTests.test_canary_at_modest_size_reports_honest_target_comparison) ... ok
+test_registration_at_modest_size (test_scale_harness.ScaleHarnessTests.test_registration_at_modest_size) ... ok
+test_serve_at_modest_size (test_scale_harness.ScaleHarnessTests.test_serve_at_modest_size) ... ok
+test_small_profile_suite_is_sane_end_to_end (test_scale_harness.ScaleHarnessTests.test_small_profile_suite_is_sane_end_to_end) ... ok
+test_sync_converges_at_modest_size (test_scale_harness.ScaleHarnessTests.test_sync_converges_at_modest_size) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.492s
+
+OK
+
+########## D. Handoff verification
+$ python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
