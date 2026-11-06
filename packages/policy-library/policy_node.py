@@ -124,11 +124,13 @@ no import of the registration channel and no copy of the check):
   or malformed anchor file) raises experiment 012's AnchorError at
   load: a caller who asked for an anchor is never silently served
   without one.
-- The experiment 007/014 node server processes do not pass an
-  anchor path in this experiment, so server-process serving does
-  not consult an anchor yet; the consultation built here is the
-  in-process PolicyNode's. The anchor itself is still experiment
-  012's unsigned local stand-in, with all of its stated limits.
+- The experiment 007/014 node server processes pass an anchor
+  path only when started with --anchor (experiment 018), in which
+  case this same consultation runs at server startup and a
+  mismatch or a stale chain refuses the start; a server started
+  without one consults nothing, exactly as before. The anchor
+  itself is still experiment 012's unsigned local stand-in, with
+  all of its stated limits.
 """
 
 from __future__ import annotations
