@@ -157,3 +157,48 @@
    server-process mesh side still holds a plain SyncNode and
    consults no mesh anchor; the mesh anchor enters through the
    Gate 5 verdict, as this case states).
+11. Signed mesh anchors with a kept history (added 2026-11-06,
+   experiment 019; the mesh half of registration case 10): the
+   mesh anchor of case 5 can be written SIGNED by an enrolled
+   Gate 1 identity, reusing the same domain-separated HMAC
+   anchor-signing scheme as the registry anchor (the canonical
+   encoding covers the per-origin heads, the state hash, the
+   entry count, the signer, the history sequence, and the
+   previous history entry's hash). Expected: the AnchoredSyncNode
+   of case 8, when configured with a signing identity, verifies
+   the mesh anchor's signature before accepting a peer's entries
+   as converged: a genuine peer whose merged state matches a
+   correctly signed anchor is accepted exactly as in case 8; a
+   merged state that matches an anchor whose signature is
+   missing, made by a different secret, or tampered with is
+   refused as a divergence under its own reason,
+   anchor_signature_invalid (rolled back, nothing accepted),
+   never as anchor_mismatch, never as anchor_stale, and never
+   silently accepted; the Gate 5 verdict's mesh anchor check
+   (case 10) fails under the same name for the same anchors.
+   Re-anchoring follows registration case 10's rule, stated
+   there before the build: a signed mesh anchor can be
+   re-anchored only by the same identity that signed it, a
+   different enrolled identity's attempt is refused and logged
+   in the anchor audit log beside the anchor file, and each
+   accepted re-anchor appends a signed, hash-chained history
+   entry (per-origin heads, state hash, count, sequence,
+   signer) inside the anchor file, whose tampering is caught by
+   history verification. With no signing identity configured,
+   mesh anchors - signed or unsigned - are judged by their
+   heads exactly as in cases 5 and 8, and the earlier suites
+   pass unmodified in the same run. Status: IMPLEMENTED at
+   prototype scale (2026-11-06, experiment
+   `experiments/019-signed-anchors/`); the case was written
+   before the build. Tests:
+   `packages/synchronization/test_signed_mesh_anchor.py` (signed
+   mesh anchor verifies with its history, missing/tampered
+   signature is anchor_signature_invalid, same-identity
+   re-anchor appends history and a different identity is
+   refused and logged, tampered history caught, an
+   identity-configured AnchoredSyncNode accepts a genuine peer
+   and refuses a tampered-signature anchor as an
+   anchor_signature_invalid divergence, and without an identity
+   the signed anchor is judged by its heads exactly as before)
+   and `packages/validation/test_gate5_signed_anchor.py` (the
+   verdict's mesh half, shared with registration case 10).
