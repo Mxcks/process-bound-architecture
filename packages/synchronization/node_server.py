@@ -18,7 +18,8 @@ ENDPOINTS
 ---------
 GET  /health     -> {node_id, ok, entries, state_hash,
                      serve_policies, policy_configured,
-                     anchor_configured, anchor_status}
+                     anchor_configured, anchor_status,
+                     snapshot_entries, last_snapshot_check}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -39,6 +40,25 @@ POST /sync       -> {peer: "http://127.0.0.1:PORT"}: this process
                     merged entry list to the peer (POST /entries),
                     whose merge verifies them again on that side.
                     Both SyncResults are returned.
+POST /check-snapshot
+                 -> drive one snapshot check on this RUNNING
+                    process (experiment 024): compare this
+                    process's own snapshot file's presented facts
+                    (entry count, chain head, file fingerprint -
+                    experiment 022's change fact) with the facts
+                    its PolicyNode last loaded; on a clean change,
+                    reload the PolicyNode in the same check
+                    (experiment 015/021 reload semantics). The
+                    response is the check's report: status
+                    "reloaded", "reload_refused" (with the
+                    refusal's own name as "reason"), "no_change",
+                    or "no_snapshot", plus the before/after entry
+                    counts and chain heads, the loaded entry count
+                    when a reload stood, and the anchor status
+                    after the check. /health carries the last
+                    check's report and the loaded snapshot entry
+                    count, so the process's current standing is
+                    readable without driving a check.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -84,6 +104,14 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   of experiment 015 does, in-process).
 - A fetched snapshot is verified by the receiver with Gate 2's
   verifier before any PolicyNode is built over it.
+- A running server's live reload (POST /check-snapshot,
+  experiment 024) is the PolicyNode's own reload, not a new
+  mechanism: the presented snapshot is verified (chain
+  recomputed) and consulted against the anchor BEFORE the
+  serving view changes, and a refused reload leaves the running
+  view untouched and is re-reported by every later check until
+  its cause is fixed - experiment 022's discipline at the
+  process surface.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -124,20 +152,27 @@ HONEST LIMITS (prototype, NOT production)
   ways), now serialized as JSON. No streaming, no deltas, and no
   performance, scale, or latency numbers are measured or claimed.
 - Inherited limits stand unchanged: no Byzantine consensus or
-  quorum, local-only rollback, no revocation DELIVERY to a
-  running server (it builds its PolicyNode at startup and never
-  reloads, so a revocation reaches it only on restart over an
-  updated snapshot - though since experiment 021 its refusal
-  over the wire is a clean 410, not a dropped connection), and
-  HMAC prototype
-  signing in Gate 1. An external chain anchor exists (experiment
+  quorum, local-only rollback, and HMAC prototype signing in
+  Gate 1. Revocation delivery to a running server exists only
+  as a caller-driven check (experiment 024): the process
+  reloads its PolicyNode when a client drives
+  POST /check-snapshot after the updated record has been copied
+  over its snapshot file. No timer, scheduler, or thread inside
+  the server fires that check unattended, nothing pushes or
+  broadcasts the updated record into the file, and a server
+  whose check is never driven stays exactly as stale as
+  experiment 007 left it (though since experiment 021 its
+  refusal over the wire is a clean 410, not a dropped
+  connection). An external chain anchor exists (experiment
   012) and, since experiment 018, a server started with --anchor
   consults the registry anchor at startup (see above); since
   experiment 019 the anchor may be signed, and a server started
   with --anchor-signer plus --anchor-secret-file also verifies
   that signature at startup, refusing to start on
   anchor_signature_invalid. Without those arguments the
-  consultation is experiment 018's head-only one. The mesh chain
+  consultation is experiment 018's head-only one. Since
+  experiment 024 the same consultation also runs on every live
+  reload, not only at startup. The mesh chain
   in this process consults no anchor.
 """
 
@@ -171,6 +206,11 @@ from policy_node import (  # noqa: E402
     PolicyRevoked,
     TamperedRecord,
 )
+# Experiment 024: experiment 022's change facts and refusal
+# naming, reused exactly - the server's snapshot check invents
+# no change fact and no refusal vocabulary of its own.
+from snapshot_delivery import _refusal_reason as _reload_refusal_reason  # noqa: E402
+from snapshot_delivery import snapshot_facts  # noqa: E402
 import protected_link  # noqa: E402
 from sync_mesh import StateEntry, SyncNode  # noqa: E402
 
@@ -264,6 +304,19 @@ class NetworkNode:
                 anchor_signer=self.anchor_signer,
                 anchor_secret_hex=self.anchor_secret_hex,
             )
+        # Experiment 024: the presented facts of the snapshot this
+        # process's PolicyNode last loaded (at startup, the
+        # snapshot it was just built over), and the most recent
+        # snapshot check's report. The facts move only when a live
+        # reload stands - experiment 022's state discipline - so a
+        # refused delivery is re-attempted and re-reported by
+        # every later check until its cause is fixed.
+        self._loaded_snapshot_facts = (
+            snapshot_facts(self.snapshot_path)
+            if self.policy_node is not None
+            else None
+        )
+        self.last_snapshot_check: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -276,6 +329,118 @@ class NetworkNode:
         if self.policy_node is not None:
             return self.policy_node.anchor_status
         return "no_anchor"
+
+    @property
+    def snapshot_loaded_count(self) -> int | None:
+        """Entries in the registry snapshot this process's
+        PolicyNode currently serves from (experiment 024), for
+        /health; None when no policy node is configured."""
+        if self._loaded_snapshot_facts is None:
+            return None
+        return self._loaded_snapshot_facts.count
+
+    def check_snapshot(self) -> dict:
+        """One snapshot check on this RUNNING process (experiment
+        024, sync-mesh case 13).
+
+        Compare the snapshot file's presented facts (entry count,
+        chain head, file fingerprint - experiment 022's change
+        fact, computed by snapshot_delivery.snapshot_facts) with
+        the facts this process's PolicyNode last loaded. Equal:
+        report "no_change" and call nothing, so serving is
+        undisturbed. Different: call the PolicyNode's own
+        reload_snapshot() (experiments 015/021: chain verification
+        and anchor consultation run before the view changes). Its
+        success is a "reloaded" report and moves the last-loaded
+        facts to the presented ones; any refusal (TamperedRecord,
+        AnchorStale, AnchorMismatch, AnchorSignatureInvalid,
+        ...) becomes a "reload_refused" report under the refusal's
+        own name - experiment 022's naming, reused - with the
+        last-loaded facts unmoved, so the next check re-attempts
+        and re-reports the same refusal until the cause is fixed.
+        With no PolicyNode configured there is nothing to reload:
+        "no_snapshot".
+
+        The check is driven by the caller (POST /check-snapshot);
+        no timer or thread in this process fires it. Callers hold
+        self.lock, as for every other node access from the
+        handler.
+        """
+        if self.policy_node is None or self.snapshot_path is None:
+            report = {
+                "node_id": self.node_id,
+                "status": "no_snapshot",
+                "reason": None,
+                "before_head": None,
+                "after_head": None,
+                "before_count": None,
+                "after_count": None,
+                "loaded_entries": None,
+                "anchor_status": self.anchor_status,
+            }
+            self.last_snapshot_check = report
+            return report
+        before = self._loaded_snapshot_facts
+        try:
+            presented = snapshot_facts(self.snapshot_path)
+        except Exception as exc:  # unreadable or malformed file
+            report = {
+                "node_id": self.node_id,
+                "status": "reload_refused",
+                "reason": _reload_refusal_reason(exc),
+                "before_head": before.head,
+                "after_head": before.head,
+                "before_count": before.count,
+                "after_count": before.count,
+                "loaded_entries": None,
+                "anchor_status": self.anchor_status,
+            }
+            self.last_snapshot_check = report
+            return report
+        if presented == before:
+            report = {
+                "node_id": self.node_id,
+                "status": "no_change",
+                "reason": None,
+                "before_head": before.head,
+                "after_head": presented.head,
+                "before_count": before.count,
+                "after_count": presented.count,
+                "loaded_entries": None,
+                "anchor_status": self.anchor_status,
+            }
+            self.last_snapshot_check = report
+            return report
+        try:
+            loaded = self.policy_node.reload_snapshot()
+        except Exception as exc:
+            report = {
+                "node_id": self.node_id,
+                "status": "reload_refused",
+                "reason": _reload_refusal_reason(exc),
+                "before_head": before.head,
+                "after_head": presented.head,
+                "before_count": before.count,
+                "after_count": presented.count,
+                "loaded_entries": None,
+                "anchor_status": self.anchor_status,
+            }
+            self.last_snapshot_check = report
+            return report
+        self._loaded_snapshot_facts = presented
+        report = {
+            "node_id": self.node_id,
+            "status": "reloaded",
+            "reason": None,
+            "before_head": before.head,
+            "after_head": presented.head,
+            "before_count": before.count,
+            "after_count": presented.count,
+            "loaded_entries": loaded,
+            "anchor_status": self.anchor_status,
+        }
+        self.last_snapshot_check = report
+        return report
 
 
 # -- HTTP client helpers (used by /sync, the tests, and the demo) ------------
@@ -432,6 +597,19 @@ def request_sync(base_url: str, peer_url: str) -> dict:
     return body
 
 
+def check_snapshot(base_url: str) -> dict:
+    """Drive one snapshot check on the RUNNING server at base_url
+    (experiment 024): the server compares its own snapshot file's
+    presented facts with the facts its PolicyNode last loaded and,
+    on a clean change, reloads in the same check. Returns the
+    check's report dict: status "reloaded", "reload_refused"
+    (with the refusal's own name as "reason"), "no_change", or
+    "no_snapshot"."""
+    status, body = post_json(base_url, "/check-snapshot", {})
+    assert status == 200, f"snapshot check failed: {status} {body}"
+    return body
+
+
 def fetch_policy(base_url: str, policy_hash: str) -> tuple[int, dict]:
     """Fetch a served policy. Returns (status, body); on 200 the
     body carries the code as base64 in "code_base64"."""
@@ -535,6 +713,13 @@ def make_handler(node: NetworkNode):
                         "policy_configured": node.policy_node is not None,
                         "anchor_configured": node.anchor_path is not None,
                         "anchor_status": node.anchor_status,
+                        # Experiment 024: the running process's
+                        # current registry standing - how many
+                        # entries its PolicyNode serves from, and
+                        # the last live-reload check's report
+                        # (None until the first check is driven).
+                        "snapshot_entries": node.snapshot_loaded_count,
+                        "last_snapshot_check": node.last_snapshot_check,
                     })
                 return
             if self.path == "/state":
@@ -638,6 +823,17 @@ def make_handler(node: NetworkNode):
                     self._send_json(400, {"error": "sync needs a peer base URL"})
                     return
                 self._sync_with_peer(peer)
+                return
+            if self.path == "/check-snapshot":
+                # Experiment 024: one caller-driven snapshot check
+                # on this running process (see NetworkNode.
+                # check_snapshot). The report is the response,
+                # refusals included: a refused reload is a check
+                # outcome, not a transport error, exactly as a
+                # divergence is a /entries outcome.
+                with node.lock:
+                    report = node.check_snapshot()
+                self._send_json(200, report)
                 return
             self._send_json(404, {"error": f"unknown path: {self.path}"})
 
