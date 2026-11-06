@@ -63,3 +63,23 @@
    between localhost processes, test credentials generated inside
    the tests at runtime; no production identity proofing, no
    certificate lifecycle, and no discovery is claimed).
+8. Anchor consultation in sync (gap flagged in experiment 012):
+   a sync node constructed with a mesh anchor path consults that
+   anchor - experiment 012's check, reused - on the merged state
+   before accepting a peer's entries as converged. Expected: a
+   peer holding exactly the anchored entry set is accepted and
+   the nodes converge; a peer whose origin chain was rewritten
+   from genesis (internally consistent; a node with no anchor
+   accepts it, which is experiment 012's negative control) is
+   flagged divergent with reason anchor_mismatch, its entries are
+   not accepted, and the anchored node's state is unchanged.
+   Honest growth is named separately, as in registration case 8:
+   a merged state that contains everything anchored, intact,
+   plus honestly appended entries is anchor_stale, refused until
+   the new state is re-anchored, then accepted. With no anchor
+   configured, sync behavior is exactly the pre-consultation
+   behavior. Detailed case: `tests/test-cases/registration.md`
+   case 8. Status: implemented at prototype scale in experiment
+   015 (in-process nodes; the experiment 007/014 server processes
+   still do not consult an anchor, and no anchor is consulted by
+   the Gate 5 verdict).
