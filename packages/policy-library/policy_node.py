@@ -44,8 +44,12 @@ HONEST LIMITS (prototype, NOT production)
   that needs an external anchor / witnessed head hash: a prototype
   anchor for this chain now exists (experiment 012,
   packages/registration/anchor.py, a stand-in file outside the
-  registry directory), but this node does not consult an anchor when
-  it serves, so serving here still trusts the chain alone.
+  registry directory). Since experiment 015 a node constructed with
+  anchor_path consults that anchor at load and on reload (see ANCHOR
+  CONSULTATION below) and refuses a rewritten snapshot; a node
+  constructed WITHOUT an anchor path behaves exactly as before and
+  still trusts the chain alone - that is kept, and stated, because
+  the anchor is opt-in.
 - The node serves policy *bytes* after verifying them. It does not
   sandbox or execute policy code (runtime package's job).
 
@@ -77,18 +81,89 @@ node honors them, with the stale window stated plainly:
 - Opt-in is a constructor flag / local config boolean. There is no
   authentication of the node operator and no consent record beyond the
   local config file.
+
+ANCHOR CONSULTATION (test case 8, built in experiment 015)
+------------------------------------------------------------
+Experiment 012 built the external anchor and its check, and named
+its own limit: nothing consulted it automatically, so a rewritten
+registry would be served with the anchor never asked. A node
+constructed with anchor_path now consults it, reusing experiment
+012's check_registry_against_anchor (loaded from
+packages/registration/anchor.py by file path, so this package gains
+no import of the registration channel and no copy of the check):
+
+- At construction, and again on reload_snapshot (the path by which
+  an updated record arrives, experiment 008), the verified snapshot
+  is checked against the anchor BEFORE the node's view changes.
+- anchored: head and count match the anchor exactly. The node
+  serves exactly as before, and node.anchor_status / node.anchor_
+  check expose the consultation and its result.
+- anchor_mismatch: the snapshot is not the anchored chain - in
+  particular the full rewrite of experiment 012's negative control,
+  which passes this module's own chain verification and is refused
+  ONLY by the anchor. Construction (or the reload) raises
+  AnchorMismatch and the snapshot is never served; a refused reload
+  leaves the node's previous view untouched.
+- anchor_stale: the snapshot GREW HONESTLY after anchoring. This is
+  distinguished from a rewrite by the chain itself: the presented
+  chain is longer than the anchor, and the entry at the anchored
+  length still has the anchored head as its hash, so everything
+  that was anchored is intact and entries were only appended.
+  Honest growth is refused too - as AnchorStale, under its own
+  name, never reported as a mismatch and never silently served as
+  anchored - until the new head is re-anchored, which is exactly
+  the lifecycle experiment 012 stated for its check (an extended
+  presentation fails until re-anchored). After re-anchoring, the
+  same snapshot loads and serves. A truncated snapshot is NOT
+  growth (its prefix head is not the anchored head) and is
+  anchor_mismatch.
+- No anchor_path: no consultation happens, anchor_status is
+  "no_anchor", and behavior is exactly the pre-015 behavior.
+  Absence of an anchor is not an error.
+- An anchor_path that was configured but cannot be read (missing
+  or malformed anchor file) raises experiment 012's AnchorError at
+  load: a caller who asked for an anchor is never silently served
+  without one.
+- The experiment 007/014 node server processes do not pass an
+  anchor path in this experiment, so server-process serving does
+  not consult an anchor yet; the consultation built here is the
+  in-process PolicyNode's. The anchor itself is still experiment
+  012's unsigned local stand-in, with all of its stated limits.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.util
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 GENESIS_HASH = "0" * 64
+
+
+def _load_registry_anchor_module():
+    """Load experiment 012's anchor check from its own file.
+
+    Loaded by path under a private module name for two reasons: this
+    node must not import the registration *channel* (its standalone
+    discipline, above), and two packages each ship an anchor.py
+    (registration, synchronization), so a plain `import anchor`
+    could resolve to the wrong one depending on sys.path. The check
+    functions themselves are experiment 012's, reused as-is:
+    check_registry_against_anchor and its AnchorError.
+    """
+    anchor_file = Path(__file__).resolve().parent.parent / "registration" / "anchor.py"
+    spec = importlib.util.spec_from_file_location("pba_registration_anchor", anchor_file)
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec: the anchor module declares dataclasses,
+    # which resolve their module namespace through sys.modules.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -165,6 +240,46 @@ class TamperedRecord(PolicyLibraryError):
     """The registration record or the payload does not verify."""
 
 
+class AnchorRefused(PolicyLibraryError):
+    """Base for anchor-consultation refusals (experiment 015).
+
+    Carries the experiment 012 AnchorCheck that produced the
+    refusal, and a status naming which refusal this is, so a caller
+    never has to parse the message to tell a rewrite from honest
+    growth.
+    """
+
+    status = "anchor_refused"
+
+    def __init__(self, message: str, check):
+        super().__init__(message)
+        self.check = check
+
+
+class AnchorMismatch(AnchorRefused):
+    """The snapshot is not the chain the anchor pins (case 8).
+
+    Raised for a snapshot whose head/count differ from the anchor
+    and which is not an honest extension of it - in particular a
+    registry rewritten from genesis, which passes the chain's own
+    verification and is refused only here.
+    """
+
+    status = "anchor_mismatch"
+
+
+class AnchorStale(AnchorRefused):
+    """The snapshot grew honestly past its anchor (case 8).
+
+    The anchored entries are intact (the entry at the anchored
+    length still carries the anchored head) and entries were only
+    appended. Refused under its own name until the new head is
+    re-anchored; not a tamper finding and not a silent pass.
+    """
+
+    status = "anchor_stale"
+
+
 @dataclass(frozen=True)
 class ServedPolicy:
     policy_hash: str
@@ -198,6 +313,12 @@ class PolicyNode:
     - payloads: a mapping of policy_hash -> policy code bytes this node
       holds (in production this would be a local store; here a dict).
     - serve_policies: the operator's opt-in choice. Default False.
+    - anchor_path: optional, experiment 015. A file holding an
+      experiment 012 anchor for this snapshot's chain. When given,
+      the snapshot is consulted against it at construction and on
+      every reload, and a mismatch or a stale (honestly grown) chain
+      is refused before it can serve. When omitted, no consultation
+      happens and behavior is exactly the pre-015 behavior.
 
     The snapshot chain is verified at construction, so a node built
     over a tampered record fails before it can serve anything.
@@ -210,16 +331,70 @@ class PolicyNode:
         registry_snapshot_path: str | Path,
         payloads: dict[str, bytes],
         serve_policies: bool = False,
+        anchor_path: str | Path | None = None,
     ):
         self.node_id = node_id
         self.registry_snapshot_path = Path(registry_snapshot_path)
         self._payloads = dict(payloads)
         self.serve_policies = bool(serve_policies)
+        self.anchor_path = Path(anchor_path) if anchor_path is not None else None
+        self.anchor_check = None
+        self.anchor_status: str = "no_anchor"
         # Raises TamperedRecord if the copied chain does not verify.
         self._entries: list[dict] = []
         self._by_hash: dict[str, dict] = {}
         self._revoked: set[str] = set()
-        self._load_entries(verify_registry_snapshot(self.registry_snapshot_path))
+        entries = verify_registry_snapshot(self.registry_snapshot_path)
+        if self.anchor_path is not None:
+            self.anchor_check, self.anchor_status = self._consult_anchor(
+                self.registry_snapshot_path, entries
+            )
+        self._load_entries(entries)
+
+    def _consult_anchor(self, snapshot_path: Path, entries: list[dict]):
+        """Consult experiment 012's anchor for a verified snapshot.
+
+        Returns (check, "anchored") when the snapshot is exactly the
+        anchored chain. Raises AnchorStale for an honest extension
+        and AnchorMismatch for anything else that is not the
+        anchored chain (a rewrite, a truncation). Raises experiment
+        012's AnchorError when a configured anchor cannot be read:
+        a caller who asked for an anchor is never silently served
+        without one. The entries passed in have already passed this
+        module's own chain verification, so internal_verifies in the
+        check is expected True; it is still honored if it is not.
+        """
+        anchor_mod = _load_registry_anchor_module()
+        check = anchor_mod.check_registry_against_anchor(snapshot_path, self.anchor_path)
+        if check.ok:
+            return check, "anchored"
+        if not check.internal_verifies:
+            raise TamperedRecord(
+                "registry snapshot failed internal verification in the anchor check"
+            )
+        # Honest growth: longer than the anchor, and the entry at
+        # the anchored length still carries the anchored head, so
+        # the anchored prefix is intact (that entry's hash binds
+        # the whole prefix chain) and entries were only appended.
+        # An empty anchor (count 0, genesis head) is extended by any
+        # internally verified chain.
+        if check.presented_count > check.anchored_count and (
+            check.anchored_count == 0
+            or entries[check.anchored_count - 1]["entry_hash"] == check.anchored_head
+        ):
+            raise AnchorStale(
+                f"registry snapshot grew honestly past its anchor "
+                f"({check.anchored_count} anchored entries, "
+                f"{check.presented_count} presented): refusing as "
+                f"anchor_stale until the new head is re-anchored",
+                check,
+            )
+        raise AnchorMismatch(
+            f"registry snapshot is not the anchored chain "
+            f"(anchored head {check.anchored_head}, presented head "
+            f"{check.presented_head}): refusing as anchor_mismatch",
+            check,
+        )
 
     def _load_entries(self, entries: list[dict]) -> None:
         """Rebuild this node's view from a verified entry list.
@@ -248,10 +423,22 @@ class PolicyNode:
         that fails verification raises TamperedRecord and the node's
         previous view is left untouched. Returns the number of
         entries in the verified snapshot.
+
+        Anchor consultation (experiment 015): on a node built with
+        an anchor, the reloaded snapshot is ALSO consulted against
+        the anchor before the view changes, with the same refusals
+        as at construction (AnchorMismatch, AnchorStale); a refused
+        reload likewise leaves the previous view - and its anchor
+        state - untouched.
         """
         path = Path(snapshot_path) if snapshot_path is not None else self.registry_snapshot_path
         entries = verify_registry_snapshot(path)  # raises before any state changes
+        check = status = None
+        if self.anchor_path is not None:
+            check, status = self._consult_anchor(path, entries)  # raises likewise
         self.registry_snapshot_path = path
+        if self.anchor_path is not None:
+            self.anchor_check, self.anchor_status = check, status
         self._load_entries(entries)
         return len(entries)
 
@@ -266,6 +453,7 @@ class PolicyNode:
         config_path: str | Path,
         registry_snapshot_path: str | Path,
         payloads: dict[str, bytes],
+        anchor_path: str | Path | None = None,
     ) -> "PolicyNode":
         """Build a node from the operator's own JSON config file.
 
@@ -284,6 +472,7 @@ class PolicyNode:
             registry_snapshot_path=registry_snapshot_path,
             payloads=payloads,
             serve_policies=bool(config.get("serve_policies", False)),
+            anchor_path=anchor_path,
         )
 
     # -- introspection (holding is not serving) ---------------------------
