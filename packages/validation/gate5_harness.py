@@ -59,6 +59,23 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 5 outcomes)
    *measured* and faults *halt and roll back*, with the number as a
    benchmark to report honestly, not a promise the gate certifies.
 
+4. Anchor evidence in the verdict (experiment 018, opt-in).
+   run_gate may be given a registry anchor path and/or a mesh
+   anchor path (experiment 012's anchors for this scenario's two
+   chains). Each configured anchor enters the verdict as its own
+   named check (anchor_evidence_registry / anchor_evidence_mesh),
+   consulted with experiment 012's check functions and classified
+   with experiment 015's classification, reused - not re-derived -
+   by probing with experiment 015's own components: a PolicyNode
+   built over the snapshot with the anchor (its AnchorMismatch /
+   AnchorStale refusals are the classification), and an
+   AnchoredSyncNode restored to the canary node's entry set (its
+   anchor_status() is the classification). anchored passes;
+   anchor_mismatch and anchor_stale both FAIL the verdict under
+   their own names - stale is never passed as anchored. With no
+   anchor path given there is no anchor check and the verdict is
+   exactly as experiments 006/009 produced it.
+
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
 - Everything is in-process on one machine: the "canary" is a local
@@ -75,7 +92,10 @@ HONEST LIMITS (prototype, NOT production)
   path; it is not an adversarial network attacker, and Gate 3's
   stated limit stands: a fork is only detected once both versions
   meet, and a full-chain rewrite with the original suppressed would
-  verify on its own (no external anchor exists yet).
+  verify on its own. An external anchor for both chains exists
+  (experiment 012) and the verdict can consult it (experiment 018,
+  item 4 above), but only when the caller configures one for the
+  run: an unconfigured gate run judges internal evidence alone.
 - Timing is single-machine perf_counter_ns() around Python function
   calls. It includes interpreter and JSON costs a production runtime
   (Wasm/eBPF, per the proposals) would not have, and excludes
@@ -104,7 +124,13 @@ for _pkg in ("registration", "policy-library", "synchronization"):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from policy_node import PolicyNode, verify_registry_snapshot  # noqa: E402
+from anchored_sync import AnchoredSyncNode  # noqa: E402
+from policy_node import (  # noqa: E402
+    AnchorMismatch,
+    AnchorStale,
+    PolicyNode,
+    verify_registry_snapshot,
+)
 from registration import RegistrationChannel, sign_library  # noqa: E402
 from sync_mesh import (  # noqa: E402
     GENESIS_HASH,
@@ -516,9 +542,104 @@ class Gate5Harness:
             halt_triggered=self.rollout_state == "halted_and_rolled_back",
         )
 
+    # -- anchor evidence (experiment 018) --------------------------------------
+
+    def _registry_anchor_check(self, anchor_path) -> GateCheck:
+        """Consult experiment 012's registry anchor for this
+        scenario's snapshot, classified by experiment 015's own
+        PolicyNode consultation: a probe node built over the
+        snapshot with the anchor either stands (anchored, carrying
+        experiment 012's AnchorCheck) or refuses with AnchorStale /
+        AnchorMismatch, whose status names are the classification.
+        Any other refusal (an unreadable configured anchor, a
+        snapshot that fails internal verification in the probe) is
+        a failed check here, never a silent pass."""
+        try:
+            probe = PolicyNode(
+                node_id="gate5-anchor-probe",
+                registry_snapshot_path=self.snapshot_path,
+                payloads={},
+                serve_policies=False,
+                anchor_path=anchor_path,
+            )
+        except AnchorStale as exc:
+            return GateCheck(
+                "anchor_evidence_registry", False,
+                f"registry anchor evidence: anchor_stale "
+                f"({exc.check.anchored_count} anchored entries, "
+                f"{exc.check.presented_count} presented; the anchored "
+                f"prefix is intact and entries were only appended, "
+                f"refused until the new head is re-anchored)",
+            )
+        except AnchorMismatch as exc:
+            return GateCheck(
+                "anchor_evidence_registry", False,
+                f"registry anchor evidence: anchor_mismatch "
+                f"(anchored head {exc.check.anchored_head}, presented "
+                f"head {exc.check.presented_head}; the snapshot "
+                f"verifies on its own and is refused only by the anchor)",
+            )
+        except Exception as exc:  # unreadable anchor / internal failure
+            return GateCheck(
+                "anchor_evidence_registry", False,
+                f"registry anchor evidence: not anchored "
+                f"({type(exc).__name__}: {exc})",
+            )
+        check = probe.anchor_check
+        return GateCheck(
+            "anchor_evidence_registry", True,
+            f"registry anchor evidence: anchored "
+            f"(experiment 012 check ok; head {check.anchored_head}, "
+            f"{check.presented_count} entries match the anchor exactly)",
+        )
+
+    def _mesh_anchor_check(self, anchor_path) -> GateCheck:
+        """Consult experiment 012's mesh anchor for the canary
+        node's state, classified by experiment 015's own
+        AnchoredSyncNode: a probe node restored to the canary's
+        exact entry set reports anchor_status() - anchored,
+        anchor_stale, or anchor_mismatch - which is the
+        classification, reused as-is."""
+        probe = AnchoredSyncNode("gate5-anchor-probe", anchor_path=anchor_path)
+        restored = probe.restore_to_entries(self.canary_node.entries())
+        if restored.divergence_detected:
+            return GateCheck(
+                "anchor_evidence_mesh", False,
+                f"mesh anchor evidence: not anchored (the canary "
+                f"entry set does not verify as a restored state: "
+                f"{restored.reason})",
+            )
+        try:
+            status = probe.anchor_status()
+        except Exception as exc:  # a configured anchor that cannot be read
+            return GateCheck(
+                "anchor_evidence_mesh", False,
+                f"mesh anchor evidence: not anchored "
+                f"({type(exc).__name__}: {exc})",
+            )
+        if status == "anchored":
+            return GateCheck(
+                "anchor_evidence_mesh", True,
+                "mesh anchor evidence: anchored (the canary node's "
+                "entry set is exactly the anchored set, per-origin "
+                "heads and state hash match experiment 012's anchor)",
+            )
+        return GateCheck(
+            "anchor_evidence_mesh", False,
+            f"mesh anchor evidence: {status} (the canary node's "
+            f"state is not the anchored state; refused under this "
+            f"name until the new state is re-anchored)"
+            if status == "anchor_stale"
+            else f"mesh anchor evidence: {status} (the canary node's "
+            f"per-origin heads or state hash differ from experiment "
+            f"012's anchor)",
+        )
+
     # -- the gate ----------------------------------------------------------------
 
-    def run_gate(self, iterations: int = 100) -> GateVerdict:
+    def run_gate(self, iterations: int = 100, *,
+                 registry_anchor_path=None,
+                 mesh_anchor_path=None) -> GateVerdict:
         checks: list[GateCheck] = []
         canary: CanaryReport | None = None
         faults: list[FaultReport] = []
@@ -551,6 +672,15 @@ class Gate5Harness:
                 f"{sum(len(n.divergence_log) for n in self.mesh)}",
             )
         )
+
+        # Anchor evidence (experiment 018, opt-in): consulted on
+        # the scenario as built, before the canary and the faults
+        # run. With neither path given, no anchor check is added
+        # and the verdict is exactly experiment 006's.
+        if registry_anchor_path is not None:
+            checks.append(self._registry_anchor_check(registry_anchor_path))
+        if mesh_anchor_path is not None:
+            checks.append(self._mesh_anchor_check(mesh_anchor_path))
 
         try:
             canary = self.run_canary(iterations=iterations)
