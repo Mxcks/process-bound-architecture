@@ -1,0 +1,29 @@
+{
+  "schema": "PBA-EAI-v1",
+  "vectors": [
+    {
+      "process_id": "proc-ingest-http",
+      "pipeline_stage": "ingress",
+      "cryptographic_epoch": 1,
+      "ingress_vector": "https/example.com/policy-check",
+      "canonical_string": "PBA-EAI-v1|proc-ingest-http|ingress|1|https/example.com/policy-check",
+      "eai_sha256": "22b27b1f764b4d9becce45ec31922c1960f69890aa93cd5334aa545d92b909f7"
+    },
+    {
+      "process_id": "proc-ingest-http",
+      "pipeline_stage": "classify",
+      "cryptographic_epoch": 1,
+      "ingress_vector": "https/example.com/policy-check",
+      "canonical_string": "PBA-EAI-v1|proc-ingest-http|classify|1|https/example.com/policy-check",
+      "eai_sha256": "5d6c92e9bc299456869ff41c7dfca6622789951fba06c2b5c6168fa317043086"
+    },
+    {
+      "process_id": "proc-policy-eval",
+      "pipeline_stage": "validate",
+      "cryptographic_epoch": 7,
+      "ingress_vector": "node:local/register",
+      "canonical_string": "PBA-EAI-v1|proc-policy-eval|validate|7|node:local/register",
+      "eai_sha256": "cd9bcfbc24fb5d0bbc8f7119670c046ad559001cb9570f4c1202d10e5141cbd7"
+    }
+  ]
+}
