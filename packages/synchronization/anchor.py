@@ -52,8 +52,12 @@ HONEST LIMITS (prototype, NOT production)
 - SyncNode is in-process and keeps nothing on disk, so there is no
   mesh directory for an anchor to be outside OF; "outside" here
   means a file the node does not own or read, held by whoever runs
-  the check. Experiment 007's server processes do not consult an
-  anchor; wiring this into sync or serving is not built here.
+  the check. Consultation was wired in later: in-process sync
+  consults it (experiment 015, anchored_sync.py), and the Gate 5
+  verdict takes this mesh anchor as opt-in evidence (experiment
+  018). The server processes' mesh side still holds a plain
+  SyncNode and consults no mesh anchor; their --anchor (experiment
+  018) consults the REGISTRY anchor for their snapshot.
 """
 
 from __future__ import annotations
