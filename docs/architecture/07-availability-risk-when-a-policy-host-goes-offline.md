@@ -89,6 +89,14 @@ What remains open at real scale:
   its cause is fixed - on a modeled clock, in-process, with no
   push of the record into the file and no unattended
   scheduling.)
+  (The two watchers have since been composed over one placed
+  policy at prototype scale, experiment 023, availability
+  case 8: one coordinator runs delivery before liveness in a
+  single cycle, so a revocation and a lost holder landing in
+  the same window are delivered, declared, and healed over
+  the updated record in that cycle, quiet cycles act in
+  neither watcher, and a refused delivery does not block a
+  heal, which recruits over the last good record.)
 
 Candidate direction as originally recorded (now TESTED at prototype
 scale, see above):
