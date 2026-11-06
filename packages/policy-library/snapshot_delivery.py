@@ -94,8 +94,12 @@ HONEST LIMITS (prototype, NOT production)
   the same snapshot each need their own watcher (the tests run
   exactly that), and nothing coordinates two watchers, moves a
   record over a network, or delivers to the experiment 007/014
-  server processes - a running server still learns of a
-  revocation only on restart, as experiment 021 stated.
+  server processes. (A running server's own surface for the
+  same delivery arrived in experiment 024: a caller-driven
+  POST /check-snapshot check in node_server.py that reuses
+  this module's change facts and refusal naming and the
+  PolicyNode's reload; it is driven, not scheduled, exactly
+  as checks here are.)
 - Detection reads the whole snapshot file to fingerprint it
   and parse its head and count. That is cheap next to
   reload_snapshot()'s full chain verification, which still
