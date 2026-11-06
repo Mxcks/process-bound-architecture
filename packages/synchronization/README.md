@@ -14,11 +14,14 @@ layer's job; hiding divergence is a hard failure (see Gate 3 and Gate 5).
 ---
 
 Status: **Gate 3 prototype built and passing** (2026-11-06, experiment
-`experiments/004-gate3-sync-mesh/`), and **networked node processes
+`experiments/004-gate3-sync-mesh/`), **networked node processes
 built and passing** on top of it (2026-11-06, experiment
 `experiments/007-networked-nodes/`): nodes now also run as separate
 OS processes exchanging entries and registry snapshots over HTTP on
-localhost. Prototype only, not production. The module docstrings in
+localhost, and an **external anchor for mesh chain heads built and
+passing** (2026-11-06, experiment
+`experiments/012-external-chain-anchor/`; `tests/test-cases/sync-mesh.md`
+case 5). Prototype only, not production. The module docstrings in
 `sync_mesh.py` and `node_server.py` are the authoritative lists of
 honest limits. The layer contract above is unchanged; what follows
 documents the prototypes that now implement it at prototype scale.
@@ -33,6 +36,8 @@ documents the prototypes that now implement it at prototype scale.
 | `node_server.py` | The networked node: one `SyncNode` plus one optional Gate 2 `PolicyNode` per OS process, served over HTTP on localhost (stdlib `http.server` / `urllib` only). Endpoints for health, state, mutate, entry exchange, server-initiated `/sync`, registry snapshot, and verified policy serving. Receipt always runs the existing Gate 3/2 verification; the transport grants no trust. Also carries the client helpers the tests and demo use. |
 | `test_network_nodes.py` | Automated tests that spawn real server processes on ephemeral ports: two processes converge over HTTP, snapshot + policy cross the boundary verified (tampered entry rejected on receipt, tampered snapshot refuses startup), and a killed process's survivors still serve and converge. Processes are cleaned up by the tests. |
 | `demo_network_nodes.py` | Runnable walkthrough of the networked outcomes: two processes sync and converge, the second serves the policy, it is killed, and the first still serves. |
+| `anchor.py` | The external anchor for mesh chain heads (experiment 012): writes each origin's head (top seq + entry hash) plus the state hash from a node's view to a file outside the node, and checks a presented node against it. Builds on `SyncNode` without modifying it. |
+| `test_anchor.py` | Automated tests for sync-mesh case 5: converged nodes verify against the anchor, and the negative control (a fully rewritten origin chain that passes internal checks fails the anchor check). |
 
 ## How to run it
 
@@ -52,6 +57,9 @@ python3 packages/synchronization/demo.py
 # visibly
 python3 packages/synchronization/test_network_nodes.py
 python3 packages/synchronization/demo_network_nodes.py
+
+# External anchor for mesh chain heads (sync-mesh case 5)
+python3 packages/synchronization/test_anchor.py
 
 # One node server by hand (ephemeral port; prints LISTENING <port>)
 python3 packages/synchronization/node_server.py --node-id my-node \
@@ -133,7 +141,15 @@ unsynced ones would not).
   entry is caught, and a fork is caught when both versions are seen,
   but one origin's entire chain rewritten from genesis, shown to a
   node that never saw the original, verifies on its own. An external
-  anchor for chain heads is still unbuilt.
+  anchor for chain heads is now built at prototype scale
+  (experiment 012, `anchor.py` in this package and in
+  `packages/registration/`): per-origin heads plus the state hash,
+  written to a file outside the node and checked against a
+  presented node, which catches the full rewrite in the tests. The
+  anchor file is a stand-in - local, same machine, unsigned,
+  unwitnessed - nothing consults it automatically (sync and the
+  networked servers do not call it), and cross-node head comparison
+  at scale is still unbuilt.
 - Conflict resolution (deterministic last-writer-wins in the total
   order) is a stated prototype rule, not a claim about correct
   production semantics for every key.
