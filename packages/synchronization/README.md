@@ -36,7 +36,14 @@ built with a mesh anchor path consults experiment 012's anchor on
 the merged state before accepting a peer's entries, flagging a
 rewritten peer `anchor_mismatch` and honest growth
 `anchor_stale` until re-anchored; a node built without one
-behaves exactly as before. Prototype only, not production. The module docstrings in
+behaves exactly as before, and **anchor consultation in the
+networked server processes built and passing** (2026-11-06,
+experiment `experiments/018-anchor-in-servers-and-verdict/`;
+`tests/test-cases/registration.md` case 9): a server started
+with `--anchor` passes experiment 012's registry anchor to the
+PolicyNode it builds, so this consultation also runs at server
+startup over both transports (plaintext and mutual TLS), while
+a server without the flag consults nothing. Prototype only, not production. The module docstrings in
 `sync_mesh.py` and `node_server.py` are the authoritative lists of
 honest limits. The layer contract above is unchanged; what follows
 documents the prototypes that now implement it at prototype scale.
@@ -62,6 +69,8 @@ documents the prototypes that now implement it at prototype scale.
 | `anchored_sync.py` | Anchor consultation for sync (experiment 015): `AnchoredSyncNode`, a `SyncNode` subclass that reuses `anchor.py`'s experiment 012 check on the merged state before accepting a peer's entries; refusals roll back through `sync_mesh.py`'s `restore_to_entries` and are logged as divergences under the reasons `anchor_mismatch` / `anchor_stale`. Builds on `SyncNode` without modifying its receive logic. |
 | `test_anchor_consultation.py` | Automated tests for sync-mesh case 8: genuine peer accepted and converged, rewritten peer flagged `anchor_mismatch` and not accepted, no-anchor sync accepting the rewrite exactly as before (stated plainly), honest growth flagged `anchor_stale` until re-anchored. |
 | `demo_anchor_consultation.py` | Runnable walkthrough of case 8: genuine accept, rewrite flagged while a plain node accepts it, growth stale until re-anchored. |
+| `test_anchor_in_servers.py` | Automated tests for registration case 9's server half (experiment 018): an anchored server refuses the rewritten snapshot at startup (`anchor_mismatch`) and honest growth (`anchor_stale`) and serves the genuine snapshot over plaintext and over mutual TLS; an anchorless server serves the rewrite exactly as before. |
+| `demo_anchor_in_servers.py` | Runnable walkthrough of case 9's server half: genuine serves anchored, rewrite served anchorless and refused anchored, growth stale until re-anchored. |
 
 ## How to run it
 
