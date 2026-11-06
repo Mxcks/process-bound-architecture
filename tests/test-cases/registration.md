@@ -180,3 +180,87 @@
    passing every internal check fails the verdict on the anchor
    check alone, honest growth of either chain fails the verdict
    as anchor_stale).
+10. Signed anchors with a kept history (added 2026-11-06,
+   experiment 019; gaps flagged in experiments 012, 015 and 018:
+   the external anchor is unsigned and unwitnessed, so whoever
+   can write the anchor file can re-anchor a rewrite and pass
+   every consultation built since, and re-anchoring overwrites,
+   so there is no anchor history to audit): an anchor (this
+   case's registry anchor, and the mesh anchor in sync-mesh case
+   11) can be written SIGNED, by an enrolled identity, reusing
+   Gate 1's existing signing machinery exactly - the identity's
+   enrollment secret and the same HMAC-SHA256 scheme as
+   `sign_library` / `sign_revocation`, with a domain-separated
+   canonical encoding for anchor signing so an anchor signature
+   can never be replayed as a library or revocation signature
+   or the other way round; standard library only, no new crypto.
+   Expected: a signed anchor records its signer and signature;
+   every consultation point that exists today (the Gate 2
+   PolicyNode of case 8, the Gate 3 AnchoredSyncNode of
+   sync-mesh case 8, the experiment 018 server startup, and the
+   experiment 018 Gate 5 verdict) verifies the anchor's
+   signature WHEN a signing identity is configured for that
+   consultation (the signer's identity plus the verification
+   secret for that identity, the same secret the enrollment
+   issued - symmetric HMAC means the verifier holds the secret,
+   which is Gate 1's stated prototype limit and is not hidden).
+   An anchor whose signature is missing, made by a different
+   secret, or tampered with after signing is a failure under
+   its own name, anchor_signature_invalid: distinct from
+   anchor_mismatch (the head is not the anchored head) and from
+   anchor_stale (honest growth past the anchor), and never
+   treated as a valid anchor by any consultation point; a
+   correctly signed anchor whose head matches is anchored
+   exactly as before. Re-anchor rule, stated before the build:
+   re-anchoring a SIGNED anchor requires a valid signature from
+   the SAME identity that signed the current anchor; an attempt
+   signed by a different enrolled identity (signing correctly
+   as themselves, with their own secret) is refused, the
+   current anchor is left unchanged, and the refusal is logged
+   (an anchor audit log beside the anchor file, the same style
+   as Gate 1's audit log). A first signed write over an unsigned
+   anchor, or over no anchor, establishes the signer and starts
+   the signed history; that transition is the one exception,
+   stated here, because an unsigned anchor has no signer to
+   match. Kept history: a signed re-anchor APPENDS to a history
+   kept inside the anchor file instead of overwriting silently -
+   each history entry records the anchored head (and count),
+   its sequence number, and its signer - and the history itself
+   is verifiable in the same style as this repo's other records:
+   entries are hash-chained to the previous entry (sequence
+   0..n-1, prev-hash linkage, entry-hash recomputation) and each
+   entry is signed by its signer, so a tampered history entry
+   (an edited head, count, or signer inside an old entry) is
+   caught by history verification, and when a signing identity
+   is configured a consultation treats a history that does not
+   verify as anchor_signature_invalid. Backward compatibility,
+   stated plainly: unsigned anchors from experiments 012-018
+   keep working exactly as before when no signing identity is
+   configured, a consultation configured without a signing
+   identity judges a signed anchor by its head exactly as it
+   judged an unsigned one, and all earlier suites pass
+   unmodified in the same run. Secrets are generated inside the
+   tests at runtime (enrollment), never written to this
+   repository. Status: IMPLEMENTED at prototype scale
+   (2026-11-06, experiment `experiments/019-signed-anchors/`);
+   the case was written before the build, and the tests-first
+   failure and the passing results are recorded in that
+   experiment's `test-output.txt`. Tests:
+   `packages/registration/test_signed_anchor.py` (signed anchor
+   verifies with its history, missing/wrong/tampered signature
+   is anchor_signature_invalid, same-identity re-anchor appends
+   history, different-identity re-anchor refused and logged,
+   tampered history caught, unsigned behavior unchanged),
+   `packages/policy-library/test_signed_anchor_consultation.py`
+   (Gate 2 serves a correctly signed anchor with an identity
+   configured, refuses a missing or tampered signature at load
+   as anchor_signature_invalid, judges by head alone without
+   one), `packages/synchronization/test_signed_anchor_in_servers.py`
+   (server startup with a signing identity serves the genuine
+   signed anchor and refuses a tampered signature as
+   anchor_signature_invalid; without an identity it behaves as
+   experiment 018), and
+   `packages/validation/test_gate5_signed_anchor.py` (genuine
+   signed anchors keep the verdict passing, a tampered
+   signature on either chain fails the verdict on that chain's
+   anchor check alone, named anchor_signature_invalid).
