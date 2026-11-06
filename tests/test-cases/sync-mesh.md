@@ -4,3 +4,4 @@
 2. A partitioned node rejoins and its state converges, or rollback fires.
 3. Any split-brain or diverging state view triggers automated rollback.
 4. Lineage for a transformation is traced in under one millisecond under load (benchmark, to be measured, not assumed).
+5. External anchor for chain heads: a node's per-origin chain heads are anchored outside the node's own state and checked against that anchor, so a fully rewritten origin chain that verifies on its own still fails. Detailed case: `tests/test-cases/registration.md` case 7 (experiment 012).
