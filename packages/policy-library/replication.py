@@ -88,6 +88,24 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 4 outcomes)
    serves from its placement-time view. Delivery is an
    explicit call, not a push; see the limits below.
 
+7. Automatic snapshot delivery (experiment 022, availability
+   test case 7). A separate watcher module,
+   snapshot_delivery.py, watches one placed policy in the style
+   of experiment 016's liveness watcher (modeled clock, report
+   per check, event log): on each check it compares the shared
+   snapshot file's presented facts (entry count, chain head,
+   and a fingerprint of the file bytes) with the facts this
+   placement last loaded, and on a change it calls outcome 6's
+   reload_snapshot() itself, in that same check - so a
+   revocation reaches the placed object without a caller
+   remembering to reload, a refused delivery (tampered,
+   anchor_stale, anchor_mismatch) is re-reported on every later
+   check until its cause is fixed, and an unchanged check calls
+   nothing. This module is unchanged by that experiment: the
+   watcher reuses reload_snapshot() exactly as it stands, and
+   nothing here pushes, broadcasts, schedules, or transports
+   the updated record into the snapshot file.
+
 HOW IT WORKS, IN PLAIN WORDS
 ----------------------------
 Placement happens once, at registration time (in the tests, directly
@@ -141,12 +159,18 @@ HONEST LIMITS (prototype, NOT production)
   learns of a later revocation through reload_snapshot() - an
   EXPLICIT call a caller makes after delivering the updated record
   over the shared snapshot file, verified and anchor-consulted
-  before any holder's view changes. Nothing calls it automatically,
-  nothing pushes or broadcasts the updated record, and a placed
-  policy that is never reloaded keeps serving from its
+  before any holder's view changes. Since experiment 022 that
+  call also has an automatic trigger: snapshot_delivery.py's
+  watcher calls reload_snapshot() on its checks when the
+  snapshot file changes, and re-reports a refused delivery
+  until its cause is fixed. Nothing pushes or broadcasts the
+  updated record into the file, nothing schedules the watcher's
+  checks unattended, and a placed policy whose watcher is never
+  checked - or that has no watcher - keeps serving from its
   placement-time view indefinitely: the stale window for placed
-  policies is closed by a call, not by the system, and is unbounded
-  until that call happens. That is stated, not fixed over.
+  policies is now closed by the watcher's next check after the
+  record reaches the file, and is unbounded until then. That
+  is stated, not fixed over.
 - Deliberate removal by the owner (tests/test-cases/policy-
   availability.md case 3, dependents notified before a policy stops
   being served) is NOT implemented here. Gate 4's outcomes are the
