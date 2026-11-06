@@ -191,8 +191,15 @@ package honors them, with the gap stated plainly:
   scale claim. Moving copies automatically is the synchronization
   layer's work (Gate 3).
 - Snapshot trust inherits Gate 1's limit: the chain detects a single
-  edited entry, but a whole-file rewrite from genesis would verify.
-  An external anchor for the chain head is still unbuilt.
+  edited entry, but a whole-file rewrite from genesis would verify
+  against itself. An external anchor for that chain head now exists
+  at prototype scale (experiment 012,
+  `packages/registration/anchor.py`: head + entry count in a file
+  outside the registry's directory, checked against a presented
+  snapshot copy as well as the log), and the full-rewrite negative
+  control fails that anchor check in its tests. This package's
+  nodes do not consult an anchor when serving, and the anchor file
+  is a local stand-in, not a witnessed external service.
 - Revocation is honored only from the record a node actually holds:
   there is no revocation push, broadcast, or staleness bound, so the
   stale window above can stay open indefinitely on a node that never
