@@ -1,0 +1,102 @@
+=== TESTS FIRST: new suites run against the unbuilt code, before any implementation ===
+--- python3 packages/registration/test_signed_anchor.py
+Traceback (most recent call last):
+  File ".../packages/registration/test_signed_anchor.py", line 43, in <module>
+    from anchor import (  # noqa: E402
+ImportError: cannot import name 'read_anchor_audit' from 'anchor' (/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/registration/anchor.py)
+--- python3 packages/policy-library/test_signed_anchor_consultation.py
+Traceback (most recent call last):
+  File ".../packages/policy-library/test_signed_anchor_consultation.py", line 41, in <module>
+    from policy_node import (  # noqa: E402
+ImportError: cannot import name 'AnchorSignatureInvalid' from 'policy_node' (/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/policy-library/policy_node.py)
+--- python3 packages/synchronization/test_signed_anchor.py (renamed test_signed_mesh_anchor.py during the build, see the README's What failed)
+Traceback (most recent call last):
+  File ".../packages/synchronization/test_signed_anchor.py", line 46, in <module>
+    from anchor import (  # noqa: E402  (synchronization anchor, exp 012)
+ImportError: cannot import name 'read_anchor_audit' from 'anchor' (/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/anchor.py)
+--- python3 packages/synchronization/test_signed_anchor_in_servers.py
+TypeError: write_anchor() got an unexpected keyword argument 'signer'
+----------------------------------------------------------------------
+Ran 3 tests in 0.017s
+
+FAILED (errors=3)
+--- python3 packages/validation/test_gate5_signed_anchor.py
+TypeError: write_anchor() got an unexpected keyword argument 'signer'
+----------------------------------------------------------------------
+Ran 4 tests in 0.026s
+
+FAILED (errors=4)
+(failure shapes: the registry/mesh anchor modules have no signing, history, or audit
+names yet; policy_node has no AnchorSignatureInvalid; write_anchor takes no signer)
+
+=== BASELINE BEFORE THE BUILD (same day, before the test cases were written) ===
+packages/registration     Ran 14 tests  OK
+packages/policy-library   Ran 21 tests  OK
+packages/synchronization  Ran 28 tests  OK
+packages/validation       Ran 14 tests  OK
+scripts/verify-handoffs.py  PASS: 3 EAI vectors recompute exactly
+(77 tests total; leftover node_server processes: 0)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.026s
+
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 24 tests in 0.188s
+
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 37 tests in 38.669s
+
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.673s
+
+OK
+(99 tests total: baseline 77 + 22 new; every earlier suite unmodified and passing
+in the same run, including the unsigned-anchor suites of experiments 012/015/018)
+
+=== NEW SUITES BY DIRECT FILE RUN ===
+== python3 packages/registration/test_signed_anchor.py
+Ran 6 tests in 0.048s
+
+OK
+== python3 packages/policy-library/test_signed_anchor_consultation.py
+Ran 3 tests in 0.029s
+
+OK
+== python3 packages/synchronization/test_signed_mesh_anchor.py
+Ran 6 tests in 0.020s
+
+OK
+== python3 packages/synchronization/test_signed_anchor_in_servers.py
+Ran 3 tests in 1.430s
+
+OK
+== python3 packages/validation/test_gate5_signed_anchor.py
+Ran 4 tests in 0.139s
+
+OK
+
+=== HANDOFF CHECK ===
+PASS: 3 EAI vectors recompute exactly.
+
+=== DEMO ===
+== python3 packages/registration/demo_signed_anchor.py
+Setup. Policy registered: dcab37d1f0094a82...
+1. Signed anchor: signer alice - history entries: 1 - signature: 0c27b069aa28098c...
+2. Genuine registry, signature checked: True - status: anchored - signature valid: True
+3. Re-anchored by alice after growth: history entries: 2 - sequences: [0, 1] - history verifies: True
+4. Bob's re-anchor refused: re-anchor refused: anchor is signed by alice, not by bob (same-identity rule, ex...
+   Anchor audit log: [('reanchor_rejected', 'different_signer', 'bob')]
+   Anchor still alice's, history entries: 2
+5. Tampered signature: False - status: anchor_signature_invalid
+Demo state left in: /tmp/pba-signed-anchor-demo-nqhlkag8
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server"  ->  no matches (exit 1): 0 leftover node_server processes.
+(An in-pipeline count taken inside the combined run above read 2 because that
+command's own command line carried the plain string "node_server" - the known
+limit of the bracket trick, recorded in AGENTS.md; the standalone check is the
+evidence.)
