@@ -215,7 +215,16 @@ and only the rewritten demo's output is quoted.
   there is no push, no broadcast, no network transport, and
   the experiment 007/014 server processes are not watched -
   a running server still learns of a revocation only on
-  restart, as experiment 021 stated.
+  restart, as experiment 021 stated. The server-process half
+  of that statement is superseded by experiment 024
+  (sync-mesh case 13): a running server now runs this same
+  discipline at its own surface - a caller-driven
+  POST /check-snapshot check compares the same presented
+  facts and calls the same PolicyNode reload - so a running
+  server learns of a revocation without a restart when its
+  check is driven. What remains unbuilt is unchanged in
+  kind: the server check is driven, not scheduled, and no
+  transport moves the record into the file.
 - One watcher watches one placed policy. Two placed policies
   over the same snapshot need two watchers (the tests run
   exactly that), and nothing in THIS experiment coordinates
