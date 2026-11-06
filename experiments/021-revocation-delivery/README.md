@@ -272,3 +272,24 @@ only on restart - and the "revocation PUSH delivery" item in
 the Next section above is superseded only to that extent: the
 receiving trigger now exists, the sending transport does
 not.]
+
+[Superseded in part, 2026-11-06, experiment 024: the first
+honest limit above - "a running server still builds its
+PolicyNode at startup and never reloads, so a revocation
+reaches a network client only after the server is restarted
+over an updated snapshot" - and the same statement as
+restated at the end of the experiment 022 note appended
+above, were built in experiment 024
+(`experiments/024-server-live-reload/`), under sync-mesh
+case 13, written tests-first. A running server now reloads
+when a caller drives POST /check-snapshot after the updated
+record is copied over its snapshot file: the check reuses
+experiment 022's change facts and refusal naming and the
+PolicyNode's own reload, so after one check the revoked
+policy returns this experiment's clean 410 over the wire
+from the SAME process, over plaintext and over mutual TLS
+with a signed anchor. What still stands: the check is
+caller-driven (no timer, scheduler, or thread fires it),
+delivery of the record into the file is still an explicit
+copy, and case 12's restart shape remains exactly as this
+experiment proved it.]
