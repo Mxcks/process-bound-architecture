@@ -1,0 +1,60 @@
+=== Gate 4 availability tests: python3 -m unittest discover -s packages/policy-library -v ===
+test_floor_reported_honestly_when_it_cannot_be_met (test_availability.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (test_availability.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (test_availability.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+test_node_verifies_from_registration_record_not_channel (test_policy_node.Gate2DecentralizedPolicyTests.test_node_verifies_from_registration_record_not_channel) ... ok
+test_policy_served_from_second_node_with_channel_offline (test_policy_node.Gate2DecentralizedPolicyTests.test_policy_served_from_second_node_with_channel_offline) ... ok
+test_user_node_serves_only_by_opt_in (test_policy_node.Gate2DecentralizedPolicyTests.test_user_node_serves_only_by_opt_in) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.008s
+
+OK
+
+=== Gate 4 suite direct: python3 packages/policy-library/test_availability.py ===
+test_floor_reported_honestly_when_it_cannot_be_met (__main__.Gate4AvailabilityTests.test_floor_reported_honestly_when_it_cannot_be_met) ... ok
+test_negative_control_sole_holder_offline_is_unavailable (__main__.Gate4AvailabilityTests.test_negative_control_sole_holder_offline_is_unavailable) ... ok
+test_replicated_policy_survives_holders_going_offline (__main__.Gate4AvailabilityTests.test_replicated_policy_survives_holders_going_offline) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.004s
+
+OK
+
+=== Demo: python3 packages/policy-library/demo_availability.py ===
+Setup. Policy registered: dcab37d1f0094a82...
+1a. Sole holder serves while online: True
+1b. Sole holder offline, policy unavailable (the honest failure): True
+2a. Placement: holders 3 of floor 3 - status: available
+2b. Original host offline, another holder serves: True
+2c. Two of three holders offline, the last one serves: True
+3. Floor unmet, reported honestly: holders 2 vs floor 3 - status: below_floor
+Demo state left in: /tmp/pba-gate4-demo-i8aaq4h1
+
+=== Regression Gate 1: python3 -m unittest discover -s packages/registration -v ===
+test_any_user_can_register_own_library (test_registration.Gate1RegistrationTests.test_any_user_can_register_own_library) ... ok
+test_bad_signature_rejected_and_logged (test_registration.Gate1RegistrationTests.test_bad_signature_rejected_and_logged) ... ok
+test_channel_exists_before_use (test_registration.Gate1RegistrationTests.test_channel_exists_before_use) ... ok
+test_one_deterministic_tamper_evident_record (test_registration.Gate1RegistrationTests.test_one_deterministic_tamper_evident_record) ... ok
+test_unregistered_blocked_at_execution_boundary (test_registration.Gate1RegistrationTests.test_unregistered_blocked_at_execution_boundary) ... ok
+test_validation_channel_bound_only_on_registration (test_registration.Gate1RegistrationTests.test_validation_channel_bound_only_on_registration) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.005s
+
+OK
+
+=== Regression Gate 3: python3 -m unittest discover -s packages/synchronization -v ===
+test_concurrent_mutations_converge_no_central_lock (test_sync_mesh.Gate3SyncMeshTests.test_concurrent_mutations_converge_no_central_lock) ... ok
+test_divergence_detected_and_triggers_rollback (test_sync_mesh.Gate3SyncMeshTests.test_divergence_detected_and_triggers_rollback) ... ok
+test_partitioned_node_rejoins_and_converges (test_sync_mesh.Gate3SyncMeshTests.test_partitioned_node_rejoins_and_converges) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.003s
+
+OK
+
+=== Regression EAI handoffs: python3 scripts/verify-handoffs.py ===
+PASS: 3 EAI vectors recompute exactly.
+
+Python 3.12.3
