@@ -1,0 +1,104 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/policy-library/test_composed_watchers.py
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/policy-library/test_composed_watchers.py", line 71, in <module>
+    from composed_watchers import ComposedWatcher  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'composed_watchers'
+exit:1
+
+(The failing-before shape is experiment 016/022's: the test
+case - availability case 8, added to
+tests/test-cases/policy-availability.md before the code - names
+a coordinator module that does not exist yet, so the suite
+fails at import. The case is proven to be what the code had to
+satisfy; after the build the same suite passes 6/6 below,
+unmodified.)
+
+=== PRE-BUILD BASELINE (before this experiment's code) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests  OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 33 tests  OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 43 tests  OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests  OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly
+(114 tests total, the baseline this experiment started from -
+20 registration + 33 policy-library + 43 synchronization + 18
+validation, the counts experiment 022 left; leftover
+node_server processes after the run: 0)
+
+=== FULL REGRESSION (after the build) ===
+== python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.036s
+OK
+== python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.580s
+OK
+== python3 -m unittest discover -s packages/synchronization
+Ran 43 tests in 53.736s
+OK
+== python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.491s
+OK
+== python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+(120 tests total: the 114 baseline plus this experiment's 6
+new, all in packages/policy-library. Every earlier suite passes
+in the same run, including the unmodified liveness and
+snapshot-delivery suites this experiment composes.)
+
+=== NEW SUITE BY DIRECT FILE RUN ===
+--- python3 packages/policy-library/test_composed_watchers.py
+test_anchor_stale_refusal_does_not_block_healing_over_last_good (__main__.ComposedWatcherTests.test_anchor_stale_refusal_does_not_block_healing_over_last_good) ... ok
+test_delivery_only_cycle_exactly_one_action (__main__.ComposedWatcherTests.test_delivery_only_cycle_exactly_one_action) ... ok
+test_loss_only_cycle_exactly_one_action (__main__.ComposedWatcherTests.test_loss_only_cycle_exactly_one_action) ... ok
+test_quiet_cycles_no_double_action (__main__.ComposedWatcherTests.test_quiet_cycles_no_double_action) ... ok
+test_revocation_and_loss_same_window_heals_over_updated_record (__main__.ComposedWatcherTests.test_revocation_and_loss_same_window_heals_over_updated_record) ... ok
+test_tampered_refusal_does_not_block_healing_over_last_good (__main__.ComposedWatcherTests.test_tampered_refusal_does_not_block_healing_over_last_good) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.182s
+
+OK
+COMPOSED REFUSAL (anchor_stale): the refusal and the heal over the last good record are both in the composed report; delivery lands only after the re-anchor
+COMPOSED QUIET: 3 composed cycles, no reloads, no heals, holder views untouched
+COMPOSED HARD CASE: one cycle delivered the revocation, declared holder-c lost, and healed over the updated record; the recruit refuses the revoked policy and bob's policy keeps serving
+
+=== NEW DEMO ===
+--- python3 packages/policy-library/demo_composed_watchers.py
+Setup. Policy registered: dcab37d1f0094a82... - cycle order: ['delivery', 'liveness']
+1. Two quiet composed cycles: no_change / no_action - holders: 3 -> 3
+2. Revoked + loss in one window, one composed cycle: delivered - lost: ['holder-c'] - healed: healed - recruited: ['replacement-d']
+   Recruit holds the updated record (is_revoked): True
+   Placed policy refuses as revoked: True
+3. Delivered without re-anchor + loss, one cycle: delivery_refused - anchor_stale - healed: healed - recruited: ['replacement-d']
+   Recruit holds the last good record (is_revoked): False - previous view still serves: True
+   After the same-signer re-anchor: delivered
+Demo state left in: /tmp/pba-composed-watchers-demo-6n8ikmcu
+
+=== COMPOSED WATCHERS' OWN DEMOS (016 and 022, unmodified) ===
+--- python3 packages/policy-library/demo_liveness.py (tail)
+   3rd missed beat, lost: ['original-host'] - auto-healed: healed - recruited: ['replacement-d'] - holders: 2 -> 3
+   Policy still served after auto-healing: True
+2. Brief silence, state: silent_short - healed over: False
+   Returned in time, state: alive - holders unchanged: ('original-host', 'holder-b', 'holder-c')
+3. Lost with no replacement, report: below_floor - holders: 2 of floor 3
+   Next check still reports: below_floor - survivors serve: True
+4. Lost holder returned as candidate: ['original-host'] - is a holder again: False - holder count (never 4): 3
+--- python3 packages/policy-library/demo_snapshot_delivery.py (tail)
+1. Unchanged check: no_change - entries: 1 -> 1
+   Revoked + delivered + re-anchored, one tick: delivered - entries: 1 -> 2 - head moved: True
+   Placed policy refuses as revoked: True
+2. Delivered without re-anchor: delivery_refused - reason: anchor_stale - still serves: True
+   Next check re-reports: delivery_refused - anchor_stale
+   After the same-signer re-anchor: delivered
+3. Tampered delivery: delivery_refused - reason: tampered_record - previous view still serves: True
+
+=== LEFTOVER PROCESS CHECK ===
+ps aux | grep "[n]ode_server" | wc -l  ->  0
+(Checked after the pre-build baseline and after the full
+regression: 0 each time.)
