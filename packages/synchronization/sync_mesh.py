@@ -84,7 +84,11 @@ HONEST LIMITS (prototype, NOT production)
   an attacker who rewrites one origin's entire chain from genesis
   AND keeps the victim from ever seeing the original entries would
   produce a chain that verifies on its own. Detecting that needs an
-  external anchor / witnessed head hash, still unbuilt.
+  external anchor / witnessed head hash: a prototype anchor for
+  these per-origin heads now exists (experiment 012,
+  packages/synchronization/anchor.py, a stand-in file held outside
+  the node), but nothing in this module consults it - receive and
+  sync still judge entries by the checks above alone.
 - A fork is only observable once a node (or a sync between nodes)
   sees both versions. A partitioned fork that never meets is not
   detected by anyone; that is a property of the design, stated, not
