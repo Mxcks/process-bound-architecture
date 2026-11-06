@@ -53,3 +53,54 @@
    `packages/synchronization/test_anchor.py` (per-origin mesh heads
    anchored, converged peers verify, rewritten origin chain
    negative control).
+8. Anchor consultation in serving and sync (gap flagged in
+   experiment 012: the anchor exists and its check works, but
+   nothing consulted it automatically - Gate 2's PolicyNode served
+   from the chain alone and Gate 3 sync never called the anchor
+   check, so a rewritten record would be served and synced with
+   the anchor never asked): a Gate 2 policy node constructed with
+   an anchor path consults that anchor for its registry snapshot
+   at load (and on snapshot reload, experiment 008's path), reusing
+   experiment 012's check, and a Gate 3 sync node constructed with
+   a mesh anchor path consults that anchor on the merged state
+   before accepting a peer's entries as converged. Expected: a
+   genuine snapshot whose head matches its anchor serves exactly
+   as before; a snapshot whose chain was rewritten from genesis
+   (internally consistent, so it passes the chain's own
+   verification - experiment 012's negative control) is REFUSED at
+   load with the refusal named anchor_mismatch, and a peer whose
+   origin chain was rewritten the same way is flagged divergent
+   (reason anchor_mismatch) and not accepted by an anchored sync
+   node. With NO anchor configured, behavior is exactly the
+   pre-consultation behavior: absence of an anchor is not an
+   error, a node serves and syncs exactly as experiments 003/004
+   built, and the earlier suites pass unmodified in the same run.
+   Honest growth, stated explicitly rather than hidden: a record
+   that grew honestly after anchoring (internal verification
+   passes, and the anchored head is still the head of the
+   presented chain's prefix of the anchored length - everything
+   that was anchored is intact, entries were only appended) is
+   NOT a rewrite, so it is not reported as anchor_mismatch; it is
+   also NOT silently served as anchored. It is reported as
+   anchor_stale and refused (at load for a policy node; as a
+   flagged anchor_stale divergence for a sync node) until the
+   new head is re-anchored, which is exactly the lifecycle
+   experiment 012 stated for its check (an extended presentation
+   fails until re-anchored). After re-anchoring, the grown record
+   serves and syncs again. A truncated presentation is not
+   growth: the anchored head is not its prefix head, so it is
+   anchor_mismatch. Status: IMPLEMENTED at prototype scale
+   (2026-11-06, experiment
+   `experiments/015-anchor-consultation/`). Tests:
+   `packages/policy-library/test_anchor_consultation.py`
+   (genuine snapshot serves with an anchor, full-rewrite snapshot
+   refused at load as anchor_mismatch, no-anchor behavior
+   unchanged including serving a rewritten snapshot exactly as
+   before, honest growth refused as anchor_stale at load and on
+   reload until re-anchored and then serving) and
+   `packages/synchronization/test_anchor_consultation.py`
+   (genuine peer accepted and converged with an anchor, rewritten
+   peer flagged anchor_mismatch and not accepted, no-anchor sync
+   accepts the rewritten chain exactly as before, honest growth
+   flagged anchor_stale and refused until re-anchored and then
+   accepted).
