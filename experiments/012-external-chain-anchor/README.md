@@ -141,7 +141,17 @@ was modified.
   verify. No countersignature, witness set, timestamping service,
   or append-only anchor history is built; each `write_anchor`
   overwrites the previous anchor, so anchor history itself is not
-  tamper-evident here.
+  tamper-evident here. SUPERSEDED IN PART by experiment 019
+  (2026-11-06): anchors can now be written signed by an enrolled
+  identity (Gate 1's HMAC scheme), re-anchoring a signed anchor
+  requires that same identity (a different identity's attempt is
+  refused and logged), accepted signed re-anchors append to a
+  signed, hash-chained history kept in the anchor file, and
+  every consultation point verifies the signature when a signing
+  identity is configured, under the name
+  anchor_signature_invalid. Unsigned anchors behave exactly as
+  this experiment built them, and the anchor is still
+  unwitnessed: no countersignature or witness set exists.
 - Nothing consults an anchor automatically. Gate 2's `PolicyNode`
   still serves from the chain alone, Gate 3 sync does not check
   anchors, experiment 007's server processes do not carry one, and
@@ -198,8 +208,10 @@ liveness detection and automatic healing triggers, transport
 security, discovery and automatic sync, persistence and restart
 recovery, production crypto and identity proofing, coordinated
 rollback and consensus, revocation delivery to placed policies,
-anchor consultation wired into serving/sync/the Gate 5 verdict,
-a witnessed or signed anchor for production, and Gate 5's open
+anchor consultation wired into serving/sync/the Gate 5 verdict
+(done, experiments 015 and 018), a signed anchor (done at
+prototype scale, experiment 019; a WITNESSED anchor is still
+open), and Gate 5's open
 production benchmark. `PBA-FIX-001` remains talk-first and
 untouched by this experiment. Nothing here is deployed beyond
 the local working copy, and nothing in this experiment changes
