@@ -20,6 +20,11 @@ jobs:
         run: python3 scripts/verify-handoffs.py
       # Handoff 2: every package test suite that exists must pass.
       # A package with no tests is reported, not silently skipped.
+      # Suites run on the Python standard library test runner (unittest),
+      # the same runner used to verify them locally. An earlier version of
+      # this step called pytest, which is never installed on the runner,
+      # so the step failed on the missing tool rather than on the tests
+      # (found 2026-11-06, run 30; fixed the same day).
       - name: Run package tests
         run: |
           found=0
@@ -27,7 +32,7 @@ jobs:
             if [ -d "$d/tests" ] || ls "$d"test_*.py >/dev/null 2>&1 || ls "$d"tests/test_*.py >/dev/null 2>&1; then
               found=1
               echo "Testing $d"
-              python3 -m pytest "$d" -q || exit 1
+              python3 -m unittest discover -s "$d" || exit 1
             else
               echo "NO TESTS YET: $d (reported, Gate work)"
             fi
