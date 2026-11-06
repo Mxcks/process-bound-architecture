@@ -180,7 +180,19 @@ and no earlier test was modified.
   attacker who rewrites the record AND re-anchors it passes
   everywhere, exactly as before. Production still needs the head
   held where the record's writer cannot reach it, and a rule for
-  who may re-anchor.
+  who may re-anchor. SUPERSEDED IN PART by experiment 019
+  (2026-11-06): anchors can now be signed by an enrolled
+  identity, only that same identity may re-anchor a signed
+  anchor (other attempts are refused and logged, and accepted
+  re-anchors append to a signed, kept history), and both
+  surfaces this experiment wired - server startup (via
+  `--anchor-signer` / `--anchor-secret-file`) and the Gate 5
+  verdict (via per-chain signing-identity arguments) - verify
+  the signature when an identity is configured, refusing under
+  the name anchor_signature_invalid. Without an identity
+  configured, this experiment's behavior is unchanged; the
+  anchor remains unwitnessed, and a signed anchor file can
+  still be deleted or rolled back to an older signed state.
 - Consultation remains per-process and opt-in. A server started
   without `--anchor` serves exactly as before this experiment -
   including, as the tests state plainly, serving a fully
@@ -258,8 +270,9 @@ networked server processes at startup (018), and the Gate 5
 verdict (018). The honest distance to utilization is unchanged
 in kind and shorter by that item: deliberate-removal
 notification (availability case 3, blocked on Max's answers in
-experiment 011), a witnessed or signed anchor for production
-(plus a rule for who may re-anchor), mesh-anchor consultation
+experiment 011), a signed anchor plus the rule for who may
+re-anchor (done at prototype scale, experiment 019; a witnessed
+anchor for production is still open), mesh-anchor consultation
 inside the networked processes' sync (their mesh side is still
 a plain SyncNode), liveness in the server processes (016's
 watcher is in-process), discovery and automatic sync,
