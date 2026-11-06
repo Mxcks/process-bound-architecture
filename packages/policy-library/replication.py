@@ -49,6 +49,25 @@ WHAT THIS PROTOTYPE DEMONSTRATES (the Gate 4 outcomes)
    healing reports below_floor and recruits nobody; it never
    pretends it healed.
 
+5. Anchor consultation carried into placement (experiment 020,
+   full-chain integration, test case in
+   tests/test-cases/full-chain.md). This is a pure wiring
+   addition, not a behavior change: place_policy(),
+   ReplicatedPolicy, and heal() gain optional anchor_path /
+   anchor_signer / anchor_secret_hex parameters, all defaulting
+   to None, passed through unchanged to the PolicyNode
+   constructions placement and healing already perform. With
+   the parameters omitted, holders are constructed exactly as
+   outcomes 1-4 built them and no consultation happens. With
+   them given, every placed holder - and every holder heal()
+   later recruits - consults the anchor the way a standalone
+   PolicyNode does (experiments 015/019): a rewritten or
+   honestly grown snapshot is refused at holder construction
+   under the anchor's own names. Nothing else about placement,
+   healing, or serving changes, and the revocation limit below
+   stands exactly as written: holders are still constructed
+   once and never reload.
+
 HOW IT WORKS, IN PLAIN WORDS
 ----------------------------
 Placement happens once, at registration time (in the tests, directly
@@ -240,7 +259,16 @@ class ReplicatedPolicy:
         holders: dict[str, PolicyNode],
         code: bytes | None = None,
         registry_snapshot_path: str | Path | None = None,
+        anchor_path: str | Path | None = None,
+        anchor_signer: str | None = None,
+        anchor_secret_hex: str | None = None,
     ):
+        if (anchor_signer is None) != (anchor_secret_hex is None):
+            raise ValueError(
+                "anchor_signer and anchor_secret_hex must be given "
+                "together (a signing identity is an id plus its "
+                "verification secret)"
+            )
         self.policy_hash = policy_hash
         self.floor = floor
         self._holders = dict(holders)  # placement order preserved
@@ -249,6 +277,13 @@ class ReplicatedPolicy:
         self._registry_snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path is not None else None
         )
+        # Experiment 020 wiring: the anchor consultation a heal()
+        # recruit must be constructed with, carried from
+        # place_policy(). All None (the default) is the pre-020
+        # behavior: no consultation anywhere in this module.
+        self.anchor_path = Path(anchor_path) if anchor_path is not None else None
+        self.anchor_signer = anchor_signer
+        self.anchor_secret_hex = anchor_secret_hex
 
     # -- reports ----------------------------------------------------------
 
@@ -366,6 +401,9 @@ class ReplicatedPolicy:
                 registry_snapshot_path=self._registry_snapshot_path,
                 payloads={self.policy_hash: self._code},
                 serve_policies=True,
+                anchor_path=self.anchor_path,
+                anchor_signer=self.anchor_signer,
+                anchor_secret_hex=self.anchor_secret_hex,
             )
             self._online.add(spec.node_id)
             recruited.append(spec.node_id)
@@ -406,6 +444,9 @@ def place_policy(
     registry_snapshot_path: str | Path,
     candidates: list[NodeSpec],
     floor: int,
+    anchor_path: str | Path | None = None,
+    anchor_signer: str | None = None,
+    anchor_secret_hex: str | None = None,
 ) -> ReplicatedPolicy:
     """Place a registered policy on independent opted-in holders.
 
@@ -416,6 +457,11 @@ def place_policy(
     candidate becomes a holder, whether or not the floor is reached;
     whether the floor was reached is the PlacementReport's job to
     state, not this function's job to hide by refusing placement.
+
+    Experiment 020 wiring: the optional anchor parameters are
+    passed through to every holder's PolicyNode construction and
+    stored on the ReplicatedPolicy for heal() to pass to recruits.
+    Defaulting to None, they change nothing when omitted.
     """
     if floor < 1:
         raise ValueError("replication floor must be at least 1")
@@ -430,6 +476,9 @@ def place_policy(
             registry_snapshot_path=registry_snapshot_path,
             payloads={policy_hash: code},
             serve_policies=True,
+            anchor_path=anchor_path,
+            anchor_signer=anchor_signer,
+            anchor_secret_hex=anchor_secret_hex,
         )
     return ReplicatedPolicy(
         policy_hash=policy_hash,
@@ -437,4 +486,7 @@ def place_policy(
         holders=holders,
         code=code,
         registry_snapshot_path=registry_snapshot_path,
+        anchor_path=anchor_path,
+        anchor_signer=anchor_signer,
+        anchor_secret_hex=anchor_secret_hex,
     )
