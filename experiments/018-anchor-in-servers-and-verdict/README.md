@@ -283,3 +283,28 @@ policies, and Gate 5's open production benchmark.
 experiment. Nothing here is deployed beyond the localhost test
 processes the tests themselves spawned and cleaned up, and
 nothing in this experiment changes that.
+
+[Superseded in part, 2026-11-06, experiment 024: the limit
+above stating that a server "does not re-consult its registry
+anchor after startup: a snapshot file changed under a running
+server is not re-read (servers build their PolicyNode once)"
+was built in experiment 024
+(`experiments/024-server-live-reload/`), under sync-mesh
+case 13, written tests-first. A running server now exposes
+POST /check-snapshot: one caller-driven check compares its
+snapshot file's presented facts (experiment 022's change
+fact) with the facts its PolicyNode last loaded and, on a
+clean change, reloads through experiment 015's own reload
+semantics - the same verify-and-consult discipline this
+experiment's startup gate uses - so the anchor IS
+re-consulted on every live reload. Refusals (anchor_stale,
+tampered_record, anchor_mismatch) leave the running view
+untouched and are re-reported by later checks and carried
+on /health. This experiment's startup gate is unchanged: a
+server STARTED over a rewritten snapshot still refuses to
+start, asserted by this experiment's unmodified suite and
+by 024's own. What still stands from the limit: the
+consultation remains opt-in per process, nothing schedules
+the check unattended, nothing delivers the updated record
+into the snapshot file, and the mesh side of a server
+process still consults no mesh anchor.]
