@@ -1,0 +1,103 @@
+Experiment 033 - mesh state persistence: test output
+=====================================================
+
+TESTS FIRST (case 22 written, node_server.py unchanged)
+-------------------------------------------------------
+Command: python3 -m unittest discover -s packages/synchronization -p "test_mesh_state_persistence.py"
+Result: Ran 8 tests - FAILED (failures=7, errors=1).
+Every failure is the named absence the case specifies:
+the seven --mesh-state tests fail because the process
+exits on argparse ("error: unrecognized arguments:
+--mesh-state ..."), and the no-flag control errors on
+the not-yet-existing /health field
+(KeyError: 'mesh_state_configured'). Two of the eight
+failures verbatim; the other six are the same argparse
+exit under their own assertions:
+
+======================================================================
+ERROR: test_no_state_file_is_memory_only_as_today (test_mesh_state_persistence.PlaintextMeshStatePersistenceTests.test_no_state_file_is_memory_only_as_today)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_state_persistence.py", line 526, in test_no_state_file_is_memory_only_as_today
+    self.assertFalse(health["mesh_state_configured"])
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'mesh_state_configured'
+
+======================================================================
+
+======================================================================
+FAIL: test_forked_state_file_refuses_the_start (test_mesh_state_persistence.PlaintextMeshStatePersistenceTests.test_forked_state_file_refuses_the_start)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_state_persistence.py", line 432, in test_forked_state_file_refuses_the_start
+    self.assertIn("MeshStateRefused", log)
+AssertionError: 'MeshStateRefused' not found in 'usage: node_server.py [-h] --node-id NODE_ID [--host HOST] [--port PORT]\n                      [--snapshot SNAPSHOT] [--payloads PAYLOADS]\n                      [--serve-policies] [--anchor ANCHOR]\n                      [--anchor-signer ANCHOR_SIGNER]\n                      [--anchor-secret-file ANCHOR_SECRET_FILE]\n                      [--anchor-witness ANCHOR_WITNESS]\n                      [--anchor-witness-secret-file ANCHOR_WITNESS_SECRET_FILE]\n                      [--mesh-anchor MESH_ANCHOR]\n                      [--mesh-anchor-signer MESH_ANCHOR_SIGNER]\n                      [--mesh-anchor-secret-file MESH_ANCHOR_SECRET_FILE]\n                      [--mesh-anchor-witness MESH_ANCHOR_WITNESS]\n                      [--mesh-anchor-witness-secret-file MESH_ANCHOR_WITNESS_SECRET_FILE]\n                      [--port-file PORT_FILE] [--tls-cert TLS_CERT]\n                      [--tls-key TLS_KEY] [--tls-ca TLS_CA]\n                      [--tls-bind-identity]\nnode_server.py: error: unrecognized arguments: --mesh-state /tmp/tmpslhkcero/fork.mesh-state\n'
+
+======================================================================
+
+Full run summary line: Ran 8 tests - FAILED (failures=7, errors=1).
+
+BASELINE BEFORE THE BUILD (captured before any 033 edit)
+--------------------------------------------------------
+registration: Ran 25 tests - OK
+policy-library: Ran 42 tests - OK
+synchronization: Ran 124 tests - OK
+validation: Ran 22 tests - OK
+EAI handoff vectors: PASS: 3 EAI vectors recompute exactly.
+Total: 213 tests, all suites OK.
+
+One concurrent capture of the synchronization package,
+taken while node_server.py was being edited for this
+experiment and other suites were running in parallel,
+reported a single failure; the clean post-build
+regression below, run with nothing else in flight,
+passes the whole suite including every pre-existing
+synchronization test unmodified. The known wait_ready
+port-file race did not recur in any 033 run; the new
+suite's port-file reads guard it the way the 032 suites
+do.
+
+NEW SUITE AFTER THE BUILD
+-------------------------
+Command: python3 -m unittest discover -s packages/synchronization -p "test_mesh_state_persistence.py"
+
+........
+----------------------------------------------------------------------
+Ran 8 tests in 24.771s
+
+OK
+MESH STATE PERSISTENCE gate: honest growth recovered past the mesh anchor refused the start as anchor_stale
+MESH STATE PERSISTENCE gate: after re-anchoring the same restart started anchored over 3 entries; a foreign chain recovered under the anchor refused as anchor_mismatch
+MESH STATE PERSISTENCE refusal: a forked chain in the state file refused the start as forked_entry; nothing was served
+MESH STATE PERSISTENCE: fresh start created the state file on first change; after SIGKILL the restart recovered the same 2 entries, state hash, and materialized state
+MESH STATE PERSISTENCE: a merge the process accepted is in its state file and survives its kill; a refused receive rewrote nothing
+MESH STATE PERSISTENCE control: without --mesh-state the restart starts empty, exactly the pre-033 behavior
+MESH STATE PERSISTENCE refusal: a tampered entry in the state file refused the start as tampered_entry; nothing was served
+MESH STATE PERSISTENCE refusal: a state file cut mid-line refused the start as mesh_state_unreadable; nothing was served
+MESH STATE PERSISTENCE: entries that never left the killed process were recovered from its state file and a peer learned them from the restarted process over /sync
+
+FULL REGRESSION AFTER THE BUILD
+-------------------------------
+registration: Ran 25 tests - OK
+policy-library: Ran 42 tests - OK
+synchronization: Ran 132 tests - OK (124 pre-existing + 8 new)
+validation: Ran 22 tests - OK
+EAI handoff vectors: PASS: 3 EAI vectors recompute exactly.
+Total: 221 tests, all suites OK, earlier suites unmodified.
+
+DEMO
+----
+Command: python3 packages/synchronization/demo_mesh_state_persistence.py (exit code 0)
+
+1. fresh start: mesh_state_configured=True, load={'status': 'fresh', 'entries': 0, 'state_hash': '7e2a4d7da0f69d75334bef7afec7fb582bd98703609553d7877f9fb3099b9de1'}; state file exists=False
+   two mutations accepted; state file exists=True with 2 entries; state hash df3da8f2fd3f06a0...
+2. killed with SIGKILL and restarted: load={'status': 'recovered', 'entries': 2, 'state_hash': 'df3da8f2fd3f06a0063c1585b14f6b732bdcf23cfdccc46297bf7a3eb8073535'}; state identical=True
+3. an empty peer synced with the restarted process: divergence=False, peer state={'greeting': 'hello', 'mode': 'member'}
+4. tampered state file: restart exit code=1, refusal named tampered_entry=True; nothing served
+
+LEFTOVER PROCESS CHECK
+----------------------
+After all runs finished: ps aux | grep "[n]ode_server" -> 0 processes.
+(Checks taken while other suites were still running
+showed those runs' own live test servers; the final
+check, with nothing in flight, shows none.)
