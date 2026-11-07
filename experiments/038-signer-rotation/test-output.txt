@@ -1,0 +1,96 @@
+Experiment 038 - anchor signer rotation
+Test output: real runs, in the order they happened.
+
+=== TESTS FIRST: the new suites against the UNBUILT code ===
+Commands: python3 -m unittest discover -s packages/<package> -p "<suite>"
+Written after registration case 12 (tests/test-cases/registration.md)
+and sync-mesh case 26 (tests/test-cases/sync-mesh.md), and before any
+implementation. All four suites fail as designed, on the missing
+rotation surface:
+
+=== registration/test_signer_rotation.py
+ImportError: Failed to import test module: test_signer_rotation
+ImportError: cannot import name 'make_anchor_rotation' from 'anchor' (packages/registration/anchor.py)
+=== policy-library/test_signer_rotation_consultation.py
+ImportError: Failed to import test module: test_signer_rotation_consultation
+ImportError: cannot import name 'make_anchor_rotation' from 'anchor' (packages/registration/anchor.py)
+=== synchronization/test_mesh_signer_rotation.py
+ImportError: Failed to import test module: test_mesh_signer_rotation
+ImportError: cannot import name 'make_mesh_anchor_rotation' from 'anchor' (packages/synchronization/anchor.py)
+=== synchronization/test_signer_rotation_in_servers.py
+ImportError: Failed to import test module: test_signer_rotation_in_servers
+AttributeError: module 'pba_rotation_test_registry_anchor' has no attribute 'make_anchor_rotation'
+
+=== THE NEW SUITES against the built code ===
+--- registration: test_signer_rotation.py ---
+Ran 7 tests
+OK
+--- policy-library: test_signer_rotation_consultation.py ---
+Ran 3 tests
+OK
+--- synchronization: test_mesh_signer_rotation.py ---
+Ran 4 tests
+OK
+MESH ROTATION consultation: the lineage-configured anchored node accepts the rotated state; without a lineage it refuses as anchor_signature_invalid
+MESH ROTATION: pre-rotation state accepted; the retired signer's extension refused as anchor_signer_retired
+MESH ROTATION: alice rotates to bob; the segmented mesh history verifies and the converged node is anchored
+MESH ROTATION write refusals: non-current signer, missing countersignature, wrong state - each named and logged
+--- synchronization: test_signer_rotation_in_servers.py ---
+Ran 4 tests in 7.661s
+OK
+FINDING UNDER ROTATION leg (i): the rewrite signed by the OLD signer is REFUSED as anchor_signer_retired
+FINDING UNDER ROTATION leg (ii): the rewrite signed by the NEW signer without the witness is REFUSED as anchor_witness_invalid - rotation changed who signs, not the witness rule
+FINDING UNDER ROTATION leg (iii): the rewrite signed by the NEW signer and countersigned by the configured witness is ACCEPTED under the standing rules - the fence is the new signer's secret plus the witness's, as before
+ROTATION PUSH: one paired push carried the rotated anchor to the peer byte-for-byte, rotations included
+ROTATION PUSH: the peer refuses the old signer's anchor as anchor_signer_retired
+ROTATION AT A SERVER: the successor's anchor and its rotation landed paired; the anchor file records the rotation and names bob
+ROTATION AT A SERVER: the successor's later ordinary delivery lands as a same-signer delivery
+ROTATION AT A SERVER: with no lineage configuration the successor's delivery is refused as different_signer, as case 17 refuses any different signer
+
+=== DEMOS ===
+Command: python3 packages/registration/demo_signer_rotation.py
+
+Setup. Alice anchors the registry: 882e6bcf69469a56...
+1. Rotated: signer is now bob ; the anchor file carries 1 rotation record(s); a lineage check says: anchored
+2. The pre-rotation anchor file still verifies on its own history: True
+3. Alice's honestly extended anchor, judged by a verifier holding the rotation: anchor_signer_retired
+4. Second rotation: signer is now carol ; rotations carried: 2 ; lineage check: anchored
+5. Non-current signer's rotation refused: rotation refused: anchor_rotation_signer_invalid - the presented rotation does not stand for this write (experiment 038, case 12)
+DEMO OK: trust moved alice -> bob -> carol inside the anchor file; the retired signer is refused by name.
+
+Command: python3 packages/synchronization/demo_signer_rotation.py
+
+Setup. Nodes converged; alice anchors the mesh: 2b51243fb732b76f...
+1. Rotated: mesh signer is now bob ; the anchor file carries 1 rotation record(s)
+2. Lineage node anchor standing after the merge: anchored
+   Unlineaged node merge refused: anchor_signature_invalid
+3. Lineage check of the converged node: anchored ; current signer: bob
+DEMO OK: mesh signing moved alice -> bob inside the mesh anchor file; only lineage verifiers follow.
+
+=== FULL REGRESSION ===
+Pre-build baseline (experiment 037's record): registration 25,
+policy-library 42, synchronization 153, validation 22 = 242, EAI PASS 3/3.
+
+--- registration ---
+Ran 32 tests
+OK
+--- policy-library ---
+Ran 45 tests
+OK
+--- validation ---
+Ran 22 tests
+OK
+--- synchronization ---
+Ran 161 tests
+OK
+--- EAI handoff ---
+PASS: 3 EAI vectors recompute exactly.
+
+Total: 260/260 (242 baseline + 18 new), EAI PASS 3/3. One clean
+run; the port-file read race from earlier experiments did not
+occur in this run.
+
+=== LEFTOVER-PROCESS CHECK ===
+pgrep for node_server.py after all runs: 0 processes remain
+(two TLS-suite servers were seen mid-teardown during the
+regression run and had exited by the check).
