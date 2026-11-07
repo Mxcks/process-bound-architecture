@@ -2097,3 +2097,169 @@
    configuration edge, the sender's own unreadable
    anchor, and the false-claiming pusher refused at the
    transport).
+22. A server's mesh state survives its own process death
+   (added 2026-11-06, experiment 033): every surface
+   since case 7 has run on state that lives in the
+   server process's memory alone - experiment 007's own
+   limit, restated in `node_server.py`'s honest limits
+   ever since: kill the process and its unreplicated
+   entries are gone; what survives a kill is exactly
+   what had already synced to another process. The
+   registry side has had a durable record since Gate 1;
+   the mesh side never got one, so a node's own
+   mutations - accepted, verified, and reported - can
+   vanish with the process that made them. This case
+   gives the mesh side its durable record: a server
+   started with a mesh state file persists every
+   accepted change, a restart over that file recovers
+   the state exactly, and the file is verified on load
+   with the mesh's own verification, never trusted.
+   - The surface: a startup flag, `--mesh-state
+     <path>`, in the style of `--mesh-anchor` - a path
+     this process reads at startup and writes on every
+     accepted change. It is independent of `--snapshot`
+     and of `--mesh-anchor`: the mesh side exists on
+     mesh-only processes too, and persistence is its
+     own opt-in. There is no new endpoint: persistence
+     is not driven, it is what the process's mesh
+     operations already do, made durable. A process
+     started without the flag behaves exactly as today
+     - mesh state in memory only, a restart empty.
+   - The format: the state file is the node's entry
+     set serialized exactly as the entries already
+     cross the wire - one JSON object per line
+     (`json.dumps(entry_to_dict(entry), sort_keys=True)`,
+     Gate 1's log format), in the node's deterministic
+     total order (`entries()` order: lamport, origin,
+     seq). No new serialization is invented: the file
+     is what `GET /entries` returns, written down.
+   - The write discipline, stated before the build:
+     persistence happens inside the node's two mesh
+     operations - its own mutation (the `/mutate`
+     surface) and its one mesh receive
+     (`receive_mesh_entries`, which `/entries` and both
+     sides of `/sync` already funnel through) - and it
+     completes before the driving response returns, so
+     an accepted change the caller was told about is
+     already on disk. A change writes only when the
+     state actually moved (the state hash differs from
+     the hash this process last loaded or wrote): a
+     refused receive and a no-op sync rewrite nothing,
+     byte for byte. Each write follows case 14's
+     replace-from-verified-candidate discipline: the
+     full current entry set is serialized to a
+     candidate file beside the state file
+     (`<name>.persist-candidate`), the candidate's
+     bytes are read back, deserialized, and judged by
+     Gate 3's own whole-set verification - a scratch
+     node's `restore_to_entries`, experiment 013's
+     primitive, which recomputes every hash, refuses
+     forks, and checks every per-origin chain - and
+     only a candidate that stands is moved over the
+     state file with `os.replace`. A kill at any point
+     therefore leaves either the previous standing file
+     or the new one, never a torn one, and nothing
+     unverified is ever the standing file: the file on
+     disk is always a file the mesh's own verification
+     accepts.
+   - Recovery: a process started with `--mesh-state`
+     over a file that does not exist yet starts empty
+     and creates the file on its first accepted change
+     (the load is reported as `fresh`). Over a file
+     that exists, the process recovers before it
+     serves: the same entries, the same state hash, the
+     same materialized state, reported on `/health` -
+     which gains `mesh_state_configured` and
+     `mesh_state_load` (the load report: `{"status":
+     "recovered", "entries": <count>, "state_hash":
+     <hash>}`, or `{"status": "fresh", ...}` over no
+     file yet, or null when no state file is
+     configured) beside the mesh anchor fields. Entries
+     that existed only in the killed process and never
+     synced anywhere are back after its restart - that
+     is the point of the case - proven by a peer
+     learning them from the restarted process over
+     `/sync`, with no re-mutation anywhere. Merges
+     persist exactly as own mutations do: state a
+     process gained by syncing, then lost by being
+     killed, is still its state after restart.
+   - The load is judged, never trusted: the file's
+     lines are deserialized with the wire's own entry
+     decoding, and the whole set is judged by the
+     mesh's own verification - the node's
+     `restore_to_entries`, the same whole-set judge a
+     received batch meets - BEFORE the process serves
+     anything. A file that does not parse (malformed
+     JSON, a bad entry encoding, a file cut mid-line)
+     refuses the start under the name
+     `mesh_state_unreadable`. A tampered entry in the
+     file refuses the start as `tampered_entry`, a
+     forked chain (two entries claiming one (origin,
+     seq) with different hashes) as `forked_entry`, a
+     broken per-origin chain as `broken_chain` - Gate
+     3's own divergence names, carried by a
+     `MeshStateRefused` raised out of the node's
+     construction, so the process exits nonzero naming
+     the refusal, exactly the refused-start mechanics
+     of a tampered registry snapshot since experiment
+     007. No partially recovered state is ever served:
+     a refused load serves nothing, and the file is
+     left as it was found.
+   - The anchor gate on recovery: when a mesh anchor
+     is ALSO configured (`--mesh-anchor`, case 15) and
+     a state file was present at startup, the recovered
+     state is consulted against the anchor before the
+     process serves, by the node's own `anchor_status()`
+     classification, and a recovered state the anchor
+     refuses refuses the START under the anchor's own
+     names - `anchor_stale`, `anchor_mismatch`,
+     `anchor_signature_invalid`, `anchor_witness_invalid`
+     where those identities are configured, and
+     `anchor_unreadable` when a configured anchor
+     cannot be read. The stated distinction: the gate
+     fires on a RECOVERED state, because persistence
+     makes the state a durable claim the process stands
+     on at startup, judged the way the registry
+     snapshot has been judged at startup since
+     experiment 018; a first start with no state file
+     yet recovers nothing, gates on nothing, and starts
+     empty exactly as case 15 left it, its at-rest
+     classification readable on `/health`. A recovered
+     state that is exactly the anchored state starts
+     and reports `anchored`; honest growth recovered
+     past the anchor refuses as `anchor_stale` until
+     the grown state is re-anchored, when the same
+     restart starts.
+   - Servers on which the flag is never given behave
+     exactly as today: case 15's consultation, case
+     20's delivery, case 21's push, the startup flags,
+     and the registry surfaces are untouched, proven by
+     the unmodified earlier suites in the same run.
+   Persistence here is a local file under the
+   operator's hand, in the anchor's own terms: it
+   survives the PROCESS, not the machine, and it is
+   tamper-evident on load, not tamper-proof - a file
+   replaced wholesale with an older verified state
+   recovers that older state (a rollback the anchor
+   gate refuses where an anchor is configured, and an
+   older state honestly accepted where none is), which
+   is case 10/17's stated limit for every durable
+   record in this stack, not a new one. A truncation
+   that lands exactly on a line boundary recovers the
+   shorter prefix state, which verifies as an older
+   state for the same reason; a truncation mid-line is
+   `mesh_state_unreadable`. Status: implemented at
+   prototype scale in experiment 033 (a running server
+   gains the `--mesh-state` startup flag, the
+   `MeshStateRefused` refused start, persistence inside
+   `mutate_mesh` and `receive_mesh_entries` under the
+   replace-from-verified-candidate discipline, and
+   `mesh_state_configured` / `mesh_state_load` on
+   /health; the case was written before the build).
+   Tests: `packages/synchronization/test_mesh_state_persistence.py`
+   (the fresh start and exact SIGKILL recovery, the
+   unreplicated-entries story completed by a peer over
+   /sync, merge persistence with the refused-receive
+   no-rewrite control, the three load refusals, the
+   anchor gate on recovery in all three standings, and
+   the no-flag memory-only control).
