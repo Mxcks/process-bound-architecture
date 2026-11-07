@@ -88,6 +88,26 @@ POST /deliver-snapshot
                     delivery. /health carries the last
                     delivery's report as last_snapshot_delivery,
                     beside last_snapshot_check.
+POST /push-snapshot
+                 -> {peer: "http://127.0.0.1:PORT"}: this process
+                    pushes its own standing registry record to a
+                    peer process (experiment 027): it sends the
+                    entries its PolicyNode stands on to the peer's
+                    POST /deliver-snapshot (experiment 025), and
+                    the peer judges and applies them under exactly
+                    experiment 025's rules - the receiving side is
+                    experiment 025's surface, unmodified. The
+                    response is the push's report: on 200, the
+                    peer's delivery status as "status" and the
+                    peer's delivery report itself under "delivery"
+                    (on a process with no snapshot, status
+                    "no_snapshot" and "delivery" null); a peer that
+                    cannot be reached, or whose transport refuses
+                    this process before the delivery endpoint runs,
+                    is reported on 502 in /sync's refusal shape.
+                    /health carries the last push's outcome as
+                    last_snapshot_push, beside last_snapshot_check
+                    and last_snapshot_delivery.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -190,6 +210,23 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   the candidate verification and is judged there (a rewrite
   is anchor_mismatch), so the backward name cannot launder
   a rewrite.
+- A record this process pushes to a peer (POST
+  /push-snapshot, experiment 027) is judged by the PEER's
+  experiment 025 verification, not by the sender: the
+  sender contributes only the entries its PolicyNode
+  stands on (its loaded, verified entries, which cases
+  13/14 keep in step with its snapshot file) and reports
+  the peer's delivery report, refusals included, as the
+  push's result - it re-derives no verdict of its own.
+  With identity binding on, the push first runs experiment
+  017's initiating-side check on the peer (its certificate
+  id against the id it claims), exactly as /sync does; a
+  peer whose transport refuses the SENDER before the
+  delivery endpoint runs (experiment 017's accepting-side
+  identity_mismatch, HTTP 403 naming claimed and certified
+  ids) is reported by the push on 502 in /sync's refusal
+  shape, so the refusal is named in the push result, never
+  hidden behind a generic transport failure.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -236,8 +273,11 @@ HONEST LIMITS (prototype, NOT production)
   client drives POST /check-snapshot after the updated record
   has been copied over its snapshot file (experiment 024), or
   when a peer pushes the record itself to
-  POST /deliver-snapshot (experiment 025). No timer, scheduler,
-  or thread inside the server fires either one, nothing
+  POST /deliver-snapshot (experiment 025). Since experiment
+  027 a server can also push its own standing record to a
+  peer, when a client drives POST /push-snapshot on it.
+  No timer, scheduler,
+  or thread inside the server fires any of these, nothing
   solicits a delivery, there is no broadcast or gossip of the
   record, and a server nobody drives or pushes to stays
   exactly as stale as experiment 007 left it (though since
@@ -470,6 +510,11 @@ class NetworkNode:
         # Experiment 025: the most recent wire delivery's
         # report, in the same field shape as the last check's.
         self.last_snapshot_delivery: dict | None = None
+        # Experiment 027: the most recent push THIS process
+        # initiated toward a peer - the push's response body,
+        # a 200 report or a 502 refusal alike - beside the
+        # last check's and the last delivery's.
+        self.last_snapshot_push: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -981,6 +1026,26 @@ def deliver_snapshot(base_url: str, entries: list[dict]) -> dict:
     return body
 
 
+def push_snapshot(base_url: str, peer_url: str) -> tuple[int, dict]:
+    """Ask the node at base_url to push its standing registry
+    snapshot to the peer process at peer_url (server-to-server,
+    experiment 027): the pushing server sends the entries its
+    PolicyNode stands on to the peer's /deliver-snapshot
+    (experiment 025), which judges and applies them under
+    exactly case 14's rules. Returns the (status, body) pair -
+    fetch_policy's shape, not request_sync's, because a push's
+    refusal can ride a non-200 status and the caller must see
+    its body. On 200 the body is the push's report: "status"
+    equal to the peer's delivery status ("delivered",
+    "delivery_refused", "no_change", or "no_snapshot" when
+    the pushing server holds no snapshot) and the peer's
+    delivery report under "delivery". On 502 the body names
+    the transport refusal - "identity_mismatch" with the
+    claimed and certified ids over a binding transport, in
+    /sync's refusal shape."""
+    return post_json(base_url, "/push-snapshot", {"peer": peer_url})
+
+
 def fetch_policy(base_url: str, policy_hash: str) -> tuple[int, dict]:
     """Fetch a served policy. Returns (status, body); on 200 the
     body carries the code as base64 in "code_base64"."""
@@ -1104,6 +1169,12 @@ def make_handler(node: NetworkNode):
                         # report (None until the first delivery is
                         # pushed), beside the last check's.
                         "last_snapshot_delivery": node.last_snapshot_delivery,
+                        # Experiment 027: the last push this
+                        # process initiated toward a peer (its
+                        # response body; None until the first
+                        # push is driven), beside the last
+                        # delivery's.
+                        "last_snapshot_push": node.last_snapshot_push,
                     })
                 return
             if self.path == "/state":
@@ -1243,7 +1314,114 @@ def make_handler(node: NetworkNode):
                     report = node.deliver_snapshot(raw_entries)
                 self._send_json(200, report)
                 return
+            if self.path == "/push-snapshot":
+                # Experiment 027: this process pushes its own
+                # standing registry record to a peer process
+                # (see _push_snapshot_to_peer). The payload is
+                # the peer's base URL, exactly /sync's shape.
+                peer = payload.get("peer")
+                if not isinstance(peer, str) or not peer:
+                    self._send_json(400, {
+                        "error": "push-snapshot needs a peer base URL"})
+                    return
+                self._push_snapshot_to_peer(peer)
+                return
             self._send_json(404, {"error": f"unknown path: {self.path}"})
+
+        def _record_push(self, body: dict) -> dict:
+            """Record a push's outcome as this process's last
+            push (experiment 027) and return the body for
+            sending: /health carries the response body of the
+            last push driven on this process, a 200 report or
+            a 502 refusal alike, beside the last check and the
+            last delivery."""
+            with node.lock:
+                node.last_snapshot_push = body
+            return body
+
+        def _push_snapshot_to_peer(self, peer: str) -> None:
+            # Initiating-side identity check (experiment 017),
+            # exactly as _sync_with_peer: with binding on, the
+            # peer server's certificate id is checked against
+            # the node id the peer claims in its health response
+            # BEFORE anything is pushed. A mismatch refuses the
+            # push outright; no record moves.
+            if node.bind_identity:
+                try:
+                    verify_peer_identity(peer)
+                except protected_link.IdentityMismatch as exc:
+                    print(
+                        f"identity_mismatch refused push to {peer}: "
+                        f"claimed={exc.claimed} certified={exc.certified}",
+                        flush=True,
+                    )
+                    self._send_json(502, self._record_push({
+                        "error": "identity_mismatch",
+                        "claimed": exc.claimed,
+                        "certified": exc.certified,
+                        "detail": str(exc),
+                    }))
+                    return
+                except (AssertionError, urllib.error.URLError, OSError) as exc:
+                    self._send_json(502, self._record_push(
+                        {"error": f"peer unreachable: {exc}"}))
+                    return
+            # The record this process STANDS ON: the PolicyNode's
+            # loaded, verified entries - what it serves from,
+            # which experiments 024/025 keep in step with its
+            # snapshot file - never the file read around the
+            # view. A process with no PolicyNode holds no record
+            # to push.
+            with node.lock:
+                entries = (
+                    [dict(e) for e in node.policy_node._entries]
+                    if node.policy_node is not None else None
+                )
+            if entries is None:
+                self._send_json(200, self._record_push({
+                    "node_id": node.node_id,
+                    "peer": peer,
+                    "status": "no_snapshot",
+                    "delivery": None,
+                }))
+                return
+            # The peer judges: its /deliver-snapshot (experiment
+            # 025) verifies the entries as a chain and consults
+            # its anchor before anything changes. post_json is
+            # used directly rather than the deliver_snapshot
+            # helper (which asserts a 200) because a refusal can
+            # arrive as a non-200 and its body is the outcome.
+            try:
+                status, delivery = post_json(
+                    peer, "/deliver-snapshot", {"entries": entries})
+            except (urllib.error.URLError, OSError) as exc:
+                self._send_json(502, self._record_push(
+                    {"error": f"peer push failed: {exc}"}))
+                return
+            if status != 200:
+                # The peer refused before its delivery endpoint
+                # ran - over a binding transport, experiment
+                # 017's accepting-side identity_mismatch (403
+                # naming claimed and certified ids). The refusal
+                # is the push's outcome and is reported in the
+                # same shape /sync reports its refusals, not
+                # hidden behind a generic transport error.
+                body = {"error": delivery.get(
+                    "error", f"peer refused the push: HTTP {status}")}
+                for key in ("claimed", "certified", "detail"):
+                    if key in delivery:
+                        body[key] = delivery[key]
+                self._send_json(502, self._record_push(body))
+                return
+            # The peer's delivery report IS the push's result,
+            # refusals included: the peer judged, and its
+            # verdict is reported, not re-derived here.
+            self._send_json(200, self._record_push({
+                "node_id": node.node_id,
+                "peer": peer,
+                "status": delivery.get("status"),
+                "delivery": delivery,
+            }))
 
         def _sync_with_peer(self, peer: str) -> None:
             # Initiating-side identity check (experiment 017): with
