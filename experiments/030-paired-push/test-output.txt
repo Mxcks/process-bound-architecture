@@ -1,0 +1,220 @@
+Experiment 030 - paired server-to-server push - test output
+============================================================
+
+All runs executed in this session against the local repo at
+~/workspace/process-bound-architecture-monorepo-that-holds-
+every-layer/repo. Counts below are the runs' own words.
+
+PRE-BUILD BASELINE (before any experiment 030 code existed)
+------------------------------------------------------------
+Per-package unittest discovery plus the EAI handoff check,
+run before the build:
+
+    registration      Ran 25 tests   OK
+    policy-library    Ran 42 tests   OK
+    synchronization   Ran 91 tests   OK
+    validation        Ran 22 tests   OK
+    verify-handoffs   PASS: 3 EAI vectors recompute exactly.
+
+Baseline total: 180/180 plus EAI PASS 3/3.
+
+A note on captures: the original capture files for the
+baseline and the first tests-first run were held in /tmp
+and were lost when the machine's /tmp was cleared
+mid-session. The numbers above are from the session record.
+The tests-first evidence was therefore REPRODUCED after the
+build against the exact pre-build code, as the next section
+records; the reproduction is the verbatim evidence on file.
+
+TESTS FIRST (case 19's suite against the unbuilt surface)
+------------------------------------------------------------
+Original run, before the build (session record): Ran 9
+tests, FAILED (failures=1, errors=8). The 8 errors were the
+named absence: AttributeError: module 'node_server' has no
+attribute 'push_anchor'. The 1 failure was a TEST-side
+defect, found and fixed before any implementation: the
+anchor-regression setup wrote the refreshed anchor directly
+into the peer's anchor file, so delivering it correctly
+reported no_change instead of the expected refusal. The fix
+writes the refresh to a staging copy outside the peer and
+lets it reach the peer by delivery alone. No implementation
+code existed when that defect was found.
+
+Reproduction, after the build, for the verbatim record: the
+suite was run against the pre-experiment-030 node_server.py
+exactly as pushed for experiment 029 (GitHub blob
+0cd09598c75df501e78ad23efb7f8913d2530c40, 117994 bytes, no
+push_anchor anywhere in it), in a scratch copy of the three
+packages with every other file current:
+
+EEEEEEEEE
+======================================================================
+ERROR: test_paired_push_anchor_regression_refused (test_paired_push.PlaintextPairPushTests.test_paired_push_anchor_regression_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 599, in test_paired_push_anchor_regression_refused
+    status, push = node_server.push_anchor(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_paired_push_brings_peer_fully_current (test_paired_push.PlaintextPairPushTests.test_paired_push_brings_peer_fully_current)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 395, in test_paired_push_brings_peer_fully_current
+    self.assertIsNone(health["last_anchor_push"])
+                      ~~~~~~^^^^^^^^^^^^^^^^^^^^
+KeyError: 'last_anchor_push'
+
+======================================================================
+ERROR: test_paired_push_different_signer_refused (test_paired_push.PlaintextPairPushTests.test_paired_push_different_signer_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 524, in test_paired_push_different_signer_refused
+    status, push = node_server.push_anchor(s.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_paired_push_witness_refused_then_delivered (test_paired_push.PlaintextPairPushTests.test_paired_push_witness_refused_then_delivered)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 654, in test_paired_push_witness_refused_then_delivered
+    status, push = node_server.push_anchor(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_push_anchor_mesh_only_sender_no_snapshot (test_paired_push.PlaintextPairPushTests.test_push_anchor_mesh_only_sender_no_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 755, in test_push_anchor_mesh_only_sender_no_snapshot
+    status, push = node_server.push_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_push_anchor_own_anchor_unreadable (test_paired_push.PlaintextPairPushTests.test_push_anchor_own_anchor_unreadable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 775, in test_push_anchor_own_anchor_unreadable
+    status, push = node_server.push_anchor(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_push_anchor_without_anchor_pushes_record_only (test_paired_push.PlaintextPairPushTests.test_push_anchor_without_anchor_pushes_record_only)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 720, in test_push_anchor_without_anchor_pushes_record_only
+    status, push = node_server.push_anchor(s.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_false_claiming_paired_pusher_refused (test_paired_push.SignedTlsPairPushTests.test_false_claiming_paired_pusher_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 901, in test_false_claiming_paired_pusher_refused
+    status, push = node_server.push_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+======================================================================
+ERROR: test_signed_tls_paired_push_full_flow (test_paired_push.SignedTlsPairPushTests.test_signed_tls_paired_push_full_flow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/pba030/before/packages/synchronization/test_paired_push.py", line 846, in test_signed_tls_paired_push_full_flow
+    status, push = node_server.push_anchor(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_anchor'
+
+----------------------------------------------------------------------
+Ran 9 tests in 8.482s
+
+FAILED (errors=9)
+
+All 9 errors are the missing surface: 8 x AttributeError:
+module 'node_server' has no attribute 'push_anchor', and
+1 x KeyError: 'last_anchor_push' (the health field the case
+requires). No other failure mode appeared.
+
+NEW SUITE AFTER THE BUILD (direct file run, verbose)
+------------------------------------------------------------
+test_paired_push_anchor_regression_refused (test_paired_push.PlaintextPairPushTests.test_paired_push_anchor_regression_refused) ... ok
+test_paired_push_brings_peer_fully_current (test_paired_push.PlaintextPairPushTests.test_paired_push_brings_peer_fully_current) ... ok
+test_paired_push_different_signer_refused (test_paired_push.PlaintextPairPushTests.test_paired_push_different_signer_refused) ... ok
+test_paired_push_witness_refused_then_delivered (test_paired_push.PlaintextPairPushTests.test_paired_push_witness_refused_then_delivered) ... ok
+test_push_anchor_mesh_only_sender_no_snapshot (test_paired_push.PlaintextPairPushTests.test_push_anchor_mesh_only_sender_no_snapshot) ... ok
+test_push_anchor_own_anchor_unreadable (test_paired_push.PlaintextPairPushTests.test_push_anchor_own_anchor_unreadable) ... ok
+test_push_anchor_without_anchor_pushes_record_only (test_paired_push.PlaintextPairPushTests.test_push_anchor_without_anchor_pushes_record_only) ... ok
+test_false_claiming_paired_pusher_refused (test_paired_push.SignedTlsPairPushTests.test_false_claiming_paired_pusher_refused) ... ok
+test_signed_tls_paired_push_full_flow (test_paired_push.SignedTlsPairPushTests.test_signed_tls_paired_push_full_flow) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 12.183s
+
+OK
+PAIRED PUSH anchor_regression: an earlier version of the peer's own anchor lineage refused under the backward name, in the push result
+PAIRED PUSH control: the record-only push still refuses anchor_stale at B - the record alone cannot advance the peer's anchor
+PAIRED PUSH (plaintext, signed anchors): A pushed its record AND its anchor to B; B judged the pair together and applied both - delivered, no restart, no hand at B
+PAIRED PUSH no_change: a paired push to a peer already current under the identical anchor rewrites neither of its files
+PAIRED PUSH different_signer: a pair whose anchor names another signer refused at succession, reported in the push result
+PAIRED PUSH anchor_witness_invalid: the sender's signer-alone anchor refused at the witness-configured peer, in the push result
+PAIRED PUSH witnessed: once the sender's anchor is countersigned by the configured witness, the same paired push delivers
+PAIRED PUSH own anchor unreadable: the sender's anchor file is gone at push time; the push refuses on 502 and the peer is never contacted
+PAIRED PUSH without an anchor: the record travels alone, through case 14's surface, exactly as case 16's push carries it
+PAIRED PUSH identity_mismatch: a pusher claiming an id its certificate was not issued for refused at the binding peer's transport before the paired endpoint runs; the refusal names claimed and certified ids
+PAIRED PUSH (mutual TLS, identity binding, signed anchor): A's pair delivered to B over HTTPS; both files moved; 410 over the protected link
+
+DEMO (packages/synchronization/demo_paired_push.py, exit 0)
+------------------------------------------------------------
+Setup. Two servers running on the same 2-entry record, each under its own alice-signed anchor: A pid 4375, B pid 4408
+1. Revocation delivered to A as a pair (case 17): delivered - B still serves alice's policy (the stale window): True
+2. Control - the record-only push (case 16): delivery_refused / anchor_stale - B's files unchanged: True
+3. ONE driven paired push, A -> B: delivered - snapshot half: delivered (entries 2 -> 3, loaded 3), anchor sequence 0 -> 1
+   B's snapshot IS the delivered record: True; B's anchor IS the anchor A sent: True
+   alice over B's wire now: 410 - error: policy_revoked
+   bob still serves from B: 200 - True
+   B health: snapshot_entries=3 - last anchor delivery: delivered; A health: last anchor push: delivered
+4. The same paired push again: no_change - B's snapshot rewritten: False; B's anchor rewritten: False
+   neither process was restarted: A pid 4375, B pid 4408 throughout, and no hand touched B's files
+Demo state left in: /tmp/pba-paired-push-demo-4_g31jj5
+
+FULL REGRESSION AFTER THE BUILD
+------------------------------------------------------------
+Per-package unittest discovery (each package's full output
+captured to its own file; the Ran/OK lines are quoted from
+those captures), plus the EAI handoff check:
+
+=== registration ===
+Ran 25 tests in 0.416s
+OK
+=== policy-library ===
+Ran 42 tests in 4.483s
+OK
+=== synchronization ===
+Ran 100 tests in 194.885s
+OK
+=== validation ===
+Ran 22 tests in 1.148s
+OK
+=== verify-handoffs ===
+PASS: 3 EAI vectors recompute exactly.
+
+Total: 189/189 (180 baseline plus the 9 new), EAI PASS 3/3.
+Synchronization discovery is 100 = 91 baseline + 9 new, so
+the new suite passes inside discovery as well as by direct
+file run. No earlier suite was modified.
+
+An earlier full pass in this session, captured through a
+tail filter, also completed every package (its trailing
+verdict lines and the same EAI PASS are in the session
+record); the filtered capture did not retain the Ran lines,
+which is why the pass above was run with full per-package
+captures. The known wait_ready port-file race did not occur
+in the final pass. After all runs, a direct process check
+shows no node_server process left running (count 0); a
+count of 1 reported inside one capture script was that
+script's own shell matching its echo text, confirmed by the
+direct check.
