@@ -252,6 +252,24 @@ exists, the custody of the signer's secret IS the fence,
 over the wire exactly as on disk - and case 17's third leg
 is the standing proof of that sentence.
 
+(Superseded in part by experiment 029, which built the
+witnessed half of that closure: anchor writing gains an
+optional countersignature by a second enrolled identity,
+and consultation points configured with a witness - the
+wire delivery judgement above included - REQUIRE it. Case
+17's third leg was re-run at a witness-configured server
+as sync-mesh case 18's central test: the pair this finding
+accepts is REFUSED as anchor_witness_invalid with no
+countersignature and again countersigned by a non-witness
+identity, and ACCEPTED countersigned by the configured
+witness. The fence is now two secrets' custody at such a
+point, stated as plainly as the original: a party holding
+both secrets blesses a rewrite exactly as before, and the
+model is unchanged - what stands of this finding is
+everything about a point with NO witness configured,
+including this experiment's own suite, which passes
+unmodified in the same run.)
+
 ## What failed
 
 The tests-first run failed as designed: before the
