@@ -1,0 +1,192 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_server_to_server_delivery.py
+test_mesh_only_sender_reports_no_snapshot (__main__.PlaintextServerPushTests.test_mesh_only_sender_reports_no_snapshot) ... ERROR
+test_push_backward_to_ahead_peer_refused_snapshot_regression (__main__.PlaintextServerPushTests.test_push_backward_to_ahead_peer_refused_snapshot_regression) ... ERROR
+test_push_with_peer_anchor_behind_refused_anchor_stale (__main__.PlaintextServerPushTests.test_push_with_peer_anchor_behind_refused_anchor_stale) ... ERROR
+test_server_push_delivers_revocation_end_to_end (__main__.PlaintextServerPushTests.test_server_push_delivers_revocation_end_to_end) ... ERROR
+test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer (__main__.PlaintextServerPushTests.test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer) ... ERROR
+test_false_claiming_pusher_refused_identity_mismatch (__main__.SignedTlsServerPushTests.test_false_claiming_pusher_refused_identity_mismatch) ... ERROR
+test_signed_tls_server_push_full_flow (__main__.SignedTlsServerPushTests.test_signed_tls_server_push_full_flow) ... ERROR
+
+======================================================================
+ERROR: test_mesh_only_sender_reports_no_snapshot (__main__.PlaintextServerPushTests.test_mesh_only_sender_reports_no_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 595, in test_mesh_only_sender_reports_no_snapshot
+    status, push = node_server.push_snapshot(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+======================================================================
+ERROR: test_push_backward_to_ahead_peer_refused_snapshot_regression (__main__.PlaintextServerPushTests.test_push_backward_to_ahead_peer_refused_snapshot_regression)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 435, in test_push_backward_to_ahead_peer_refused_snapshot_regression
+    status, push = node_server.push_snapshot(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+======================================================================
+ERROR: test_push_with_peer_anchor_behind_refused_anchor_stale (__main__.PlaintextServerPushTests.test_push_with_peer_anchor_behind_refused_anchor_stale)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 496, in test_push_with_peer_anchor_behind_refused_anchor_stale
+    status, push = node_server.push_snapshot(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+======================================================================
+ERROR: test_server_push_delivers_revocation_end_to_end (__main__.PlaintextServerPushTests.test_server_push_delivers_revocation_end_to_end)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 360, in test_server_push_delivers_revocation_end_to_end
+    self.assertIsNone(health["last_snapshot_push"])
+                      ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'last_snapshot_push'
+
+======================================================================
+ERROR: test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer (__main__.PlaintextServerPushTests.test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 563, in test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer
+    status, push = node_server.push_snapshot(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+======================================================================
+ERROR: test_false_claiming_pusher_refused_identity_mismatch (__main__.SignedTlsServerPushTests.test_false_claiming_pusher_refused_identity_mismatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 728, in test_false_claiming_pusher_refused_identity_mismatch
+    status, push = node_server.push_snapshot(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+======================================================================
+ERROR: test_signed_tls_server_push_full_flow (__main__.SignedTlsServerPushTests.test_signed_tls_server_push_full_flow)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_server_to_server_delivery.py", line 680, in test_signed_tls_server_push_full_flow
+    status, push = node_server.push_snapshot(a.base_url, b.base_url)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_snapshot'. Did you mean: 'check_snapshot'?
+
+----------------------------------------------------------------------
+Ran 7 tests in 12.446s
+
+FAILED (errors=7)
+
+(All seven tests error on the absences case 16 names - the
+push_snapshot client helper, and through it the endpoint and
+the last_snapshot_push health field. One earlier tests-first
+draft of this suite also failed one assertion in the
+rewrite-spread test - it asserted the anchorless sender serves
+mallory's policy while its payloads file held no mallory
+payload, and a Gate 2 node serves only payloads it holds
+(PolicyNotFound). The fixture was fixed - the sender's
+payloads file now holds mallory's code - and the run above is
+the suite as built against: every failure lands on the push
+surface's absence alone.)
+
+=== PRE-BUILD BASELINE: the full suite before this experiment's code ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.198s
+OK
+
+--- python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.819s
+OK
+
+--- python3 -m unittest discover -s packages/synchronization
+Ran 64 tests in 75.878s
+OK
+
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.657s
+OK
+
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly
+
+(Baseline totals: registration 20, policy-library 39,
+synchronization 64, validation 18 = 141 tests, all OK, plus
+EAI PASS 3/3. The first combined baseline run's final
+leftover-process check printed 1; an immediate re-check
+showed 0, as did every later check in this experiment -
+the same transient experiment 026 recorded on this shared
+machine; no suite in the baseline leaked a process that
+survived its run.)
+
+=== FULL REGRESSION after the build (first, loaded run) ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.090s
+OK
+--- python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.471s
+OK
+--- python3 -m unittest discover -s packages/synchronization
+Ran 71 tests in 84.965s
+FAILED (errors=1)
+
+(The one error, recorded verbatim. It is in experiment 026's
+UNMODIFIED suite, in that suite's own wait_ready helper: the
+port file read as empty mid-write - the port-file race
+experiment 026 recorded in its own first loaded discovery.
+No assertion failed anywhere in the run. The clean re-run
+below supersedes this synchronization result.)
+
+======================================================================
+ERROR: test_honest_growth_anchor_stale_until_reanchored (test_mesh_anchor_wire.PlaintextMeshAnchorWireTests.test_honest_growth_anchor_stale_until_reanchored)
+----------------------------------------------------------------------
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.504s
+OK
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+=== CLEAN RE-RUN: synchronization discovery, superseding the loaded run above ===
+--- python3 -m unittest discover -s packages/synchronization
+Ran 71 tests in 190.767s
+OK
+
+(Full regression on the clean re-run: registration 20,
+policy-library 39, synchronization 71, validation 18 = 148
+tests, all OK, plus EAI PASS 3/3.)
+
+=== NEW SUITE, direct file run ===
+--- python3 packages/synchronization/test_server_to_server_delivery.py
+test_mesh_only_sender_reports_no_snapshot (__main__.PlaintextServerPushTests.test_mesh_only_sender_reports_no_snapshot) ... ok
+test_push_backward_to_ahead_peer_refused_snapshot_regression (__main__.PlaintextServerPushTests.test_push_backward_to_ahead_peer_refused_snapshot_regression) ... ok
+test_push_with_peer_anchor_behind_refused_anchor_stale (__main__.PlaintextServerPushTests.test_push_with_peer_anchor_behind_refused_anchor_stale) ... ok
+test_server_push_delivers_revocation_end_to_end (__main__.PlaintextServerPushTests.test_server_push_delivers_revocation_end_to_end) ... ok
+test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer (__main__.PlaintextServerPushTests.test_unanchored_sender_cannot_spread_rewrite_to_anchored_peer) ... ok
+test_false_claiming_pusher_refused_identity_mismatch (__main__.SignedTlsServerPushTests.test_false_claiming_pusher_refused_identity_mismatch) ... ok
+test_signed_tls_server_push_full_flow (__main__.SignedTlsServerPushTests.test_signed_tls_server_push_full_flow) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 12.610s
+
+OK
+SERVER PUSH snapshot_regression: A's older record refused by the ahead peer under the backward name, reported in the push result
+SERVER PUSH anchor_stale: the peer's anchor still stands over the old head; the push is refused under the lifecycle's own name
+SERVER PUSH (plaintext): A pushed its standing record to B; B applied it under case 14's rules - delivered 2 -> 3, no restart, no file copy
+SERVER PUSH no_change: a push to a peer already standing on the identical record rewrites nothing
+SERVER PUSH anchor_mismatch: a rewrite accepted by an anchorless server does not spread to an anchored peer
+SERVER PUSH identity_mismatch: a pusher claiming an id its certificate was not issued for refused at the binding peer's transport; the refusal names claimed and certified ids
+SERVER PUSH (mutual TLS, identity binding, signed anchor): A's push delivered to B over HTTPS; 410 over the protected link
+
+=== NEW DEMO ===
+--- python3 packages/synchronization/demo_server_to_server_delivery.py
+Setup. Two anchored servers running on the same 2-entry record: A pid 21587, B pid 21589
+1. Revocation delivered to A (case 14): delivered - B still serves alice's policy (the stale window): True
+2. One driven push, A -> B: delivered - entries 2 -> 3 - loaded: 3
+   B's file IS the delivered record now: True (and it changed: True)
+   alice over B's wire now: 410 - error: policy_revoked
+   bob still serves from B: 200 - True
+   B health: snapshot_entries=3 - last delivery: delivered; A health: last push: delivered
+3. The same push again: no_change - B's file rewritten: False
+   neither process was restarted: A pid 21587, B pid 21589 throughout, and B's snapshot file was never copied by hand
+Demo state left in: /tmp/pba-server-push-demo-ueuooxi6
+
+--- leftover node_server processes (checked after every run above, and again at record time):
+0
