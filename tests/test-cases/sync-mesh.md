@@ -775,3 +775,329 @@
    false-claiming pusher refused at the binding peer's
    transport as `identity_mismatch`, 502 naming claimed and
    certified, the peer recording no delivery).
+17. A running server receives its registry anchor over the
+   wire, judged before acceptance and judged together with
+   the record it blesses (added 2026-11-06, experiment 028):
+   cases 13/14/16 move the registry RECORD to a running
+   server (a file copy reconciled by a driven check, a
+   client push, a server push), and every one of them states
+   the same remaining limit: the anchor the delivery is
+   consulted against arrives OUT OF BAND - the anchor file
+   is the local stand-in of experiments 012-019, placed by
+   hand, and completing the anchor lifecycle (the
+   same-signer re-anchor of registration case 10) at a
+   server is a manual act no wire performs. A record
+   delivery whose lifecycle was not performed by hand at
+   that server is refused `anchor_stale` (case 14), and
+   case 16's peer whose anchor was not advanced refuses a
+   push the same way. This case closes the transport half
+   of the anchor lifecycle: the anchor itself can now be
+   delivered over the wire to a running server, judged
+   exactly as strictly as the record, and - when it arrives
+   together with the record it blesses - judged together
+   with it, so neither half of the lifecycle is applied
+   unless both stand. The receiving surface is one new
+   driven endpoint on the server, in case 14's style:
+   `POST /deliver-anchor`, driven by a new client helper
+   (`deliver_anchor`, in the style of `deliver_snapshot`,
+   taking the anchor as a parsed anchor object and,
+   optionally, the snapshot entries it blesses). The
+   payload is `{"anchor": {...}}` for an anchor alone, or
+   `{"anchor": {...}, "entries": [...]}` for the paired
+   delivery: the anchor object's own JSON - the content of
+   an experiment 012/019 anchor file, as data, never a file
+   path, for case 14's stated reason (a receiver handed a
+   path has been handed nothing it can verify). The
+   response is the delivery's report, refusals included, on
+   HTTP 200 exactly as case 14's report is a delivery
+   outcome rather than a transport error; a body whose
+   anchor is not an object, or whose entries are present
+   but not a list of entry objects, is a 400 in the
+   /deliver-snapshot handler's shape. The report carries
+   the server's node id, the delivery's status, the
+   refusal's own name as `reason` where refused, whether
+   the delivery was paired, the anchor's before/after heads,
+   entry counts, and history sequences, the delivered
+   anchor's signer, the loaded entry count when a paired
+   record was applied, and the server's anchor status after
+   the delivery. `/health` gains `last_anchor_delivery`
+   (the last anchor delivery's report, or null before the
+   first), beside `last_snapshot_delivery` - this case is
+   about the REGISTRY anchor only; the mesh anchor of case
+   15 still arrives out of band. The delivery judges the
+   anchor BEFORE anything changes, in this order, each
+   judgement named:
+   - Configuration first: a process started without
+     `--anchor` consults no registry anchor, and an anchor
+     delivery to it reports `no_anchor` - configuration is
+     a startup choice, and a delivery never turns
+     consultation on. A process with an anchor configured
+     but no PolicyNode (no snapshot) reports `no_snapshot`:
+     there is no record to pair an anchor against.
+   - The delivered anchor must read as an anchor: it is
+     serialized to a candidate file beside the server's
+     anchor, in the anchor file's own format, and read with
+     experiment 012's reader; a body that is not a registry
+     anchor is refused as `delivery_refused` under the
+     anchor module's own error name, as experiment 022's
+     naming reports any refusal that carries no status of
+     its own.
+   - An anchor delivery byte-for-byte identical to the
+     anchor file the server already holds is `no_change`:
+     nothing is written and nothing is re-judged, in case
+     14's no-change discipline.
+   - Succession, judged anchor to anchor (registration case
+     10's same-identity rule, over the wire): if the
+     server's current anchor is SIGNED, a delivered anchor
+     must be signed by the SAME identity; a delivered
+     anchor signed by a different identity - or not signed
+     at all - is refused as `different_signer`, the refusal
+     is appended to the anchor audit log beside the server's
+     anchor file in case 10's event shape
+     (`reanchor_rejected` / `different_signer`, naming the
+     attempted and current signers and the attempted head
+     and count), and the current anchor file is
+     byte-for-byte unchanged. A delivered signed anchor over
+     an UNSIGNED current anchor establishes the signer,
+     case 10's stated exception.
+   - The backward fence, fenced as case 14 fences
+     `snapshot_regression`: a delivered anchor that is an
+     earlier state is refused as `anchor_regression`, and
+     the refusal is audit-logged in the same shape -
+     earlier state meaning exactly one of: the delivered
+     anchor's kept history is a proper prefix of the
+     current anchor's kept history (an earlier version of
+     this very anchor file - the rollback experiment 019
+     names), or the delivered anchor pins an earlier prefix
+     of the chain the server stands on (its entry count is
+     smaller than the standing record's, and its head is
+     that chain's entry hash at that count - the genesis
+     head for count 0). A head that is an earlier state of
+     NEITHER the server's anchor nor its chain never reaches
+     this name: a foreign chain's anchor falls through to
+     the pairing judgement, so the backward name cannot
+     launder a rewrite into a lesser finding.
+   - Signature and history, under the server's configured
+     identity where one is configured (case 10): with
+     `--anchor-signer` set, the delivered anchor's
+     signature and kept history must verify for that
+     identity (experiment 019's verification, reused) - a
+     wrong signer succession did not already catch, a
+     tampered signature, or a kept history that does not
+     verify is refused as `anchor_signature_invalid`,
+     before any head judgement, as in every consultation
+     since experiment 019. With no identity configured, a
+     signed delivered anchor's kept history must still
+     verify as a chain (sequences, linkage, entry hashes,
+     and signer consistency - the part of experiment 019's
+     history verification that needs no secret); an unsigned
+     delivered anchor is judged by its head alone, as in
+     experiments 012-018.
+   - Pairing - the rule that a delivered anchor is accepted
+     only for a chain the server can check it against:
+     * Anchor alone: the delivered anchor's head and count
+       must be exactly the head and count of the record the
+       server stands on, judged against the server's
+       snapshot file (the presentation every consultation
+       since experiment 015 has judged; cases 13/14 keep
+       the file and the view in step). This is the catch-up
+       pairing: the anchor arrives for a record already
+       held - a re-anchoring of the standing head, or a
+       replacement for an anchor file rolled back by hand.
+       An anchor whose head matches no chain the server
+       holds is refused as `anchor_unpaired`, the name this
+       case sets: it pairs with nothing here, and nothing
+       changes.
+     * Anchor and record together: the pair is judged
+       together, through case 14's discipline with the
+       delivered anchor standing in for the server's own.
+       Case 14's hash-only pre-judgements run on the
+       delivered entries first: identical to the standing
+       chain, the pair reduces to the anchor-alone judgement
+       above; exactly an earlier prefix of it, the delivery
+       is refused as `snapshot_regression` and NEITHER half
+       is applied. Anything else is judged by a full
+       PolicyNode construction over a candidate record file
+       with the candidate anchor file as its anchor and
+       this process's signing configuration - experiment
+       015/019's consultation - which refuses a record that
+       outruns its delivered anchor as `anchor_stale`, a
+       record of another chain as `anchor_mismatch`, and a
+       tampered record as `tampered_record`, each before
+       anything changes. Only a pair that stands TOGETHER
+       is applied: the server's snapshot file is replaced
+       from the verified delivered record (case 14's
+       application), the server's anchor file is replaced
+       from the verified delivered anchor, and the running
+       PolicyNode reloads once from the replaced pair, so
+       the server ends serving the delivered record under
+       the delivered anchor - a revocation the record
+       carries takes effect over the wire with no restart
+       and no manual lifecycle step at this server. A
+       refused pair applies NEITHER half: both files
+       byte-for-byte unchanged, the previous view serving,
+       the refusal carried in the report and in `/health`'s
+       `last_anchor_delivery`.
+   - An accepted anchor-alone delivery is applied in
+     miniature the same way: the anchor file is replaced
+     from the verified delivered anchor, and the running
+     PolicyNode reloads its standing record against it
+     (experiment 015/021's reload, re-consulting the anchor
+     the node now holds), so the `anchor_status` `/health`
+     reports after the delivery is the new anchor's verdict
+     on the standing record, not a cached one.
+   Expected:
+   - The anchor-alone pairings over plaintext, with a signed
+     anchor and its signing identity configured (case 10's
+     protected configuration): a byte-identical anchor
+     delivery reports `no_change` and writes nothing; the
+     deliverer then re-anchors the standing head at the
+     source - the kept history grows by one entry over the
+     SAME head - and that anchor, delivered alone, reports
+     `delivered`: the server's anchor file is byte-for-byte
+     the delivered anchor, `/health` reports `anchored`
+     under it and carries the delivery as its last one, and
+     the standing record serves exactly as before.
+   - An anchor alone over a head the server does not hold
+     - the SAME identity's genuine signed anchor over
+     experiment 012's rewritten chain - is refused as
+     `anchor_unpaired`: identity and signature both pass,
+     the head pairs with nothing here, the server's anchor
+     file is byte-for-byte unchanged, and serving is
+     undisturbed.
+   - The pair judged together: the author revokes
+     (registration case 6) and the record grows; the pair of
+     the grown record with the server's OLD anchor is
+     refused as `anchor_stale` and NEITHER file changes -
+     the lifecycle half cannot be skipped by pairing; the
+     NEW anchor (the same signer, over the grown head)
+     delivered alone next is refused as `anchor_unpaired` -
+     it pairs with the record the server does not hold yet,
+     not the one it stands on; the pair of the grown record
+     with the new anchor then reports `delivered`, both of
+     the server's files are byte-for-byte the delivered
+     pair, the revoked policy returns case 12's clean
+     refusal (410, `policy_revoked`), the non-revoked policy
+     keeps serving with its exact bytes, `/health` reports
+     the new standing under the delivered anchor, and a
+     case 13 check right after reports `no_change`.
+   - Succession over the wire, on a server whose anchor
+     consultation is head-only (no signing identity
+     configured; the anchor it holds is signed by alice, as
+     experiments 012-018's head-only consultation accepts):
+     an anchor signed by a DIFFERENT enrolled identity -
+     bob's genuine signed anchor over the very same chain -
+     delivered alone is refused as `different_signer`; the
+     anchor file is byte-for-byte unchanged; the audit log
+     beside it gains the `reanchor_rejected` /
+     `different_signer` event naming bob as attempted and
+     alice as current; serving is undisturbed.
+   - A tampered kept history, on a signer-configured
+     server: the genuine next anchor with one history
+     entry's recorded head edited in the delivered object
+     (the entry hashes left standing, experiment 021's
+     tamper shape) is refused as
+     `anchor_signature_invalid`, before any head judgement;
+     neither of the server's files changes and serving is
+     undisturbed.
+   - The backward fence, both of its shapes: (i) an earlier
+     version of the server's own anchor file - the same
+     signed anchor one re-anchoring earlier, its kept
+     history a proper prefix of the current one's -
+     delivered alone is refused as `anchor_regression`,
+     audit-logged in case 10's shape, the current anchor
+     byte-for-byte unchanged; (ii) an anchor pinning an
+     earlier prefix of the standing chain - the same
+     identity's genuine signed anchor over the truncated
+     record - is refused as `anchor_regression` the same
+     way, although its signature and kept history verify:
+     it is refused for where it points, not for how it is
+     signed.
+   - THE REWRITE FINDING, stated as the evidence shows it -
+     this case does not pretend a refusal the code does not
+     produce. The deliverer builds experiment 012's
+     rewritten registry (mallory's chain, the same length
+     as the genuine one, internally consistent - it passes
+     every chain verification of its own) and anchors over
+     that rewrite. (i) The pair of the rewritten record
+     with the server's GENUINE anchor is refused as
+     `anchor_mismatch`: experiment 012's original
+     protection, intact - a rewrite cannot pass under an
+     anchor that was not re-signed over it. (ii) The pair
+     with an anchor over the rewrite signed by a DIFFERENT
+     identity (bob) is refused as `different_signer` at the
+     succession judgement, audit-logged: identity custody
+     is a fence. (iii) The pair with an anchor over the
+     rewrite signed by the CURRENT signer's identity
+     (alice) - its kept history honestly extended from the
+     server's current anchor by case 10's own write path,
+     by a deliverer who legitimately holds alice's
+     enrollment secret in this prototype's symmetric model,
+     as every verifier of a signed anchor does - is
+     ACCEPTED and reported `delivered`: succession passes
+     (same identity), the backward fence does not fire (the
+     rewrite's head is an earlier state of neither the
+     genuine chain nor the anchor, and the delivered
+     history extends the current one rather than prefixing
+     it), the signature verifies, and the pair stands
+     together under experiment 015/019's own consultation -
+     the server ends serving the rewritten record under the
+     delivered anchor (mallory's policy serves with its
+     exact bytes from a server that holds its payload; the
+     genuine policies are no longer in its view). What
+     stops a rewrite from being blessed is therefore
+     exactly the custody of the signer's secret, and
+     nothing else: the wire adds no weakness - an anchor
+     placed by hand is accepted by the same consultation,
+     as experiments 018/019 already showed at startup - and
+     the weakness the acceptance exposes is experiment
+     019's recorded symmetric-model limit (verification
+     requires the secret, so a verifier can forge), now
+     reachable through one more arrival path. Production's
+     answer is unchanged and unbuilt: asymmetric signing,
+     and an anchor held where the record's writer cannot
+     reach it.
+   - Configuration edges: a server started without
+     `--anchor` reports an anchor delivery as `no_anchor`
+     and is otherwise undisturbed; a node constructed with
+     an anchor path but no snapshot reports `no_snapshot`.
+   - The full flow over experiment 014's protected transport
+     with experiment 017's identity binding and a signed
+     anchor (as in case 14's protected leg): the paired
+     delivery - grown record plus its same-signer anchor -
+     over HTTPS reports `delivered`, the revoked policy
+     refuses 410 over the protected link, the non-revoked
+     policy serves, and `/health` reports the new standing;
+     an anchor-alone delivery of the anchor the server then
+     holds reports `no_change` over the same link.
+   - Servers on which the new surface is never driven behave
+     exactly as today: the startup gate, cases 13/14/16's
+     surfaces, and the mesh surface are untouched, proven by
+     the unmodified earlier suites in the same run.
+   Status: implemented at prototype scale in experiment
+   028 (`experiments/028-anchor-wire-delivery/`); the case
+   was written before the build. Tests:
+   `packages/synchronization/test_anchor_wire_delivery.py`
+   (the anchor-alone pairings over plaintext with a signed
+   anchor and its identity configured - identical
+   `no_change`, the refreshed anchor over the standing head
+   delivered; a genuine signed anchor over a foreign chain
+   refused as `anchor_unpaired`; the pair judged together -
+   grown record + old anchor `anchor_stale` with neither
+   half applied, the new anchor alone `anchor_unpaired`,
+   the pair `delivered` with both files byte-for-byte the
+   delivered pair, 410 over the wire, a case 13 check
+   `no_change` after; succession on a head-only server -
+   bob's anchor over the same chain refused as
+   `different_signer` and audit-logged in case 10's shape;
+   a tampered kept history refused as
+   `anchor_signature_invalid`; the backward fence in both
+   shapes refused as `anchor_regression`, the
+   earlier-version leg audit-logged; the rewrite finding in
+   its three legs - genuine anchor `anchor_mismatch`, a
+   different identity's `different_signer`, the current
+   signer's honestly extended anchor over the rewrite
+   ACCEPTED and served; the configuration edges `no_anchor`
+   and `no_snapshot`; the paired flow over mutual TLS with
+   identity binding and a signed anchor, and the
+   anchor-alone `no_change` over the same link).
