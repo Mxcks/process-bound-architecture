@@ -2627,3 +2627,226 @@
    names, the skipped self entry, and the no-list edge,
    over running server processes). Tests:
    `packages/synchronization/test_peer_list_sync_all.py`.
+25. Unattended operation: a server runs its own maintenance
+   cycle on an interval (added 2026-11-06, experiment 037):
+   every surface built through case 24 is caller-driven -
+   the snapshot check of case 13, the pushes of cases
+   16/19/21, and the peer-list sweep of case 24 all happen
+   only when a driver calls. A deployment therefore stays
+   converged only while something outside it keeps driving
+   it. This case gives a server an automatic cycle of its
+   own: started with an interval, the process runs its
+   maintenance cycle on that schedule with no driver calls
+   after start, reusing the driven surfaces' own internal
+   functions so there is exactly one implementation of
+   each stage. It is NOT a scheduler framework, a cron
+   system, or discovery, and claims none.
+   - The option: one more startup flag beside the existing
+     families, `--auto-cycle-interval <seconds>` - a
+     floating-point interval in seconds. Off by default:
+     without the flag the process runs no cycle, no thread
+     is started, and every behavior is exactly experiments
+     007-036's. A sane minimum is stated and enforced:
+     an interval below 0.2 seconds refuses the start
+     nonzero naming `auto_cycle_interval_invalid`, before
+     anything is served, in the refused-start family of
+     `peers_unreadable` and `crl_unreadable` - a process
+     never runs believing it cycles on a schedule it does
+     not hold, and a busy-loop schedule is refused at the
+     door instead of discovered under load. The interval
+     is operator-chosen and startup-read only: changing
+     it is a restart act, no surface delivers one.
+   - The cycle and its order: each cycle runs four stages
+     in one stated order, carried on every cycle report
+     as `order`: `snapshot_check`, `liveness`,
+     `registry_push`, `sync_all`. The first two stages
+     preserve experiment 023's coordinator order exactly -
+     delivery before liveness - for 023's stated reason:
+     the snapshot check is this process's delivery stage
+     (case 13's reload path, `NetworkNode.check_snapshot`,
+     the identical function `POST /check-snapshot` calls),
+     and what later stages spread must be the record that
+     check just settled, never the record a pending
+     delivery was about to replace. The stages are:
+     (1) `snapshot_check`: the node's own check_snapshot,
+     unmodified - no_change, reloaded, reload_refused
+     under the refusal's own name, or no_snapshot on a
+     mesh-only process.
+     (2) `liveness`: a peer-liveness observation over the
+     configured peer list, in experiment 016's vocabulary
+     and under its threshold: each configured peer is
+     probed once per cycle through the existing health
+     surface (`fetch_health`); a peer that answers is
+     `alive` with 0 missed cycles; a peer that does not
+     answer increments its consecutive missed-cycle count
+     and is `silent_short` at 1 or 2 missed cycles and
+     `lost` at 3 or more (`LOST_AFTER_MISSED_BEATS = 3`,
+     experiment 016's constant, reused). The stage
+     reports every peer's classification and missed
+     count, and `healing` is null at the server surface,
+     stated plainly: a server process holds no placed
+     policy and no holder floor, so there is nothing for
+     a heal to recruit - the 016/023 trigger's server
+     analogue is that a lost peer is NAMED in the cycle
+     report and on /health, and the later stages still
+     attempt that peer in the same cycle (its sync round
+     reports its own outcome), never that a replacement
+     is recruited. With no peer list configured the
+     stage reports `no_peers` and an empty peer list.
+     (3) `registry_push`: for each configured peer, in
+     list order, this process pushes its standing record
+     and anchor through the identical paired-push round
+     `POST /push-anchor` performs (case 19, extracted
+     unchanged, one code path with two callers - the
+     driven endpoint and the cycle), falling back to the
+     record-only push exactly where case 19 does (no
+     anchor configured). A process with no PolicyNode
+     reports `no_snapshot` and pushes nothing. Each
+     peer's push outcome is reported separately (the
+     peer's delivery status, or the refusal's own name
+     on a 502 shape), and one peer's outcome never stops
+     the stage. This stage is what carries a revocation
+     unattended: a paired delivery that lands at ONE
+     server (case 19, driven once) is pushed onward by
+     that server's own cycles, judged at each peer by
+     case 17's paired judgement unmodified.
+     (4) `sync_all`: the identical peer-list sweep
+     `POST /sync-all` performs (case 24, extracted
+     unchanged, one code path with two callers), each
+     peer classified converged / refused / unreachable /
+     transport_failed / self, one outcome never stopping
+     the sweep.
+   - Refusal composition, in experiment 023's rule: a
+     cycle whose snapshot check is REFUSED (for example
+     honest growth delivered into the snapshot file
+     without the re-anchor, refused `anchor_stale` as in
+     cases 13/22) reports the refusal in the cycle report
+     and on /health, and the later stages of that cycle
+     STILL RUN - liveness observes, the registry push
+     pushes the standing the process actually LOADED
+     (its PolicyNode's loaded view, case 16/19's rule -
+     the last good record, never the refused file, which
+     is 023's sidecar principle at the server surface:
+     the push reads the loaded view, not the file, so no
+     sidecar copy is needed), and the sync-all sweep
+     sweeps. A refused stage never kills the cycle and
+     never kills the cycle thread: the next cycle runs on
+     schedule and re-reports the same refusal until its
+     cause is fixed, exactly as case 13's driven check
+     re-reports it. The same independence holds per
+     stage: an exception or refusal in any one stage is
+     recorded in that stage's report and the remaining
+     stages still run.
+   - The standing surface: `/health` reports, beside the
+     fields cases 13/24 added, `auto_cycle_configured`
+     (whether the flag was given),
+     `auto_cycle_interval` (the configured interval in
+     seconds, or null), `auto_cycle_cycles` (cycles
+     completed by this process, 0 before the first), and
+     `last_auto_cycle` (the most recent cycle's full
+     report, or null before the first). A cycle report
+     carries the cycle number, the order, and one report
+     per stage under its stage name (the snapshot
+     check's own report, the liveness report, the
+     registry push report, the sync-all sweep's own
+     response body), plus the process's state hash after
+     the whole cycle. A process with the cycle off
+     reports configured false, interval null, cycles 0,
+     and last null, unchanged through its life.
+   - The convergence story, proven against real server
+     processes: three servers started with the automatic
+     cycle ON and peer lists configured as in case 24's
+     story (A listing only B, B listing A and C, C with
+     no list - C is reached by B's pushes and sweeps, and
+     C's own cycle, having no peers, sweeps none). A new
+     mesh entry appears at A through ONE initial
+     `POST /mutate` call at A only. With NO further driver
+     calls anywhere - no /sync, no /sync-all, no
+     /check-snapshot, no push of any kind driven by the
+     test after that mutate - B and then C converge to
+     A's state. The test polls only the read surfaces
+     (/state, /health) with a bounded wait, asserts all
+     three state hashes equal and C's materialized state
+     exact, and reports how many cycles (read from
+     /health's auto_cycle_cycles) and how much wall time
+     convergence took. Polling a read surface is
+     observation, not driving: no poll changes any
+     server's state.
+   - The revocation leg: two or three servers over copies
+     of the same registry record under signed anchors
+     (cases 11/19 setup), each with the cycle ON and peer
+     lists connecting them. The author revokes, the
+     lifecycle is followed for ONE server only (its
+     anchor re-written over the grown record by the same
+     signer), and the grown pair is delivered ONCE to
+     that one server through case 17's paired delivery -
+     the last driver call in the leg. With no further
+     driver calls, the revocation reaches the other
+     servers through the first server's automatic
+     registry pushes (and their own cycles' onward
+     pushes), and at the end the revoked policy refuses
+     410 `policy_revoked` at EVERY server while a
+     non-revoked policy still serves its exact bytes at
+     every server. The test polls read surfaces plus the
+     policy surface (a fetch is a read; a 410 is the
+     assertion, not a drive) with a bounded wait and
+     reports the cycles and time observed.
+   - The control: with the option OFF (the default), the
+     same story does NOT converge - a server left alone
+     with a peer holding new entries still lacks them
+     after a wait spanning several would-be cycles, and
+     its /health reports the cycle unconfigured with 0
+     cycles completed. The control is what proves the
+     cycle, not something else, did the work in the
+     story above.
+   - The refused-cycle leg: one server with the cycle ON,
+     an anchored snapshot, and a peer list naming a live
+     peer. Honest growth is delivered into its snapshot
+     FILE without the re-anchor (case 13's stale shape).
+     Its automatic cycles report the snapshot stage
+     refused as `anchor_stale` on /health's
+     last_auto_cycle (and the standing last_snapshot_check
+     carries the same refusal), the sync_all stage of
+     the same cycles still runs and converges with the
+     peer, the cycle count keeps advancing across at
+     least two refused cycles (the thread did not die on
+     the refusal), and the previous serving view is
+     undisturbed. After the same-signer re-anchor fixes
+     the cause, a later automatic cycle - still no driver
+     calls - reloads and the refusal clears.
+   - Shutdown: the cycle runs on one thread per process,
+     a daemon thread that waits on a stop event between
+     cycles, so stopping the process is clean and no
+     orphan thread keeps a stopped process alive; the
+     tests' process cleanup (terminate, as in every
+     server suite) leaves no leftover node_server
+     processes, and an in-process node started and then
+     stopped reports its cycle thread no longer alive.
+   - Processes started without the flag behave exactly
+     as today: no thread, /health's four new fields
+     report the off standing, every driven surface is
+     unchanged, and every earlier suite, unmodified, is
+     the proof in the same run. The extractions this
+     case requires (the sync round's sweep and the
+     paired push's round moving to the node, with the
+     driven endpoints as their thin callers) change no
+     driven behavior: cases 16/19/24's suites pass
+     unmodified against the extracted code.
+   Status: implemented at prototype scale in experiment
+   037 (the `--auto-cycle-interval` flag and 0.2 s
+   minimum in `node_server.py`'s main,
+   `NetworkNode.run_auto_cycle_once` and the thread's
+   start/stop, the driven rounds extracted onto the node
+   as `sync_once`, `sync_all_peers`, and
+   `push_anchor_round` with their endpoints as thin
+   callers, the peer-liveness stage judged by
+   `liveness.LOST_AFTER_MISSED_BEATS`, the four /health
+   fields, and `test_unattended_operation.py` in
+   `packages/synchronization`); one leg of the shipped
+   suite differs from this case in one recorded respect:
+   the refusal-recovery leg waits for the reloading
+   cycle to complete before comparing cycle counts,
+   because a reload is visible mid-cycle while the
+   counter advances at completion (the case's property
+   - the count advanced past the refused cycles - is
+   unchanged).
