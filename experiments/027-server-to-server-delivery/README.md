@@ -278,6 +278,31 @@ was modified to make any of this pass.
   019's symmetric-model limit, which case 17's finding
   shows the wire neither adds to nor closes) remains
   open.]
+  [Superseded in part by experiment 030 (sync-mesh case
+  19): the sentence the note above ends on - there is no
+  `/push-anchor` - is no longer true. A running server now
+  has a driven paired push: `POST /push-anchor` sends the
+  entries its PolicyNode stands on AND the anchor object
+  its own anchor file holds to the peer's case 17 paired
+  surface, unmodified, and reports the peer's paired
+  delivery report as the push's result, recorded on
+  `/health` as `last_anchor_push`. In case 19's end-to-end
+  story the record-only push of THIS experiment still
+  refuses `anchor_stale` at the peer, as the control, and
+  the paired push then brings the peer fully current in
+  one drive - its snapshot file byte-for-byte the
+  delivered record and its anchor file byte-for-byte the
+  anchor the sender sent - so the per-server lifecycle
+  step row 4 waited on can now be completed by the sending
+  server itself, not only by a client driving case 17's
+  surface. What remains exactly as stated above:
+  `POST /push-snapshot` itself still transports the record
+  only - case 19's control IS this experiment's row 4,
+  rerun unchanged - and the witness problem the note names
+  stands where experiment 029 left it (a witness-
+  configured peer refuses a paired push whose anchor lacks
+  the countersignature as `anchor_witness_invalid`, case
+  19's witness leg; the model is still symmetric).]
 - The push surface inherits the transport's authorization,
   no more: over plaintext (experiment 007 mode) anyone who
   can reach the sender's port can drive a push, as they
