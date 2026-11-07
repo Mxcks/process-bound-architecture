@@ -1804,3 +1804,296 @@
    backward fence in both shapes, the witness fence at
    delivery, the lineage finding, and the configuration
    edge).
+21. One server pushes its MESH anchor to a peer, judged
+   at the peer under case 20's rules unmodified (added
+   2026-11-06, experiment 032): case 19 closed the
+   registry anchor's server-to-server half one experiment
+   after case 17 built its receiving surface, and case 20
+   stated the mesh half's remaining limit in the same
+   shape - the mesh anchor can be RECEIVED over the wire,
+   but the sending end of that surface is a client: no
+   server sends its own mesh anchor onward, so advancing
+   a peer's mesh anchor from the one kind of process that
+   holds a mesh anchor of its own still takes a
+   credential-holding client in the middle, or a hand at
+   the peer. This case closes the sender's half for the
+   mesh anchor, as case 19 closed it for the registry
+   anchor: a running server gains a driven mesh anchor
+   push, and ONE push advances a peer's mesh anchor under
+   case 20's whole judgement, the peer's own surface
+   unmodified.
+   - The surface: `POST /push-mesh-anchor` on the pushing
+     server, with payload `{"peer": "<base URL>"}` - case
+     16's `/push-snapshot` shape exactly, as case 19's
+     `/push-anchor` took it, because the mesh anchor push
+     is that push's mesh sibling: one server initiating
+     contact with a peer process at a configured address.
+     It is driven by a new client helper
+     (`node_server.push_mesh_anchor`, returning the
+     (status, body) pair as `push_snapshot` and
+     `push_anchor` do, because a push's refusal can ride a
+     non-200 status and the caller must see its body).
+   - What is pushed: the anchor object the pushing
+     server's own MESH anchor file holds, read from that
+     file under the node's lock and sent as the parsed
+     anchor object, never as a path. For the mesh anchor
+     the file IS the standing, exactly as case 19 set it
+     for the registry anchor: the process's
+     AnchoredSyncNode consults that very file on every
+     mesh receive, so the file and the standing agree by
+     construction, and a push sends the anchor this
+     process itself is judged by. A process whose mesh
+     anchor file cannot be read or parsed at push time
+     has nothing honest to send: the push reports on
+     HTTP 502 with error `own anchor unreadable` in
+     `/sync`'s refusal family, recorded as the last mesh
+     anchor push, and no contact with the peer is made.
+   - Where it lands: the peer's `POST
+     /deliver-mesh-anchor` (case 20), payload
+     `{"anchor": {...}}` - the receiving side is case
+     20's surface, UNMODIFIED, and its judgement is the
+     push's judgement: configuration, readability,
+     no-change, succession under case 11's same-identity
+     rule, the backward fence in both its shapes,
+     signature and kept history, the witness judgement of
+     case 18 where the peer is mesh-witness-configured,
+     and the head judgement against the mesh state the
+     peer HOLDS - all judged before anything changes, the
+     sender re-deriving no verdict of its own, as case 16
+     set for the record and case 19 for the pair.
+   - The report: on HTTP 200, `{"node_id", "peer",
+     "status", "delivery"}` in case 16's shape - `status`
+     equal to the peer's mesh anchor delivery status
+     (`delivered`, `delivery_refused`, `no_change`), the
+     peer's mesh anchor delivery report itself under
+     `delivery`. `/health` gains `last_mesh_anchor_push`
+     (the last mesh anchor push's response body - a 200
+     report or a 502 refusal alike - or null before the
+     first mesh anchor push is driven), beside
+     `last_mesh_anchor_delivery`, so a mesh anchor push's
+     outcome is readable on the sender's health surface
+     without driving another one.
+   - The sender's own shape, stated before the build: a
+     pushing process with NO mesh anchor configured
+     answers on 200 with status `no_mesh_anchor` and
+     `delivery` null, in case 20's own name for the mesh
+     half's configuration edge - it holds no mesh anchor
+     to push, and no contact with the peer is made (the
+     peer records no mesh anchor delivery). The mesh push
+     has no record-only fallback and no second form:
+     unlike case 19's sender, which degrades to case 16's
+     push when it holds no registry anchor, a mesh anchor
+     push carries the anchor alone (case 20 has no paired
+     form for it to degrade into), or it does not run.
+   - Refusals that never reach judgement mirror case
+     16's and case 19's, on HTTP 502 in `/sync`'s shape:
+     with identity binding on, the push first runs
+     experiment 017's initiating-side check on the peer,
+     exactly as `/push-snapshot` does; a peer whose
+     transport refuses the SENDER before the delivery
+     endpoint runs (experiment 017's accepting-side
+     `identity_mismatch`, 403 naming claimed and certified
+     ids) is reported on 502 with those ids carried
+     through; an unreachable peer is the third 502, in
+     `/sync`'s wording.
+   - The end-to-end story, over two running plaintext
+     servers, mirroring cases 15/20: the two servers'
+     mesh sides converge on the same mesh state (case
+     4/7's honest pair), the mesh anchor over that state
+     is written signed by the same enrolled identity
+     (experiment 019), and each server is restarted under
+     its own copy of that anchor, configured for that
+     signer, and converged onto exactly the anchored
+     state - both stand on the same mesh state under the
+     same anchor. The mesh then grows honestly AT THE
+     SENDER: the sender mutates once more (its own
+     mutations never consult, case 8), so the sender holds
+     the grown state while the peer still holds the
+     anchored state. The peer's sync - the peer initiating
+     `/sync` toward the sender - is refused
+     `anchor_stale`: the peer's receive merges the grown
+     entries and its anchor pins the older head. The
+     sender's mesh anchor is then advanced by the proper
+     lifecycle AT THE SENDER (the same signer re-anchors
+     the grown head from the sender's own anchor file,
+     case 11's write path extending its kept history - an
+     operator act at the sender's own file, as case 19's
+     lifecycle completion was at its sender). Then ONE
+     driven mesh anchor push from the sender delivers the
+     advanced anchor: the push reports `delivered` with
+     the peer's case 20 delivery report (the anchor's
+     counts moving from the anchored count to the grown
+     count, its history sequence advancing by the
+     lifecycle's one write); the peer - never restarted,
+     its mesh state never touched by the delivery, its
+     anchor file never touched by a hand - ends with a
+     mesh anchor file byte-for-byte the anchor the sender
+     sent (which is byte-for-byte the sender's own anchor
+     file, the anchor file format being one
+     serialization); the sender's `/health` records the
+     push as its last mesh anchor push with status
+     `delivered`, and the peer's `/health` records the
+     delivery as its last mesh anchor delivery and
+     classifies its not-yet-converged held state against
+     the advanced anchor exactly as case 15 classifies it
+     (`anchor_mismatch` - the anchor moved first, the
+     state catches up by sync, in that order, as in case
+     20). The same sync - the peer initiating toward the
+     sender - then converges on the grown state, and both
+     servers' `/health` report `anchored`.
+   - No-change: a second mesh anchor push to a peer
+     already standing on the identical mesh anchor
+     reports `no_change` - case 20's byte-identical
+     pre-judgement - and rewrites nothing at the peer: not
+     an error, not a rewrite of the peer's anchor file.
+   - Succession across servers, reported in the push
+     result: a pushing server whose mesh anchor is signed
+     by a DIFFERENT identity than the signer of the peer's
+     current mesh anchor (the sender started over its own
+     mesh anchor, signed by that other identity over the
+     same genuine mesh state, configured for that signer)
+     pushes; the peer judges at succession: the push
+     reports `delivery_refused` with reason
+     `different_signer`, the refusal is audit-logged
+     beside the peer's mesh anchor in case 11's shape for
+     the mesh chain (by case 20's code, unmodified), and
+     the peer's mesh anchor file and held mesh state are
+     unchanged.
+   - The backward fence across servers, reported in the
+     push result: the peer's mesh anchor is a LATER
+     version of the same anchor lineage over the SAME
+     head as the sender's (the peer's anchor refreshed
+     once more over the standing state - a re-anchoring
+     over the same head, delivered to the peer alone
+     under case 20 and accepted - while the sender still
+     holds the earlier version of that same lineage); the
+     sender pushes; the push reports `delivery_refused`
+     with reason `anchor_regression` - the delivered
+     anchor's kept history is a proper prefix of the
+     peer's current anchor's (the fence's first shape) -
+     and the peer's mesh anchor file (still the later
+     version) and held mesh state are unchanged.
+   - A tampered sender anchor, reported in the push
+     result: the sender's mesh anchor file is edited by
+     hand after startup (one kept-history entry's
+     recorded state hash changed in the file, the entry
+     hashes left standing - case 17's tamper shape, at
+     the sender's file); the sender pushes what its file
+     holds; the peer judges the signature before any head
+     judgement: the push reports `delivery_refused` with
+     reason `anchor_signature_invalid`, and the peer's
+     mesh anchor file and held mesh state are unchanged.
+     The sender re-derives no verdict: its own standing
+     against its tampered file is its own problem, and
+     the push transports the file's content, judged at
+     the peer.
+   - The witness fence across servers, reported in the
+     push result (case 18's discipline, carried to the
+     mesh half): the peer is mesh-witness-configured (its
+     mesh anchors signed by the mesh signer and
+     countersigned by the configured mesh witness), the
+     sender is NOT mesh-witness-configured. Both stand on
+     the same state under the same anchor - the anchor
+     countersigned by the configured witness, each
+     server's mesh anchor file a copy of it, as in the
+     main story above; the sender's own consultation
+     passes on that file under its own configuration (a
+     process with no witness configured judges no
+     countersignature, case 18). The mesh grows at the
+     sender and the sender's mesh anchor is advanced
+     signer-alone - a process that is not
+     witness-configured writes no countersignature when
+     it re-anchors its own file, so the advanced anchor
+     extends the shared lineage with its new entry
+     signer-alone; the sender pushes: the push reports
+     `delivery_refused` with reason
+     `anchor_witness_invalid` - the advanced anchor's
+     current entry carries no countersignature the
+     peer's configuration accepts - and the peer's mesh
+     anchor file and held state are unchanged. Once the
+     sender's mesh anchor over the same grown head is
+     countersigned by the configured witness (the
+     lifecycle completed at the SENDER, where it belongs
+     - a write at the sender's own anchor file), the
+     same push reports `delivered`, the peer's mesh
+     anchor file is byte-for-byte the sender's, and the
+     peer's sync toward the sender then converges: a
+     mesh anchor push transports a completed lifecycle,
+     it performs none at the peer.
+   - A foreign chain's anchor across servers, reported in
+     the push result: a pushing server standing under a
+     mesh anchor over experiment 012's rewritten mesh
+     chain, in a FRESH lineage (its kept history its own,
+     signed by the same identity that signed the peer's
+     anchor) pushes to the peer, whose anchor stands over
+     the genuine chain; the peer judges at the head: the
+     push reports `delivery_refused` with reason
+     `anchor_mismatch` - signer and signature pass, the
+     head pairs with nothing the peer holds and the
+     lineage is not the peer's anchor's - and the peer's
+     mesh anchor file and held mesh state are unchanged.
+     (Contrast case 20's lineage finding: a SUCCESSOR in
+     the peer's own lineage over a rewrite is accepted at
+     this surface, as at every surface since case 17 -
+     custody of the signer's secret is the fence; this
+     leg's anchor succeeds nothing and pairs with
+     nothing, which is the only foreign-anchor shape this
+     case claims a refusal for.)
+   - The full flow over experiment 014's protected
+     transport with experiment 017's identity binding on
+     and a signed mesh anchor (as in case 20's protected
+     leg): the two servers converge over mutual TLS, each
+     restarts anchored under its own copy of the signed
+     anchor and converges onto the anchored state; the
+     mesh grows at the sender, the peer's sync toward the
+     sender refuses `anchor_stale` over the protected
+     link, the sender's anchor is advanced at the sender,
+     and ONE mesh anchor push over HTTPS reports
+     `delivered`; the same sync then converges over the
+     protected link, and both servers' `/health` surfaces
+     report the new standing (the sender's last mesh
+     anchor push, the peer's last mesh anchor delivery,
+     both `anchored`).
+   - The identity refusal across servers, at the
+     transport, exactly as in case 11 and cases 16/19: a
+     pushing server started in experiment 014 mode (mutual
+     TLS, binding OFF) claiming a node id its certificate
+     was NOT issued for, and holding a mesh anchor of its
+     own so the push is what it attempts, is driven to
+     push to a peer with binding on. The peer's
+     accepting-side check refuses the pushing server's
+     connection before case 20's endpoint runs: the push
+     is reported on HTTP 502 with error
+     `identity_mismatch`, naming the claimed id and the
+     certified id, and the peer never records a mesh
+     anchor delivery - its mesh anchor file, held mesh
+     state, and standing are unchanged.
+   - Servers on which the new surface is never driven
+     behave exactly as today: case 20's receiving surface,
+     case 19's paired push, case 17's delivery, case 15's
+     consultation, the startup flags, and the registry
+     surfaces are untouched, proven by the unmodified
+     earlier suites in the same run.
+   The push is driven by a client call, as `/push-anchor`,
+   `/push-snapshot`, and `/sync` are: no timer, scheduler,
+   gossip, or discovery inside either server fires one
+   unattended, and nothing in this case solicits or
+   retries one. The mesh anchor push transports the
+   sender's MESH anchor only - alone, as case 20 receives
+   it; it carries no entries and no registry material,
+   and it performs no lifecycle step for the peer:
+   succession, freshness, and countersignature are the
+   sender's completed facts, judged at the peer, never
+   manufactured by the transport. Status: implemented at
+   prototype scale in experiment 032 (a running server
+   gains `POST /push-mesh-anchor`, the `push_mesh_anchor`
+   client helper, and `last_mesh_anchor_push` on /health;
+   the case was written before the build). Tests:
+   `packages/synchronization/test_mesh_anchor_push.py`
+   (the two-server story driven forward by ONE push over
+   plaintext and over mutual TLS, the no-change push,
+   every refusal reported in the push result with the
+   peer unchanged, the witness fence across servers, the
+   configuration edge, the sender's own unreadable
+   anchor, and the false-claiming pusher refused at the
+   transport).
