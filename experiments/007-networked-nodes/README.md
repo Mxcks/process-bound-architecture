@@ -104,6 +104,25 @@ question in process form, not a new guarantee.
   node starts empty and must re-sync. (The registry snapshot and
   payloads are files the process is started with; they are inputs,
   not mesh persistence.)
+  [Superseded in part by experiment 033 (sync-mesh case
+  22): a server started with `--mesh-state <path>` persists
+  every accepted mesh change to that file - inside its own
+  mutation and its one receive, before the driving response
+  returns, under case 14's replace-from-verified-candidate
+  discipline - and a restart over the file recovers the
+  state exactly, entries that never synced anywhere
+  included, the peer learning them from the restarted
+  process over `/sync`. The load is judged by the mesh's
+  own verification before the process serves
+  (`tampered_entry`, `forked_entry`, `broken_chain`,
+  `mesh_state_unreadable` refuse the start), and with a
+  mesh anchor also configured a recovered state is gated
+  on the anchor at startup (`anchor_stale`,
+  `anchor_mismatch`, and the signature/witness names
+  refuse it). Without the flag this limit stands exactly
+  as written: memory only, a restart empty. The file
+  survives the process, not the machine, and is
+  tamper-evident on load, not tamper-proof.]
 - One process per node on one machine. Nothing about multi-machine
   networking, NAT, firewalls, partial network failure between real
   hosts, or scale is demonstrated.
