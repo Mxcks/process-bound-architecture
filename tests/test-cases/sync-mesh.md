@@ -2450,3 +2450,180 @@
    in `generate_revocation_credentials` beside the
    one-shot fixtures). Tests:
    `packages/synchronization/test_certificate_revocation.py`.
+24. A node knows its peers: a configured peer list and
+   a driven sync-all (added 2026-11-06, experiment 035):
+   cases 4 and 7 networked the mesh - server processes
+   syncing pairwise over `/sync`, each call naming the
+   peer's address - and every networked experiment
+   since has stated the same remaining transport gap in
+   its honest limits: no discovery. Peer addresses are
+   configured by whoever starts the processes AND by
+   whoever calls `/sync`, one pair at a time, so a node
+   has no standing notion of who its peers are. Keeping
+   even a small set of servers converged takes an
+   outside driver that holds every address in the set
+   and drives each pair by hand; the nodes themselves
+   know nothing. This case gives a node a standing peer
+   list and one driven sweep over it. It is NOT a
+   discovery protocol and claims none: no dynamic
+   membership, no joining or leaving, no membership
+   governance, and no node learns of a peer it was not
+   handed at startup. Those are architecture questions
+   this case does not open.
+   - The list: one more startup flag beside the
+     existing families, `--peers <path>` - the path to
+     a plain-text peer list file. The format is stated
+     plainly because it is the whole format: one peer
+     base URL per line; blank lines and lines whose
+     first non-space character is `#` are ignored; a
+     trailing slash on a URL is stripped; an exact
+     duplicate of an earlier line is dropped after its
+     first occurrence. Each remaining line must be an
+     `http://` or `https://` base URL. The file is
+     read ONCE at startup and the parsed list is the
+     process's standing configuration: `/health`
+     reports `peers_configured` (whether the flag was
+     given) and `peers` (the configured list itself,
+     or null when unconfigured - the list is reported
+     whole because `/health` is the operator's standing
+     surface and, at this prototype's localhost scale,
+     a peer address is not a credential) beside the
+     last surfaces, plus `last_sync_all` (the most
+     recent sweep's response body, null until the
+     first sweep is driven).
+   - A bad list refuses the start, under a name: a
+     `--peers` path that does not exist or cannot be
+     read, or a content line that is not an http(s)
+     base URL, exits the process nonzero at startup
+     naming `peers_unreadable`, before anything is
+     served. The name keeps the family shape
+     (`crl_unreadable` in case 23, `mesh_state_unreadable`
+     in case 22, `anchor_unreadable` in case 15): a
+     process never runs believing it holds a peer list
+     it does not hold, and the silent failure shape -
+     sync-all quietly sweeping nothing - is refused at
+     the door instead.
+   - The surface: `POST /sync-all`, a driven endpoint
+     in the family of `/check-snapshot` and the push
+     surfaces - it takes no peer argument, because the
+     list is the argument, fixed at startup. One sweep
+     attempts, for each configured peer IN LIST ORDER,
+     exactly the per-peer sync `POST /sync` performs -
+     the same initiating-side identity check where
+     binding is on, the same verified pull, merge, and
+     push-back, the same anchored consultation on the
+     mesh receives where a mesh anchor is configured
+     (case 15) - extracted unchanged, not reimplemented:
+     `/sync` and a sweep must never be able to disagree
+     about what one peer sync does, so there is one
+     code path and two callers. A client helper,
+     `request_sync_all`, drives the surface in
+     `request_sync`'s style.
+   - The report: the sweep's response is HTTP 200 -
+     per-peer outcomes are the content, not transport
+     errors, exactly as a refused delivery is a delivery
+     outcome - and carries one result per configured
+     peer, in list order, each classified in this
+     case's own vocabulary beside the two SyncResults
+     the round produced: `converged` (both sides'
+     merges stood, no divergence on either), `refused`
+     (a merge was refused; the result's `reason` is
+     the refusal's own name from the SyncResult that
+     diverged - `anchor_mismatch`, `anchor_stale`,
+     `anchor_unreadable`, a Gate 3 divergence name, or
+     `identity_mismatch` when the initiating-side check
+     refused the peer before any state moved),
+     `unreachable` (the peer could not be reached at
+     all), `transport_failed` (the round began - the
+     pull stood - and the push-back could not be
+     delivered; the self SyncResult is carried so the
+     partial round is visible, not smoothed over), and
+     `self` (below). The response's own `status` is
+     `no_peers` when the sweep has no peers to attempt,
+     `converged` when every attempted peer converged,
+     and `partial` otherwise; the process's final
+     `state_hash` after the whole sweep rides the
+     response, and the full response body is what
+     `/health` then reports as `last_sync_all`.
+   - Independence: one peer's outcome never stops the
+     sweep. An unreachable first peer and a refusing
+     second peer leave the third peer's sync fully
+     attempted and reported, and the report names each
+     peer's outcome separately - a sweep that stopped
+     at the first failure would be the outside driver
+     again, one failure at a time, wearing a new name.
+   - Self: a peer entry equal to this process's own
+     base URL as it was bound at startup (after the
+     stripping above) is skipped and reported with
+     outcome `self`, and no contact with it is made.
+     Syncing with itself through the wire would be a
+     no-op merge, but a silent no-op is not a report;
+     the operator who listed a node as its own peer is
+     told so, in the result, in order. Self-knowledge
+     is the bound address the process was started on -
+     the same URL spelling its operator was handed -
+     and an entry reaching the same process under a
+     DIFFERENT spelling is not detected as self; it
+     syncs as any peer would, harmlessly (its own
+     entries, verified and merged back). That edge is
+     stated here, not discovered later.
+   - The story over three running server processes:
+     all three stand on the same mesh state (a base
+     state converged beforehand), A listing only B, B
+     listing A and C. New entries appear at A only.
+     One driven sync-all at A converges A with B (C
+     provably does not hold the new entries yet); one
+     driven sync-all at B then carries the entries to
+     C. No driver named an address at call time: the
+     lists carried the set to convergence, and the
+     final state hashes are equal on all three
+     processes, over `/state` and `/health` alike.
+   - The anchored leg (case 15's consultation, through
+     the sweep): with mesh anchors configured, a listed
+     peer whose state was rewritten from genesis
+     (internally consistent, every hash recomputing -
+     case 5/8's negative control) is reported by the
+     sweep as `refused` with reason `anchor_mismatch`;
+     the rewritten state is adopted by NO process
+     through the sweep - not by the sweeper and not by
+     the honest peers the sweep also reached - and the
+     honest peers in the same list still report
+     `converged`. Honest growth past the anchor is
+     reported the same way under its own name,
+     `anchor_stale`, and the same sweep converges after
+     the grown state is re-anchored - the 026 lifecycle,
+     driven by the list instead of by hand.
+   - Changing the list is an operator act at start
+     time, stated as this experiment's limit exactly as
+     case 23 stated it for the CRL: a running process
+     never re-reads the file, no endpoint delivers a
+     list, no push carries one, and there is still no
+     gossip schedule and no automatic re-sync - the
+     sweep happens when a client drives it, as every
+     surface in this stack is driven. What the list
+     changes is only WHO holds the addresses: the node
+     itself, from startup, instead of every caller,
+     every time.
+   - Processes started without `--peers` behave
+     exactly as today: `/health` reports
+     `peers_configured` false and `peers` null, the
+     sweep surface answers `no_peers` with an empty
+     result list, `/sync` is byte-for-byte the surface
+     it was, and every earlier suite, unmodified, is
+     the proof in the same run.
+   Status: implemented at prototype scale in experiment
+   035 (the `--peers` file parsed and validated by
+   `read_peer_list` in `node_server.py`'s main, the
+   parsed list held as `NetworkNode.peers` beside
+   `own_base_url` and `last_sync_all`; `/sync`'s round
+   extracted unchanged as `_sync_once` with `/sync` as
+   its thin caller; `POST /sync-all` sweeping the list
+   in order through that round, each peer classified
+   by `_classify_sync_outcome`; the `request_sync_all`
+   client helper; the list reported whole on `/health`;
+   a bad list refusing the start as `peers_unreadable`;
+   the three-server convergence story, per-peer
+   independence, the anchored refusals under their own
+   names, the skipped self entry, and the no-list edge,
+   over running server processes). Tests:
+   `packages/synchronization/test_peer_list_sync_all.py`.
