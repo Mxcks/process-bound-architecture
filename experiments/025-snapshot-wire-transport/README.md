@@ -282,6 +282,26 @@ startup gates), and the other three packages.
   server initiates mesh `/sync` only), and no experiment has
   yet made one server process deliver its record to another
   unprompted.
+
+  [Superseded in part, 2026-11-06, experiment 027: the
+  second sentence no longer holds. In experiment 027
+  (`experiments/027-server-to-server-delivery/`), under
+  sync-mesh case 16, a server gains a driven
+  `POST /push-snapshot` endpoint in `/sync`'s style: it
+  sends the entries its PolicyNode stands on to a peer's
+  `/deliver-snapshot` - this experiment's surface,
+  unmodified - and reports the peer's delivery report as
+  the push's result, so one running server now delivers its
+  record to another (the end-to-end story, the cross-server
+  refusals `snapshot_regression` / `anchor_stale` /
+  `anchor_mismatch` reported in the push result, the full
+  flow over mutual TLS with identity binding and a signed
+  anchor, and a false-claiming pusher refused at the
+  binding peer's transport as `identity_mismatch`). The
+  rest of the limit stands unchanged: the push is still
+  driven by a client call, as `/sync` is - no server
+  delivers its record to another UNPROMPTED, and no timer,
+  scheduler, gossip, or discovery fires one.]
 - The baseline is startup-time, as in 022/024: the
   `snapshot_regression` and `no_change` judgements compare
   against the view the running `PolicyNode` loaded, and
