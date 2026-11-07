@@ -271,3 +271,17 @@ driven, as in 035), real multi-machine runs, and Gate 5's
 stand where the earlier experiments left them. Nothing here
 is deployed beyond the local working copy, and nothing in
 this experiment changes that.
+
+
+[Superseded in part, 2026-11-06, experiment 037: the item
+above - "unattended drivers (the sweeps here are driven,
+as in 035)" - was built in experiment 037
+(`experiments/037-unattended-operation/`), under sync-mesh
+case 25, written tests-first. A server started with
+`--auto-cycle-interval` now drives its own snapshot check,
+paired registry pushes, and peer-list sweeps on that
+interval, through the identical internal rounds the driven
+surfaces call. What still stands: this run's measurements
+were of the driven system, no unattended run at 036's scale
+was measured, and the cycle is one in-process thread per
+server, not a scheduler.]
