@@ -1434,3 +1434,373 @@
    pusher refused at the binding peer's transport as
    `identity_mismatch`, 502 naming claimed and certified,
    the peer recording no anchor delivery).
+20. A running server receives its MESH anchor over the
+   wire, judged before acceptance against the mesh state
+   it holds and the anchor it already stands under (added
+   2026-11-06, experiment 031): case 17 closed the registry
+   anchor's transport and case 19 its server-to-server
+   push, and both stated the same remaining limit in the
+   same words - case 15's mesh anchor still arrives OUT OF
+   BAND. A server started with `--mesh-anchor` reads a
+   file placed by hand at startup (experiment 026), and
+   completing the mesh anchor's lifecycle at a running
+   server - the same-signer re-anchor of case 11, the
+   witness countersignature of case 18 - is a manual act
+   no wire performs: the grown state a sync refuses as
+   `anchor_stale` (case 15) can be adopted only after a
+   hand replaces the anchor file. This case closes the
+   mesh anchor's transport half, with the mesh side's own
+   machinery as the judge: the anchor itself can now be
+   delivered over the wire to a running server, judged
+   exactly as strictly as the registry anchor is in case
+   17, under the mesh vocabulary of cases 8/11/15/18. The
+   receiving surface is one new driven endpoint on the
+   server, in case 17's style: `POST
+   /deliver-mesh-anchor`, driven by a new client helper
+   (`deliver_mesh_anchor`, in the style of
+   `deliver_anchor`, taking the anchor as a parsed anchor
+   object). The payload is `{"anchor": {...}}`: the mesh
+   anchor object's own JSON - the content of an experiment
+   012/019 mesh anchor file, as data, never a file path,
+   for case 14's stated reason (a receiver handed a path
+   has been handed nothing it can verify). There is NO
+   paired form and no entries field, and that absence is
+   this case's stated pairing decision: a mesh anchor is
+   judged against the mesh state the server HOLDS at
+   delivery time, never against entries delivered in the
+   same call, because mesh entries already have their own
+   receive path with its own consultation (case 15) - an
+   anchor delivery is not a second, weaker entry path,
+   and judging the two halves of a mesh state transfer
+   together would duplicate that consultation, not extend
+   it. The response is the delivery's report, refusals
+   included, on HTTP 200 exactly as case 17's report is a
+   delivery outcome rather than a transport error; a body
+   whose anchor is not an object is a 400 in the
+   /deliver-anchor handler's shape. The report carries the
+   server's node id, the delivery's status, the refusal's
+   own name as `reason` where refused, the current and
+   delivered anchors' state hashes, entry counts, and
+   history sequences, the delivered anchor's signer, and
+   the server's mesh anchor status after the delivery.
+   `/health` gains `last_mesh_anchor_delivery` (the last
+   mesh anchor delivery's report, or null before the
+   first), beside `mesh_anchor_status` - this case is
+   about the MESH anchor only; the registry anchor's
+   surfaces of cases 17/19 are untouched. The delivery
+   judges the anchor BEFORE anything changes, in this
+   order, each judgement named, reusing experiment
+   012/015/019/029's mesh anchor code (the anchor module's
+   reader, its signature and witness verification, its
+   audit log, and case 8's check) rather than copying any
+   of it:
+   - Configuration first: a process started without
+     `--mesh-anchor` consults no mesh anchor, and a mesh
+     anchor delivery to it reports `no_mesh_anchor` - the
+     name this case sets for the mesh half's configuration
+     edge, in the style of case 17's `no_anchor` -
+     configuration is a startup choice, and a delivery
+     never turns consultation on.
+   - The delivered anchor must read as a mesh anchor: it
+     is serialized to a candidate file beside the server's
+     mesh anchor, in the mesh anchor file's own format,
+     and read with experiment 012's mesh reader; a body
+     that is not a mesh anchor is refused as
+     `delivery_refused` under the mesh anchor module's own
+     error name, as experiment 022's naming reports any
+     refusal that carries no status of its own. A
+     configured mesh anchor that cannot be read NOW is
+     refused as `anchor_unreadable` (case 15's name for
+     the same condition): the current anchor is the ground
+     every judgement below stands on, and an unreadable one
+     is a refusal, never a silent pass.
+   - A mesh anchor delivery byte-for-byte identical to
+     the mesh anchor file the server already holds is
+     `no_change`: nothing is written and nothing is
+     re-judged, in case 17's no-change discipline.
+   - Succession, judged anchor to anchor (case 11's
+     same-identity rule, over the wire, as case 17 set it
+     for the registry half): if the server's current mesh
+     anchor is SIGNED, a delivered anchor must be signed
+     by the SAME identity; a delivered anchor signed by a
+     different identity - or not signed at all - is
+     refused as `different_signer`, the refusal appended
+     to the anchor audit log beside the server's mesh
+     anchor file in case 11's event shape
+     (`reanchor_rejected` / `different_signer`, naming the
+     attempted and current signers and the attempted state
+     hash and count, the chain named `sync-mesh`), and the
+     current mesh anchor file is byte-for-byte unchanged.
+     A delivered signed anchor over an UNSIGNED current
+     anchor establishes the signer, case 11's stated
+     exception.
+   - The backward fence, fenced as case 17 fences its own
+     and under the same name: a delivered anchor that is
+     an earlier state is refused as `anchor_regression`,
+     audit-logged in the same shape - earlier state
+     meaning exactly one of: (i) the delivered anchor's
+     kept history is a proper prefix of the current
+     anchor's kept history (an earlier version of this
+     very anchor file - the rollback experiment 019
+     names), or (ii) the delivered anchor pins an earlier
+     prefix of the chain the server's CURRENT anchor pins,
+     proved against the entries the server holds (its
+     entry count is smaller than the current anchor's,
+     and the held entries at or below its per-origin heads
+     are exactly its entry set - same count, same
+     recomputed state hash). Shape (ii) fires only on what
+     the held entries can prove: a server whose held state
+     no longer contains the earlier entries (a fresh
+     process holding nothing) cannot prove it, and the
+     delivery falls through to the head judgement below -
+     stated here, not hidden. A head that is an earlier
+     state of NEITHER the server's anchor nor its chain
+     never reaches this name: a foreign chain's anchor
+     falls through to the head judgement, so the backward
+     name cannot launder a rewrite into a lesser finding.
+   - Signature and history, under the server's configured
+     identity where one is configured (case 11): with
+     `--mesh-anchor-signer` set, the delivered anchor's
+     signature and kept history must verify for that
+     identity (experiment 019's mesh verification, reused)
+     - a tampered signature, or a kept history that does
+     not verify, is refused as `anchor_signature_invalid`,
+     before any head judgement, as in every consultation
+     since experiment 019. With no identity configured, a
+     signed delivered anchor's kept history must still
+     verify as a chain (sequences, linkage, entry hashes,
+     and signer consistency - the part of experiment 019's
+     history verification that needs no secret); an
+     unsigned delivered anchor is judged by its heads.
+   - Witness (case 18): with a witness identity configured
+     on this process (`--mesh-anchor-witness`), the
+     delivered anchor's countersignature must verify for
+     that witness, judged in the same step right after the
+     signature's, or the refusal is
+     `anchor_witness_invalid` - before the head judgement,
+     as the signature's refusal is. The witness is operator
+     configuration (constructor / CLI flags): no field of
+     a delivery can install or change it, and a delivered
+     anchor's witness field is data to be verified against
+     the configuration, never adopted from it.
+   - The head judgement, against the mesh state the
+     server HOLDS at delivery time, with case 8's check
+     (its signature and witness steps already judged
+     above, not repeated): the delivered anchor is
+     ACCEPTED - reported `delivered`, the mesh anchor file
+     replaced from the verified candidate - in exactly two
+     standings:
+     * It pins exactly the held state: the held state's
+       per-origin heads and state hash are the delivered
+       anchor's (case 8's check ok). This is the catch-up
+       delivery: the anchor arrives for a state already
+       held - a re-anchoring of the held head, or the
+       lifecycle completion for growth the server made
+       itself (a node's own mutations never consult the
+       anchor, case 8, so its standing can be
+       `anchor_stale` against its own anchor until the
+       anchor catches up).
+     * It is the current anchor's successor in its own
+       kept lineage: the delivered anchor's kept history
+       has the current anchor's kept history as a proper
+       prefix - it is the anchor file case 11's own write
+       path produces when the current anchor is re-anchored
+       forward, history appended, never rewritten - and the
+       held state does not already stand honestly past it
+       (the stale refusal below). A successor may pin a
+       state the server does not hold yet: that is the
+       re-anchor lifecycle arriving by wire, and every
+       later receive is judged against the new anchor by
+       case 8's consultation, exactly as it is against a
+       hand-placed re-anchor (experiment 026). The lineage
+       requirement is the proof an unsigned anchor cannot
+       give: an UNSIGNED delivered anchor has no kept
+       history, so it can be accepted only in the first
+       standing, onto the state it pins - over the wire, an
+       anchor pinning an unrelated state is indistinguishable
+       from a foreign chain's anchor, and this case does
+       not pretend a proof it does not have.
+     The refusals of the head judgement, each leaving the
+     current mesh anchor file byte-for-byte unchanged, the
+     held mesh state untouched, and the server's sync
+     behavior exactly as it was:
+     * `anchor_stale`: the held state GREW HONESTLY past
+       the delivered anchor - the held entries contain
+       everything the delivered anchor pins, intact (the
+       held entries at or below its per-origin heads are
+       exactly its entry set, same count and recomputed
+       state hash), plus more the anchor does not pin. The
+       anchor lags the state it would govern; delivering
+       the anchor over the held head is the lifecycle step
+       that lands, not this one.
+     * `anchor_mismatch`: the delivered anchor pins a
+       chain the held state is not and does not extend -
+       a foreign chain's anchor in particular - and it is
+       not the current anchor's successor in lineage.
+   Expected:
+   - The 026 scenario driven forward by a wire delivery
+     instead of a hand-placed file, over plaintext, with a
+     signed mesh anchor and its signing identity
+     configured: two servers converge; the mesh anchor is
+     written over the converged state and one server is
+     restarted under it (case 15's shape) and converges
+     onto exactly the anchored state; the honest peer
+     mutates once more and the anchored server's sync is
+     refused `anchor_stale`, the anchored server keeping
+     exactly the anchored state; the grown state is then
+     re-anchored at the source (the same signer, case 11's
+     write path extending the current anchor's kept
+     history) and THAT anchor is delivered over the wire:
+     it reports `delivered`, the server's mesh anchor file
+     is byte-for-byte the delivered anchor, `/health`
+     carries the delivery as `last_mesh_anchor_delivery`
+     and classifies the held state against the new anchor
+     exactly as case 15 classifies a freshly anchored
+     server that has not yet converged (`anchor_mismatch` -
+     not yet the anchored state, not an extension of it);
+     the same sync then converges on the grown state and
+     `/health` reports `anchored`.
+   - An anchor pinning exactly the held state: the
+     anchored server's own author-side growth (its own
+     mutations, which never consult) leaves it holding a
+     state its anchor classifies `anchor_stale` on
+     `/health`; the anchor over exactly that held state,
+     delivered over the wire, reports `delivered`, and
+     `/health` then reports `anchored` - the catch-up
+     delivery lands without any sync having to move.
+   - A byte-identical mesh anchor delivery reports
+     `no_change` and writes nothing; the mesh anchor file
+     and the held state are unchanged, and `/health`
+     carries the report as the last mesh anchor delivery.
+   - An anchor over a foreign chain - the same identity's
+     genuine signed anchor over experiment 012's rewritten
+     mesh chain, built in a fresh lineage (its kept history
+     its own, not an extension of the current anchor's) -
+     is refused as `anchor_mismatch`: signer and signature
+     both pass, the head pairs with nothing held and the
+     lineage is not the current anchor's, the mesh anchor
+     file is byte-for-byte unchanged, the held state and
+     sync behavior are undisturbed. (Contrast case 17's
+     finding: no record travels with this anchor to be
+     blessed, so there is no pairing for a same-signer
+     foreign anchor to stand in - what a same-signer anchor
+     CAN do here is exactly the lineage leg below.)
+   - Succession over the wire: an anchor signed by a
+     DIFFERENT enrolled identity over the very same held
+     state is refused as `different_signer`; the mesh
+     anchor file is byte-for-byte unchanged; the audit log
+     beside it gains the `reanchor_rejected` /
+     `different_signer` event naming the attempted and
+     current signers, in case 11's shape for the mesh
+     chain; serving and syncing are undisturbed.
+   - A tampered kept history, on a signer-configured
+     server: the genuine successor anchor with one history
+     entry's recorded state edited in the delivered object
+     (the entry hashes left standing, case 17's tamper
+     shape) is refused as `anchor_signature_invalid`,
+     before any head judgement; the mesh anchor file and
+     the held state are unchanged.
+   - The backward fence, both of its shapes: (i) an
+     earlier version of the server's own mesh anchor file
+     - the same signed anchor one re-anchoring earlier,
+     its kept history a proper prefix of the current
+     one's - delivered after the anchor has advanced is
+     refused as `anchor_regression`, audit-logged in case
+     11's shape, the current anchor byte-for-byte
+     unchanged; (ii) on a head-only server (an unsigned
+     mesh anchor, no identity configured), an unsigned
+     anchor pinning an earlier prefix of the chain the
+     current anchor pins - an earlier converged state the
+     server still holds the entries of - is refused as
+     `anchor_regression` the same way, although nothing
+     about it is mis-signed: it is refused for where it
+     points, not for how it is signed.
+   - Honest growth past a delivered anchor is
+     `anchor_stale`: the anchored server grows its own
+     state past its anchor (its own mutations), and an
+     anchor over an intermediate state - genuinely the
+     current anchor's successor in lineage, signed by the
+     same signer over a state between the anchored state
+     and the held state - is refused as `anchor_stale`,
+     because the held state already stands honestly past
+     what it pins; the anchor over the held head itself,
+     delivered next, reports `delivered`.
+   - The witness fence at delivery: at a server configured
+     with a mesh witness (case 18), a successor anchor
+     signed by the signer alone is refused as
+     `anchor_witness_invalid`; the same successor
+     countersigned by a DIFFERENT enrolled identity is
+     refused under the same name; the same successor
+     countersigned by the configured witness reports
+     `delivered`, and the sync it unblocks converges.
+   - A configured mesh anchor that cannot be read refuses
+     the delivery in shape: with the mesh anchor file
+     corrupted by hand, a delivery that would otherwise
+     stand is refused as `anchor_unreadable`, the corrupted
+     file byte-for-byte as it was, `/health` answering with
+     `mesh_anchor_status` "anchor_unreadable"; restoring
+     the genuine anchor file restores normal delivery.
+   - THE LINEAGE FINDING, stated as the evidence shows it
+     - this case does not pretend a refusal the code does
+     not produce. The deliverer takes the server's current
+     mesh anchor file and re-anchors over experiment 012's
+     REWRITTEN mesh chain from that file, by case 11's own
+     write path, with the CURRENT signer's identity (a
+     deliverer who legitimately holds that signer's
+     enrollment secret in this prototype's symmetric model,
+     as every verifier of a signed anchor does): the
+     delivered anchor's kept history honestly extends the
+     current anchor's, its signature verifies, and it is
+     ACCEPTED and reported `delivered` - the server ends
+     standing under an anchor over the rewritten chain
+     while still holding the genuine state, so `/health`
+     classifies its standing `anchor_mismatch` and its
+     next sync with the honest peer is refused under that
+     name by case 8's consultation. What stops a rewrite
+     from being blessed at this surface is therefore
+     exactly the custody of the signer's secret - and, at
+     a witness-configured server, of the witness's secret
+     too (case 18) - and nothing else: the wire adds no
+     weakness, since a hand-placed successor anchor is
+     accepted by the same consultation, as experiments
+     019/026 already showed at file level. The acceptance
+     is the symmetric model's recorded limit (experiment
+     019), reachable through one more arrival path; the
+     closure named there stands - a witnessed anchor
+     (case 18, built) or an asymmetric signature (unbuilt).
+   - Configuration edge: a server started without
+     `--mesh-anchor` reports a mesh anchor delivery as
+     `no_mesh_anchor` and is otherwise undisturbed - it
+     still mutates and syncs exactly as in case 4/7, and
+     `/health` carries the report as its last mesh anchor
+     delivery with `mesh_anchor_configured` false.
+   - The full flow over experiment 014's protected
+     transport with a signed mesh anchor (as in case 15's
+     protected leg): the stale-refused sync's successor
+     anchor is delivered over HTTPS and reports
+     `delivered`, the same sync then converges over the
+     protected link, and `/health` reports the new standing
+     on both surfaces.
+   - Servers on which the new surface is never driven
+     behave exactly as today: case 15's consultation, the
+     startup flags, and the registry surfaces of cases
+     13/14/16/17/19 are untouched, proven by the unmodified
+     earlier suites in the same run.
+   The delivery is driven by a client call, as case 17's
+   is: no timer, scheduler, gossip, or solicitation inside
+   the server fires one, and nothing retries one. No
+   server pushes its own mesh anchor onward in this case:
+   the sending end of this surface is a client, exactly as
+   case 17's was before case 19 built its sender.
+   Status: implemented at prototype scale in experiment
+   031 (a running server gains `POST /deliver-mesh-anchor`
+   and the `deliver_mesh_anchor` method and client helper;
+   the case was written before the build). Tests:
+   `packages/synchronization/test_mesh_anchor_wire_delivery.py`
+   (the 026 scenario driven forward by a wire delivery
+   over two running servers and over mutual TLS, the
+   catch-up and no-change standings, every refusal with
+   the anchor file byte-for-byte unchanged, the
+   backward fence in both shapes, the witness fence at
+   delivery, the lineage finding, and the configuration
+   edge).
