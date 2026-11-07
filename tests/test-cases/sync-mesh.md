@@ -463,3 +463,142 @@
    differently-signed anchor refused as
    anchor_signature_invalid, same-signer anchor, delivered,
    clean 410 over the protected link).
+15. Mesh-anchor consultation over the wire for server
+   processes (added 2026-11-06, experiment 026): case 8 built
+   anchor consultation for Gate 3 sync in-process - an
+   AnchoredSyncNode consults experiment 012's mesh anchor on
+   the merged state before accepting a peer's entries - and
+   case 11 added signed mesh anchors to that consultation.
+   But the consultation has only ever run between in-process
+   objects: the experiment 007/014 server processes hold a
+   plain SyncNode for their mesh side and consult no mesh
+   anchor, so a rewritten peer's mesh state - flagged
+   divergent by an in-process anchored node - is accepted by
+   a running server without that check (experiment 020's
+   full-chain run proved its stage 6 mesh-anchor consultation
+   in-process only, and experiments 024/025 restated the
+   server-side gap in their limits). This case closes it: the
+   server process gains the mesh half of the consultation its
+   registry half has had since case 10. A node server started
+   with `--mesh-anchor` - and, where the mesh anchor is
+   signed, `--mesh-anchor-signer` plus
+   `--mesh-anchor-secret-file`, flags in the style of
+   `--anchor` / `--anchor-signer` / `--anchor-secret-file`
+   but independent of `--snapshot` (the mesh side exists on
+   mesh-only servers too; the signer pair requires
+   `--mesh-anchor`, and signer and secret file require each
+   other) - holds an AnchoredSyncNode (case 8's node, reused
+   unmodified) for its mesh side instead of a plain SyncNode,
+   so every mesh receive the process already performs -
+   POST /entries and both sides of POST /sync, which already
+   call receive_entries - goes through case 8's consultation
+   with no new endpoint and no new receive logic. Expected:
+   - Honest convergence is unchanged: two server processes
+     mutate and sync exactly as in case 4/7; a mesh anchor is
+     written over the converged state (case 5, from one
+     node's view, held outside both processes' state); one
+     of the pair is then restarted with `--mesh-anchor` -
+     mesh state is in-process memory (experiment 007's
+     no-persistence limit), so the restarted process holds
+     nothing, and its /health classifies its own standing
+     against the anchor with case 8's own classification
+     (`mesh_anchor_status`, beside `mesh_anchor_configured`,
+     in the style of the registry half's `anchor_status` /
+     `anchor_configured`): not yet the anchored state and
+     not an extension of it, `anchor_mismatch`, until it
+     syncs. It initiates /sync toward the honest peer that
+     still holds the converged state; the merged state is
+     exactly the anchored state, the consultation accepts,
+     and the two processes converge on the anchored state
+     hash with no divergence; afterward /health reports
+     `mesh_anchor_status` "anchored".
+   - A rewritten peer is flagged divergent over the wire: a
+     peer process claiming the same node id as an honest
+     origin, whose chain was built from genesis with
+     different mutations (every hash recomputing, acceptable
+     to a node with no anchor - case 5/8's negative control),
+     syncs with an anchored server that has never seen the
+     honest originals. The anchored server's side of the sync
+     reports divergence with reason `anchor_mismatch` (case
+     8's vocabulary, unchanged), accepts nothing, and its own
+     mesh state is exactly what it was before the sync;
+     /health's `mesh_anchor_status` names the same standing,
+     `anchor_mismatch`. Negative control, stated plainly as
+     in case 8: a server started WITHOUT `--mesh-anchor`
+     syncing with the same rewritten peer accepts the rewrite
+     and converges to it - that acceptance is the hole this
+     case closes only where a mesh anchor is configured.
+   - Honest growth is `anchor_stale` over the wire: with the
+     anchored server converged on the anchored state, the
+     honest peer mutates once more and the anchored server
+     syncs again; the merged state contains everything
+     anchored, intact, plus the honest append, so the sync
+     is refused under reason `anchor_stale` - never as a
+     mismatch, and never silently adopted past the anchor -
+     and the anchored server still holds exactly the
+     anchored state (the stale name is the sync result's
+     report; the server's own standing on /health remains
+     "anchored", because the anchored state is what it
+     kept); after the grown state is re-anchored (by the
+     same signer where the anchor is signed, case 11), the
+     same sync is accepted and the processes converge on the
+     grown state.
+   - Tampering and bad signatures are refused under the
+     names that already judge them, never adopted: an entry
+     edited in transit (its body changed, its entry_hash
+     left standing) is refused by Gate 3's own verification
+     on receipt - reason `tampered_entry`, case 8's stated
+     order (Gate 3 first, anchor or not) - with the anchored
+     server's state unchanged; and where a signing identity
+     is configured, a mesh anchor whose signature does not
+     verify (the same heads anchored by a different enrolled
+     identity, case 11) makes the consultation refuse under
+     reason `anchor_signature_invalid` - in the sync result
+     and as /health's `mesh_anchor_status` - until a
+     genuinely signed anchor is restored, after which the
+     honest-growth lifecycle above proceeds under its own
+     names (`anchor_stale`, then acceptance after the
+     same-signer re-anchor).
+   - A configured mesh anchor that cannot be read refuses in
+     shape, never by dropping the connection (experiment
+     025's discipline, and the lesson of experiment 020's
+     finding F2): /health still answers, reporting
+     `mesh_anchor_status` "anchor_unreadable" (case 8's
+     divergence reason for the same condition), and a mesh
+     receive returns the existing SyncResult shape with
+     divergence_detected true, rolled_back true, reason
+     `anchor_unreadable`, the node's state unchanged;
+     restoring the anchor file restores normal consultation.
+     This is the one wire adaptation this case makes to case
+     8's in-process behavior, which raises after rolling
+     back; it is stated here, not hidden.
+   - Servers started without a mesh anchor behave exactly as
+     today: /health reports `mesh_anchor_configured` false
+     and `mesh_anchor_status` "no_anchor", sync is case
+     4/7's plain sync, and the registry-side behavior of
+     cases 10-14 (the startup gate, the live reload, the
+     wire delivery) is untouched - proven by the unmodified
+     earlier suites in the same run. The consultation is
+     proven over experiment 007's plaintext transport and
+     over experiment 014's protected (mutual TLS) transport,
+     the protected leg with a signed mesh anchor and its
+     signing identity configured.
+   Status: implemented at prototype scale in experiment
+   026 (`experiments/026-mesh-anchor-wire/`); the case was
+   written before the build. Tests:
+   `packages/synchronization/test_mesh_anchor_wire.py`
+   (honest convergence onto exactly the anchored state
+   after a `--mesh-anchor` restart, with the at-rest
+   `anchor_mismatch` classification stated; a rewritten
+   peer process flagged `anchor_mismatch` over /sync with
+   the anchored server's state unchanged, and accepted by
+   a mesh-anchorless server as the stated control; honest
+   growth `anchor_stale` until re-anchored; an entry
+   edited in transit refused as `tampered_entry`; a
+   differently-signed mesh anchor refused as
+   `anchor_signature_invalid` until the genuine signed
+   anchor is restored, then `anchor_stale` and the
+   same-signer re-anchor; an unreadable mesh anchor
+   refused in shape as `anchor_unreadable` with /health
+   answering; the rewritten-then-honest flow over mutual
+   TLS with a signed mesh anchor).
