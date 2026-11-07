@@ -1190,3 +1190,247 @@
    check alone, named anchor_witness_invalid; the same for
    the mesh anchor; no witness configured judges exactly as
    case 10).
+19. One server pushes its record AND its anchor to a peer,
+   the pair judged together at the peer (added 2026-11-06,
+   experiment 030): case 16 gave a server a push for the
+   record alone and stated its limit in the same breath -
+   the push transports the record, not the anchor, so a
+   push to a peer whose anchor has not advanced refuses
+   `anchor_stale` at that peer, and completing the
+   lifecycle there is an out-of-band act no push performs.
+   Case 17 then gave a running server a surface that
+   RECEIVES its anchor over the wire, alone or paired with
+   the record it blesses - but the driving end of that
+   surface is a credential-holding client: no `/push-anchor`
+   exists, and no server sends its own anchor onward. The
+   two halves of a peer's currency therefore still cannot
+   travel together from the one kind of process that holds
+   both. This case closes the sender's half: a running
+   server gains a driven paired push, and ONE push brings a
+   peer fully current - record and anchor together, the
+   pair judged together at the peer under case 17's whole
+   discipline, neither half applied unless both stand.
+   - The surface: `POST /push-anchor` on the pushing
+     server, with payload `{"peer": "<base URL>"}` - case
+     16's `/push-snapshot` shape exactly, because the paired
+     push is that push's anchor-carrying sibling: one server
+     initiating contact with a peer process at a configured
+     address. It is driven by a new client helper
+     (`node_server.push_anchor`, returning the (status,
+     body) pair as `push_snapshot` does, because a push's
+     refusal can ride a non-200 status and the caller must
+     see its body).
+   - What is pushed: the entries the pushing server's
+     PolicyNode STANDS ON (case 16's rule - its loaded,
+     verified entries, never the snapshot file read around
+     the view), and the anchor object its own anchor file
+     holds, read from that file under the node's lock and
+     sent as the parsed anchor object, never as a path. For
+     the anchor the file IS the standing: the process's
+     PolicyNode consults that very file at startup and on
+     every reload, so the file and the standing agree by
+     construction, and a push sends the anchor this process
+     itself is judged by. A process whose anchor file
+     cannot be read or parsed at push time has nothing
+     honest to send: the push reports on HTTP 502 with
+     error `own anchor unreadable` in `/sync`'s refusal
+     family, and no contact with the peer is made.
+   - Where it lands: the peer's `POST /deliver-anchor`
+     (case 17) in its paired form, `{"anchor": {...},
+     "entries": [...]}` - the receiving side is case 17's
+     surface, UNMODIFIED, and its judgement is the push's
+     judgement: succession, the backward fence, signature
+     and kept history, the witness judgement of case 18
+     where the peer is witness-configured, and pairing,
+     all judged before anything changes, neither half
+     applied unless both stand. The sender re-derives no
+     verdict of its own, as case 16 set for the record.
+   - The report: on HTTP 200, `{"node_id", "peer",
+     "status", "delivery"}` in case 16's shape - `status`
+     equal to the peer's paired delivery status
+     (`delivered`, `delivery_refused`, `no_change`), the
+     peer's paired delivery report itself under `delivery`.
+     `/health` gains `last_anchor_push` (the last paired
+     push's response body - a 200 report or a 502 refusal
+     alike - or null before the first paired push is
+     driven), beside `last_snapshot_push`, so a paired
+     push's outcome is readable on the sender's health
+     surface without driving another one.
+   - The sender's own shapes, stated before the build: a
+     pushing process with no PolicyNode (a mesh-only
+     server) answers on 200 with status `no_snapshot` and
+     `delivery` null, as case 16's push does - it holds
+     neither half to push. A pushing process with a
+     PolicyNode but NO anchor configured pushes the record
+     only, to the peer's `/deliver-snapshot`: case 16's
+     push exactly - the same peer surface, the same report
+     shape, the peer judging under case 14's rules - with
+     the outcome recorded as this process's last anchor
+     push; the new surface adds nothing when there is no
+     anchor to carry.
+   - Refusals that never reach judgement mirror case 16's,
+     on HTTP 502 in `/sync`'s shape: with identity binding
+     on, the push first runs experiment 017's
+     initiating-side check on the peer, exactly as
+     `/push-snapshot` does; a peer whose transport refuses
+     the SENDER before the paired endpoint runs (experiment
+     017's accepting-side `identity_mismatch`, 403 naming
+     claimed and certified ids) is reported on 502 with
+     those ids carried through; an unreachable peer is the
+     third 502, in `/sync`'s wording.
+   - The end-to-end story, over two running plaintext
+     servers, each started over copies of the same record
+     consulting its own anchor file, the anchors SIGNED by
+     the same enrolled identity (experiment 019) with each
+     server configured for that signer: the author revokes;
+     the anchor lifecycle is followed for server A alone
+     (A's anchor re-written over the grown record by the
+     same signer), and the grown record plus its new anchor
+     reach A through A's own accepted case 17 paired
+     delivery - A flips to case 12's clean 410 while B
+     still serves the revoked policy (the stale window, on
+     B). The control, in the same setup: a record-only push
+     (`/push-snapshot`, case 16) from A to B reports
+     `delivery_refused` with reason `anchor_stale` - B's
+     anchor still stands over the old head, and the record
+     alone cannot advance it; B's files and serving are
+     unchanged. Then ONE driven paired push from A brings B
+     fully current: the push reports `delivered` with the
+     peer's paired report (its snapshot half `delivered`,
+     loaded count the grown count); B - never restarted,
+     neither of its files touched by a hand - ends with a
+     snapshot file byte-for-byte the delivered record AND
+     an anchor file byte-for-byte the anchor A sent (which
+     is byte-for-byte A's own anchor file, the anchor file
+     format being one serialization); B answers the revoked
+     policy with case 12's 410 and the non-revoked policy
+     with 200 and its exact bytes; A's `/health` records
+     the push as its last anchor push with status
+     `delivered`, and B's `/health` records the paired
+     delivery as its last anchor delivery.
+   - No-change, as a pair: a second paired push to a peer
+     already standing on the identical record under the
+     identical anchor reports `no_change` - case 17's
+     pre-judgement reduces the identical record half to the
+     anchor-alone judgement and the byte-identical anchor
+     is `no_change` there - and rewrites NEITHER of the
+     peer's files: not an error, not a rewrite of either
+     half.
+   - Succession across servers, reported in the push
+     result: a pushing server whose anchor is signed by a
+     DIFFERENT identity than the signer of the peer's
+     current anchor (the sender started over its own
+     anchor, signed by that other identity over the same
+     genuine record, configured for that signer) pushes its
+     pair; the peer judges the record half identical and
+     the anchor half at succession: the push reports
+     `delivery_refused` with reason `different_signer`,
+     the refusal is audit-logged beside the peer's anchor
+     in case 10's shape (by case 17's code, unmodified),
+     and the peer's snapshot file, anchor file, and serving
+     are unchanged.
+   - The backward fence across servers, reported in the
+     push result: the peer's anchor is a LATER version over
+     the SAME head as the sender's (the peer's anchor file
+     re-written once more over the standing record - a
+     refreshed anchor, delivered to the peer alone under
+     case 17 and accepted - while the sender still holds
+     the earlier version of that same anchor lineage); the
+     sender pushes its pair (the record half identical to
+     the peer's standing chain); the push reports
+     `delivery_refused` with reason `anchor_regression` -
+     the delivered anchor's kept history is a proper prefix
+     of the peer's current anchor's - and the peer's anchor
+     file (still the later version), snapshot file, and
+     serving are unchanged.
+   - The witness fence across servers, reported in the
+     push result (case 18's discipline, carried): the peer
+     is witness-configured (its anchors signed by the
+     record's signer and countersigned by the configured
+     witness), the sender is NOT witness-configured and its
+     anchors are signer-alone. The sender advances under
+     its own configuration (the revocation's pair delivered
+     to the sender and accepted there, its anchor
+     signer-alone over the grown record), then pushes its
+     pair: the push reports `delivery_refused` with reason
+     `anchor_witness_invalid` - the sender's anchor carries
+     no countersignature the peer's configuration accepts -
+     and the peer's snapshot file, anchor file, and serving
+     are unchanged. Once the sender's anchor over the same
+     grown head is countersigned by the configured witness
+     (the lifecycle completed at the SENDER, where it
+     belongs - a write at the sender's own anchor file),
+     the same paired push reports `delivered` and the peer
+     flips to case 12's refusal: a paired push transports a
+     completed lifecycle, it performs none at the peer.
+   - The full flow over experiment 014's protected
+     transport with experiment 017's identity binding on
+     and a signed anchor (as in case 16's protected leg):
+     server A accepts the revocation's paired delivery with
+     the same-signer lifecycle followed, then pushes its
+     pair to server B over HTTPS; the push reports
+     `delivered`, B's revoked policy refuses 410 over the
+     protected link, B's snapshot and anchor files are the
+     delivered pair, and both servers' `/health` surfaces
+     report the new standing (A's last anchor push, B's
+     last anchor delivery).
+   - The identity refusal across servers, at the transport,
+     exactly as in case 11 and case 16: a pushing server
+     started in experiment 014 mode (mutual TLS, binding
+     OFF) claiming a node id its certificate was NOT issued
+     for, and holding an anchor of its own so the paired
+     form is what it attempts, is driven to push to a peer
+     with binding on. The peer's accepting-side check
+     refuses the pushing server's connection before case
+     17's endpoint runs: the push is reported on HTTP 502
+     with error `identity_mismatch`, naming the claimed id
+     and the certified id, and the peer never records an
+     anchor delivery - its snapshot file, anchor file, and
+     standing are unchanged.
+   - Servers on which the new surface is never driven
+     behave exactly as today: case 17's receiving surface,
+     case 16's push, case 14's delivery, case 13's check,
+     the startup gate, and the mesh surface are untouched,
+     proven by the unmodified earlier suites in the same
+     run.
+   The push is driven by a client call, as `/push-snapshot`
+   and `/sync` are: no timer, scheduler, gossip, or
+   discovery inside either server fires one unattended, and
+   nothing in this case solicits or retries one. The paired
+   push transports the sender's REGISTRY anchor only;
+   case 15's mesh anchor still arrives out of band. A
+   witness countersignature rides INSIDE the anchor object
+   itself (case 18), so a countersigned anchor travels
+   whole - but the push performs no lifecycle step for the
+   peer: succession, freshness, and countersignature are
+   the sender's completed facts, judged at the peer, never
+   manufactured by the transport. Status: implemented at
+   prototype scale in experiment 030
+   (`experiments/030-paired-push/`); the case was written
+   before the build. Tests:
+   `packages/synchronization/test_paired_push.py`
+   (the end-to-end story over two running plaintext
+   servers with signed anchors - case 17 paired delivery
+   to A, the record-only push refused `anchor_stale` at B
+   as the control, ONE paired push bringing B fully
+   current with both files byte-for-byte the sent pair,
+   410 over the wire, a second paired push the pair's
+   `no_change` rewriting neither file; succession across
+   servers - a sender whose anchor is signed by bob
+   refused `different_signer` in the push result,
+   audit-logged at the peer; the backward fence - an
+   earlier version of the peer's own anchor lineage
+   refused `anchor_regression`; the witness fence - a
+   signer-alone sender anchor refused
+   `anchor_witness_invalid` at the witness-configured
+   peer, delivered once the sender's anchor is
+   countersigned by the configured witness; the sender's
+   own shapes - no anchor configured pushes the record
+   alone through case 14's surface, a mesh-only sender
+   `no_snapshot`, an unreadable own anchor file 502
+   `own anchor unreadable` with the peer never contacted;
+   the full paired flow over mutual TLS with identity
+   binding and a signed anchor; a false-claiming paired
+   pusher refused at the binding peer's transport as
+   `identity_mismatch`, 502 naming claimed and certified,
+   the peer recording no anchor delivery).
