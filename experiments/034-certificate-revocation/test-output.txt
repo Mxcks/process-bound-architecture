@@ -1,0 +1,108 @@
+Experiment 034 - certificate revocation for the protected links
+Case: tests/test-cases/sync-mesh.md case 23 (written before the build)
+
+=== TESTS FIRST: new suite against the unbuilt code ===
+Command: python3 -m unittest discover -s packages/synchronization -p test_certificate_revocation.py
+Result: FAILED (errors=7) - every error the named absence (generate_revocation_credentials did not exist yet). Verbatim:
+
+EEEEEEE
+======================================================================
+ERROR: test_initiating_side_refuses_revoked_server_certificate (test_certificate_revocation.CertificateRevocationTests.test_initiating_side_refuses_revoked_server_certificate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_malformed_or_missing_crl_refuses_start (test_certificate_revocation.CertificateRevocationTests.test_malformed_or_missing_crl_refuses_start)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_reissued_certificate_for_same_node_id_still_works (test_certificate_revocation.CertificateRevocationTests.test_reissued_certificate_for_same_node_id_still_works)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_revoked_peer_refused_at_handshake_after_restart (test_certificate_revocation.CertificateRevocationTests.test_revoked_peer_refused_at_handshake_after_restart)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_server_without_crl_accepts_revoked_certificate (test_certificate_revocation.CertificateRevocationTests.test_server_without_crl_accepts_revoked_certificate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_stale_crl_enforces_exactly_its_list (test_certificate_revocation.CertificateRevocationTests.test_stale_crl_enforces_exactly_its_list)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+======================================================================
+ERROR: test_three_refusals_are_distinguishable (test_certificate_revocation.CertificateRevocationTests.test_three_refusals_are_distinguishable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_certificate_revocation.py", line 205, in setUp
+    self.creds = protected_link.generate_revocation_credentials(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'protected_link' has no attribute 'generate_revocation_credentials'. Did you mean: 'generate_test_credentials'?
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.005s
+
+FAILED (errors=7)
+
+=== AFTER THE BUILD: intermediate runs (recorded honestly) ===
+First built run: FAILED (failures=4) - three test-side defects (peer servers claiming a node id their certificate was not issued for, refused by 017's binding self-check at startup) and one finding (a refused handshake logs nothing server-side; naming evidence must come from the exchange).
+Second built run: FAILED (failures=3) in 117.270s - two test-side defects of the same families and the TLS 1.3 naming race (revoked alert vs bare EOF); the suite's handshake probe was moved to TLS 1.2, the links' floor, where the naming is deterministic.
+Full-suite confirmation re-run then caught the same race at the one naming assertion still reading the driven attempt's error text (test_stale_crl_enforces_exactly_its_list: '<urlopen error eof occurred in violation of protocol>' instead of the named alert); that assertion now uses the TLS 1.2 probe too. Final runs below are after that fix.
+
+=== FINAL: new suite ===
+----------------------------------------------------------------------
+Ran 7 tests in 39.991s
+
+OK
+
+=== FINAL: demo ===
+1. before revocation: net-a syncs with the server; server state: {'region': 'us-central'}
+2. after revocation: the same peer's sync is refused; server state still: {}
+   raw handshake with the revoked certificate: [SSL: SSLV3_ALERT_CERTIFICATE_REVOKED] sslv3 alert certificate revoked (_ssl.c:1000)
+   sibling net-b (not on the list) syncs fine; server state: {'tier': 'member'}
+3. renewed certificate for net-a (new serial): handshake OK
+4. malformed CRL: start refused rc=2, named crl_unreadable: True
+demo exit: 0
+
+=== FINAL: full regression (all packages, unmodified earlier suites) ===
+registration:    Ran 25 tests - OK
+policy-library:  Ran 42 tests - OK
+synchronization: Ran 139 tests in 144.491s - OK (includes the 7 new)
+validation:      Ran 22 tests - OK
+TOTAL: 228 tests, all passing
+
+=== EAI handoff check ===
+python3 scripts/verify-handoffs.py -> PASS: 3 EAI vectors recompute exactly.
+
+=== Leftover processes ===
+ps aux | grep node_server -> 0
