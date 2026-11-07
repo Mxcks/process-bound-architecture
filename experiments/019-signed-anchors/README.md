@@ -266,6 +266,17 @@ check, and the demo passed on the runs quoted in
   is therefore also an operator-level attack the prototype
   cannot distinguish from recovery. Who may establish a signer
   in the first place is ungoverned here, as case 10 states.
+  (Superseded in part by experiment 038: signer rotation IS
+  built at prototype scale - a rotation record signed by the
+  current signer and countersigned by the successor, carried
+  inside the anchor, judged before the signature judgement,
+  with the retired signer refused as anchor_signer_retired -
+  so anchor authority CAN transfer legitimately while the
+  current signer's secret is held. What stands: rotation
+  requires the current signer's signature, so the lost-secret
+  half of this limit is unchanged - a lost secret still has
+  no recovery - and who may establish a signer in the first
+  place is still ungoverned.)
 - The kept history lives inside the anchor file it audits, on
   the same stand-in terms as the anchor itself: one local file,
   one machine, writable by the same operator. Its chain makes
