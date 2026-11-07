@@ -46,6 +46,31 @@ POST /sync       -> {peer: "http://127.0.0.1:PORT"}: this process
                     merged entry list to the peer (POST /entries),
                     whose merge verifies them again on that side.
                     Both SyncResults are returned.
+POST /sync-all   -> {} (no payload): drive one sweep over
+                    this process's configured peer list
+                    (experiment 035): for each peer in the
+                    --peers list, in list order, this process
+                    runs exactly the per-peer sync POST /sync
+                    performs - one code path, two callers - and
+                    collects one result per peer, classified
+                    as "converged", "refused" (with the
+                    refusal's own name as "reason"),
+                    "unreachable", "transport_failed", or
+                    "self" (the entry naming this process's
+                    own bound address, skipped, no contact).
+                    One peer's outcome never stops the sweep.
+                    The response is always 200 - per-peer
+                    outcomes are the content, not transport
+                    errors - and carries the sweep's "status"
+                    ("no_peers" when the sweep has no peers to
+                    attempt, "converged" when every attempted
+                    peer converged, "partial" otherwise), the
+                    per-peer "results" in list order, and this
+                    process's state hash after the whole sweep.
+                    /health carries the last sweep's response
+                    body as last_sync_all, and reports the
+                    configured list itself as peers beside
+                    peers_configured.
 POST /check-snapshot
                  -> drive one snapshot check on this RUNNING
                     process (experiment 024): compare this
@@ -335,6 +360,20 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   under reason anchor_unreadable, and /health reports the
   same name - a refusal is a sync outcome, never a dropped
   connection.
+- A peer sweep (POST /sync-all, experiment 035) adds NO new
+  verification path: each peer in the configured list is
+  synced by the identical per-peer round POST /sync runs -
+  the same initiating-side identity check where binding is
+  on, the same verified pull, merge, and push-back, the same
+  anchored consultation on the mesh receives where a mesh
+  anchor is configured - so a sweep can refuse a peer under
+  exactly the names a hand-driven /sync refuses it with, and
+  the two surfaces cannot disagree about what one peer sync
+  does. The peer list itself is a startup fact, never wire
+  data: it is parsed and validated in main() before the
+  process serves, and a file that cannot be read, or a
+  content line that is not an http(s) base URL, refuses the
+  start as peers_unreadable.
 - Started with --tls-crl (experiment 034), the protected
   link ALSO enforces a certificate revocation list issued
   by the --tls-ca authority: the CRL is loaded into the
@@ -614,7 +653,19 @@ HONEST LIMITS (prototype, NOT production)
 - No discovery: peer addresses are configured by whoever starts the
   processes and whoever calls /sync. No gossip schedule, no peer
   list, no automatic re-sync: sync happens when a client or a /sync
-  call asks for it.
+  call asks for it. (Superseded in part by experiment 035: started
+  with --peers, the process holds a standing peer list - a
+  plain-text file, one base URL per line, read once at startup -
+  and a client can drive one sweep over it with POST /sync-all,
+  each peer synced through the same per-peer round /sync runs
+  and reported under its own outcome. The list is a startup fact,
+  not a discovery: editing the file is a restart act, no surface
+  delivers or receives a list, no membership is governed, and
+  there is still no gossip schedule and no automatic re-sync -
+  the sweep happens when a client drives it, as every surface in
+  this stack is driven. What changed is only who holds the
+  addresses: the node itself, from startup, instead of every
+  caller, every time.)
 - No persistence: mesh state lives in the server process's memory.
   Kill the process and its unreplicated entries are gone; what
   survives a kill is exactly what had already synced to another
@@ -948,6 +999,7 @@ class NetworkNode:
         mesh_anchor_witness: str | None = None,
         mesh_anchor_witness_secret_hex: str | None = None,
         mesh_state_path: str | Path | None = None,
+        peers: list[str] | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -1021,6 +1073,25 @@ class NetworkNode:
         self._mesh_state_persisted_hash: str | None = None
         if self.mesh_state_path is not None:
             self._load_mesh_state()
+        # Experiment 035: this process's standing peer list
+        # (sync-mesh case 24) - the parsed --peers file, handed
+        # in by main() already validated and normalized (see
+        # read_peer_list). None (the default) is experiments
+        # 007-034's world: the process knows no peers and /sync
+        # names every address at call time. A configured list
+        # is a startup fact: nothing here re-reads the file,
+        # and no surface delivers or receives a list.
+        self.peers: list[str] | None = (
+            list(peers) if peers is not None else None
+        )
+        # This process's own base URL as main() bound it
+        # (scheme from the TLS configuration, host and bound
+        # port): set by main() after the server is built, used
+        # by a sweep only to recognize a list entry naming this
+        # process itself. None until main() sets it; in-process
+        # constructions never set it and sweeps they drive do
+        # no self detection.
+        self.own_base_url: str | None = None
         self.snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path else None
         )
@@ -1103,6 +1174,11 @@ class NetworkNode:
         # 200 report or a 502 refusal alike - beside the
         # last mesh anchor delivery's.
         self.last_mesh_anchor_push: dict | None = None
+        # Experiment 035: the most recent peer-list sweep's
+        # response body (POST /sync-all) - the per-peer report,
+        # beside the last pushes'. None until the first sweep
+        # is driven.
+        self.last_sync_all: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -2520,6 +2596,24 @@ def request_sync(base_url: str, peer_url: str) -> dict:
     return body
 
 
+def request_sync_all(base_url: str) -> dict:
+    """Drive one peer-list sweep on the node at base_url
+    (experiment 035): the node syncs with each peer in its
+    configured --peers list, in list order, through the same
+    per-peer round request_sync drives for one peer, and this
+    returns the sweep's report dict: "status" ("no_peers",
+    "converged", or "partial"), one "results" entry per
+    configured peer (its outcome - "converged", "refused"
+    with the refusal's own name as "reason", "unreachable",
+    "transport_failed", or "self" - beside the two
+    SyncResults the round produced), and the node's state
+    hash after the whole sweep. The endpoint answers 200
+    always: per-peer outcomes are the content."""
+    status, body = post_json(base_url, "/sync-all", {})
+    assert status == 200, f"sync-all request failed: {status} {body}"
+    return body
+
+
 def check_snapshot(base_url: str) -> dict:
     """Drive one snapshot check on the RUNNING server at base_url
     (experiment 024): the server compares its own snapshot file's
@@ -2787,6 +2881,18 @@ def make_handler(node: NetworkNode):
                         # is configured).
                         "mesh_state_configured": node.mesh_state_path is not None,
                         "mesh_state_load": node.mesh_state_load,
+                        # Experiment 035: this process's
+                        # standing peer list (sync-mesh case
+                        # 24) - whether a --peers file was
+                        # configured at startup, and the
+                        # parsed list itself (null when
+                        # unconfigured). The list is reported
+                        # whole: /health is the operator's
+                        # standing surface and, at this
+                        # prototype's localhost scale, a peer
+                        # address is not a credential.
+                        "peers_configured": node.peers is not None,
+                        "peers": node.peers,
                         # Experiment 024: the running process's
                         # current registry standing - how many
                         # entries its PolicyNode serves from, and
@@ -2827,6 +2933,11 @@ def make_handler(node: NetworkNode):
                         # driven), beside the last mesh anchor
                         # delivery's.
                         "last_mesh_anchor_push": node.last_mesh_anchor_push,
+                        # Experiment 035: the last peer-list
+                        # sweep's report (its full response
+                        # body; None until the first sweep is
+                        # driven), beside the last pushes'.
+                        "last_sync_all": node.last_sync_all,
                     })
                 return
             if self.path == "/state":
@@ -2933,6 +3044,16 @@ def make_handler(node: NetworkNode):
                     self._send_json(400, {"error": "sync needs a peer base URL"})
                     return
                 self._sync_with_peer(peer)
+                return
+            if self.path == "/sync-all":
+                # Experiment 035: one caller-driven sweep over
+                # this process's configured peer list (see
+                # _sync_all_peers). The report is the response,
+                # per-peer outcomes included: a refused or
+                # unreachable peer is a sweep outcome, not a
+                # transport error, exactly as a divergence is a
+                # /entries outcome.
+                self._send_json(200, self._sync_all_peers())
                 return
             if self.path == "/check-snapshot":
                 # Experiment 024: one caller-driven snapshot check
@@ -3424,7 +3545,17 @@ def make_handler(node: NetworkNode):
                 "delivery": delivery,
             }))
 
-        def _sync_with_peer(self, peer: str) -> None:
+        def _sync_once(self, peer: str) -> tuple[int, dict]:
+            # One peer sync round (experiments 007/017): the
+            # initiating-side identity check where binding is on,
+            # the verified pull, merge, and push-back - returning
+            # (status, body) exactly as POST /sync answers them.
+            # Experiment 035 extracted this from _sync_with_peer
+            # unchanged so the peer-list sweep runs the identical
+            # round per peer: one code path, two callers, and the
+            # surfaces can never disagree about what one peer
+            # sync does.
+            #
             # Initiating-side identity check (experiment 017): with
             # binding on, the peer server's certificate id is
             # checked against the node id the peer claims in its
@@ -3439,23 +3570,20 @@ def make_handler(node: NetworkNode):
                         f"claimed={exc.claimed} certified={exc.certified}",
                         flush=True,
                     )
-                    self._send_json(502, {
+                    return 502, {
                         "error": "identity_mismatch",
                         "claimed": exc.claimed,
                         "certified": exc.certified,
                         "detail": str(exc),
-                    })
-                    return
+                    }
                 except (AssertionError, urllib.error.URLError, OSError) as exc:
-                    self._send_json(502, {"error": f"peer unreachable: {exc}"})
-                    return
+                    return 502, {"error": f"peer unreachable: {exc}"}
             # Pull: the peer's entries are untrusted data until this
             # node's receive_entries verifies them in the merge.
             try:
                 their_entries = fetch_entries(peer)
             except (AssertionError, urllib.error.URLError, OSError) as exc:
-                self._send_json(502, {"error": f"peer unreachable: {exc}"})
-                return
+                return 502, {"error": f"peer unreachable: {exc}"}
             with node.lock:
                 result_self = node.receive_mesh_entries(their_entries)
                 merged = node.sync_node.entries()
@@ -3463,16 +3591,141 @@ def make_handler(node: NetworkNode):
             try:
                 result_peer = push_entries(peer, merged)
             except (AssertionError, urllib.error.URLError, OSError) as exc:
-                self._send_json(502, {
+                return 502, {
                     "error": f"peer push failed: {exc}",
                     "self": result_self.to_dict(),
-                })
-                return
+                }
             with node.lock:
                 state_hash = node.sync_node.state_hash()
-            self._send_json(200, {
+            return 200, {
                 "self": result_self.to_dict(),
                 "peer": result_peer,
+                "state_hash": state_hash,
+            }
+
+        def _sync_with_peer(self, peer: str) -> None:
+            # POST /sync: one round, exactly experiments
+            # 007-034's surface; the round itself is _sync_once.
+            status, body = self._sync_once(peer)
+            self._send_json(status, body)
+
+        def _record_sync_all(self, body: dict) -> dict:
+            # Experiment 035: the sweep's response body is what
+            # /health carries as last_sync_all, beside the last
+            # pushes' - recorded under the node lock, as every
+            # last report is.
+            with node.lock:
+                node.last_sync_all = body
+            return body
+
+        @staticmethod
+        def _classify_sync_outcome(peer: str, status: int,
+                                   body: dict) -> dict:
+            # Experiment 035: classify one _sync_once round into
+            # the sweep's per-peer result vocabulary (sync-mesh
+            # case 24), carrying the round's own evidence beside
+            # the classification - both SyncResults on a completed
+            # round, the refusal's own name on a refused one, the
+            # transport error's own text on a failed one. Nothing
+            # is renamed: a divergence keeps the SyncResult's
+            # reason, an identity refusal keeps
+            # "identity_mismatch".
+            result = {
+                "peer": peer,
+                "outcome": None,
+                "reason": None,
+                "detail": None,
+                "self": None,
+                "peer_result": None,
+                "state_hash": None,
+            }
+            if status == 200:
+                result["self"] = body["self"]
+                result["peer_result"] = body["peer"]
+                result["state_hash"] = body["state_hash"]
+                for side in (body["self"], body["peer"]):
+                    if side["divergence_detected"]:
+                        result["outcome"] = "refused"
+                        result["reason"] = side["reason"]
+                        return result
+                result["outcome"] = "converged"
+                return result
+            error = str(body.get("error", ""))
+            result["detail"] = error
+            if error == "identity_mismatch":
+                result["outcome"] = "refused"
+                result["reason"] = "identity_mismatch"
+                result["detail"] = body.get("detail")
+                result["claimed"] = body.get("claimed")
+                result["certified"] = body.get("certified")
+            elif error.startswith("peer unreachable"):
+                result["outcome"] = "unreachable"
+            else:
+                # "peer push failed: ...": the round began - the
+                # pull stood, so the self SyncResult rides the
+                # result - and the push-back could not be
+                # delivered. A partial round, reported as one.
+                result["outcome"] = "transport_failed"
+                result["self"] = body.get("self")
+            return result
+
+        def _sync_all_peers(self) -> dict:
+            # Experiment 035 (sync-mesh case 24): one driven
+            # sweep over this process's configured peer list.
+            # Each configured peer, in list order, gets exactly
+            # the _sync_once round /sync performs; each outcome
+            # is classified and collected, and NO outcome stops
+            # the sweep - an unreachable or refusing peer is one
+            # result among the rest, which is the entire point
+            # of holding the list on the node. An entry naming
+            # this process's own bound address is skipped and
+            # reported as "self", with no contact made. The
+            # response is the report: status "no_peers" when
+            # the sweep has no peers to attempt (unconfigured,
+            # an empty list, or a list naming only this
+            # process), "converged" when every attempted peer
+            # converged, "partial" otherwise, plus this
+            # process's state hash after the whole sweep.
+            peers = node.peers
+            with node.lock:
+                state_hash = node.sync_node.state_hash()
+            if not peers:
+                return self._record_sync_all({
+                    "node_id": node.node_id,
+                    "status": "no_peers",
+                    "results": [],
+                    "state_hash": state_hash,
+                })
+            results = []
+            for peer in peers:
+                if (node.own_base_url is not None
+                        and peer == node.own_base_url):
+                    results.append({
+                        "peer": peer,
+                        "outcome": "self",
+                        "reason": None,
+                        "detail": None,
+                        "self": None,
+                        "peer_result": None,
+                        "state_hash": None,
+                    })
+                    continue
+                status, body = self._sync_once(peer)
+                results.append(
+                    self._classify_sync_outcome(peer, status, body))
+            attempted = [r for r in results if r["outcome"] != "self"]
+            if not attempted:
+                sweep_status = "no_peers"
+            elif all(r["outcome"] == "converged" for r in attempted):
+                sweep_status = "converged"
+            else:
+                sweep_status = "partial"
+            with node.lock:
+                state_hash = node.sync_node.state_hash()
+            return self._record_sync_all({
+                "node_id": node.node_id,
+                "status": sweep_status,
+                "results": results,
                 "state_hash": state_hash,
             })
 
@@ -3491,6 +3744,43 @@ def build_server(node: NetworkNode, host: str, port: int,
         # and there is no plaintext mode on this port.
         server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     return server
+
+
+def read_peer_list(path: str | Path) -> list[str]:
+    """Read and validate a --peers file (experiment 035,
+    sync-mesh case 24): plain text, one peer base URL per
+    line; blank lines and lines whose first non-space
+    character is '#' are ignored; a trailing slash is
+    stripped; an exact duplicate of an earlier line is
+    dropped after its first occurrence. Every remaining
+    line must be an http:// or https:// base URL with a
+    host. Raises ValueError naming peers_unreadable on an
+    unreadable file or a line that is not such a URL:
+    the process must never run believing it holds a peer
+    list it does not hold (the crl_unreadable /
+    mesh_state_unreadable discipline). Returns the parsed
+    list in file order."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(
+            f"peers_unreadable: peer list {path} cannot be read: {exc}"
+        ) from exc
+    peers: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        url = stripped.rstrip("/")
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                f"peers_unreadable: peer list {path} line {lineno} "
+                f"is not an http(s) base URL: {stripped!r}"
+            )
+        if url not in peers:
+            peers.append(url)
+    return peers
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -3594,6 +3884,23 @@ def main(argv: list[str] | None = None) -> int:
                              "first accepted change. Without it the "
                              "mesh state is process memory only, "
                              "exactly as experiments 007-032 left it")
+    parser.add_argument("--peers", default=None,
+                        help="path to a plain-text peer list for "
+                             "this process (experiment 035): one "
+                             "peer base URL per line, '#' comments "
+                             "and blank lines ignored, read once at "
+                             "startup. With it, /health reports the "
+                             "list and a client can drive one sweep "
+                             "over it with POST /sync-all, each peer "
+                             "synced through the same round /sync "
+                             "runs. The list is a startup fact: "
+                             "changing the file is a restart act, "
+                             "and no surface delivers one. A file "
+                             "that cannot be read, or a content line "
+                             "that is not an http(s) base URL, "
+                             "refuses the start as peers_unreadable. "
+                             "Without it the process knows no peers, "
+                             "exactly as experiments 007-034 left it")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -3699,6 +4006,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"{certified!r}; refusing to start"
             )
 
+    # Experiment 035: the peer list is parsed and validated
+    # here, before the process serves anything; a bad list
+    # refuses the start naming peers_unreadable, as a bad CRL
+    # refuses it naming crl_unreadable.
+    peer_list: list[str] | None = None
+    if args.peers:
+        try:
+            peer_list = read_peer_list(args.peers)
+        except ValueError as exc:
+            parser.error(str(exc))
+
     payloads: dict[str, bytes] = {}
     if args.payloads:
         raw = json.loads(Path(args.payloads).read_text(encoding="utf-8"))
@@ -3726,6 +4044,7 @@ def main(argv: list[str] | None = None) -> int:
         mesh_anchor_witness=args.mesh_anchor_witness,
         mesh_anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
         mesh_state_path=args.mesh_state,
+        peers=peer_list,
     )
     tls_context = None
     if all(tls_values):
@@ -3752,6 +4071,16 @@ def main(argv: list[str] | None = None) -> int:
                        node_id=args.node_id, crl=args.tls_crl)
     server = build_server(node, args.host, args.port, tls_context=tls_context)
     bound_port = server.server_address[1]
+    # Experiment 035: the process's own base URL as bound -
+    # scheme from the TLS configuration - recorded on the
+    # node so a peer-list sweep can recognize a list entry
+    # naming this process itself. The URL spelling is the
+    # one the operator was handed: the configured --host and
+    # the bound port.
+    node.own_base_url = (
+        f"{'https' if tls_context is not None else 'http'}"
+        f"://{args.host}:{bound_port}"
+    )
     if args.port_file:
         Path(args.port_file).write_text(str(bound_port), encoding="utf-8")
     print(f"LISTENING {bound_port}", flush=True)
