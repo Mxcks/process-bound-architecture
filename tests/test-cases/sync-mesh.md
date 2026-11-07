@@ -2850,3 +2850,109 @@
    counter advances at completion (the case's property
    - the count advanced past the refused cycles - is
    unchanged).
+26. Anchor signer rotation reaches the mesh anchor and the
+   wire: the registry rotation of registration case 12
+   travels, and the mesh anchor rotates under the same rule
+   (added 2026-11-06, experiment 038; gaps recorded in
+   experiments 019, 028, and 029: signer rotation was the
+   named open item on both anchor chains, and the wire
+   surfaces of cases 17, 19, and 20 judged succession on the
+   signer alone, so a successor's anchor - however legitimate
+   its rotation - was refused different_signer at every
+   running server): the mesh anchor (case 11) gains the same
+   rotation record as registration case 12, with the mesh
+   chain's effective point stated in its own terms - the
+   anchor history sequence of the successor's first entry,
+   with the state hash and entry count that entry anchors
+   (effective_state_hash, effective_entry_count) - the same
+   two-signature discipline (the current signer signs,
+   PBA-ANCHOR-ROTATE-v1 with the sync-mesh chain name inside
+   it; the successor countersigns accepting,
+   PBA-ANCHOR-ROTATE-ACCEPT-v1), the same refusal names
+   (anchor_signer_retired, anchor_rotation_signer_invalid,
+   anchor_rotation_invalid, anchor_rotation_mismatch), the
+   same judgement order (internal, rotation, signature,
+   witness, heads), and the same scope decisions: the witness
+   is not rotated by this mechanism, lost-secret recovery is
+   not built, and a verifier the rotation never reaches is
+   not rescued. An anchored sync node configured with the
+   lineage secrets (mesh_anchor_signer_secrets, beside its
+   signer and witness configuration, in the same opt-in
+   style) judges a rotated mesh anchor under that rule; with
+   no lineage configuration its judgement is exactly cases
+   11/18's.
+   On the wire, the rotation travels WITH the anchor material
+   it governs: the registry anchor object a delivery carries
+   (case 17's POST /deliver-anchor payload, case 19's
+   POST /push-anchor round) carries its rotations list as
+   part of the object experiment 012's reader parses - no new
+   endpoint, no side channel, no field a delivery can use to
+   install configuration. A server configured with the
+   anchor's lineage secrets (anchor_signer_secrets, an
+   identity-to-secret map, beside its signer and witness
+   configuration; a startup flag reads it from a file, as the
+   signer's secret is read) judges a delivery whose signer
+   differs from the anchor it holds by the rotation the
+   delivery carries: succession passes when the delivered
+   rotations extend the held anchor's rotations and chain
+   from the held anchor's current signer to the delivered
+   signer, and the rotation's own validity is then judged in
+   the signature step, under the rotation names - a delivery
+   whose rotation does not stand is refused under its
+   rotation name, not as different_signer and never applied.
+   A server with NO lineage configuration judges succession
+   exactly as case 17 did: a different signer's delivery is
+   different_signer, rotation or not - rotation is opt-in at
+   the server exactly as signing and witnessing are.
+   Once a server's anchor has rotated, the old signer is
+   retired there: a later delivery signed by a retired signer
+   in the held anchor's lineage is refused as
+   anchor_signer_retired, audit-logged beside the anchor in
+   case 10's event shape, ahead of the backward fence and the
+   signature judgement.
+   Experiment 028's finding, re-run under rotation at a
+   lineage-configured, witness-configured server (the
+   configuration of sync-mesh case 18): the server's anchor
+   first rotates legitimately from the original signer to the
+   successor (a paired delivery carrying the successor's
+   anchor and its rotation is accepted, the rotation recorded
+   in the server's anchor file); then (i) experiment 028's
+   rewrite pair signed by the OLD signer is refused as
+   anchor_signer_retired, neither file changed, the standing
+   view unchanged; (ii) the same rewrite signed by the NEW
+   signer WITHOUT the configured witness's countersignature
+   is refused as anchor_witness_invalid, exactly as case 18
+   judged the old signer's pair - rotation changed who signs,
+   not the witness rule; and (iii) the same rewrite signed by
+   the new signer WITH the configured witness's
+   countersignature is judged by the standing rules and
+   ACCEPTED, as case 18's third leg was: the fence after
+   rotation is the new signer's secret plus the witness's,
+   two custodies as before, and this case records that as the
+   result, not as a defect rotation was meant to repair.
+   A paired push (case 19) from a rotated server carries the
+   rotation to a lineage-configured peer in the same round:
+   the peer's anchor ends byte-for-byte the pushed anchor,
+   rotations included, and the peer then refuses the old
+   signer's deliveries as retired, as above. Backward
+   compatibility: with no lineage configuration anywhere,
+   every surface behaves exactly as cases 17-25 built, and
+   all earlier suites pass unmodified in the same run.
+   Secrets are generated inside the tests at runtime
+   (enrollment), never written to this repository. Status:
+   implemented at prototype scale in experiment 038
+   (`experiments/038-signer-rotation/`); the case was written
+   before the build, and the tests-first failure and the
+   passing results are recorded in that experiment's
+   `test-output.txt`. Tests:
+   `packages/synchronization/test_mesh_signer_rotation.py`
+   (the mesh rotation record and its check judgements:
+   segmented history verifies, pre-rotation state accepted,
+   retired signer refused, non-current rotation refused,
+   countersignature and effective-point refusals named) and
+   `packages/synchronization/test_signer_rotation_in_servers.py`
+   (the rotation delivered paired and accepted at a
+   lineage-configured server, refused as different_signer at
+   a server with no lineage configuration, the 028 finding
+   re-run in its three legs under rotation, and the paired
+   push carrying the rotation to a peer).
