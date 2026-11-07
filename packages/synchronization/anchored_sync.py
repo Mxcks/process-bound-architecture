@@ -95,7 +95,13 @@ HONEST LIMITS (prototype, NOT production)
   experiment 007/014 server processes do not construct anchored
   nodes, so networked sync does not consult a mesh anchor (their
   --anchor, added in experiment 018, consults the registry anchor
-  for their snapshot at startup instead). Since experiment 018
+  for their snapshot at startup instead). (Superseded in part
+  by experiment 026: a server started with --mesh-anchor DOES
+  construct an AnchoredSyncNode for its mesh side, so networked
+  sync between server processes consults a mesh anchor where
+  one is configured; a server started without the flag still
+  constructs a plain SyncNode, exactly as stated above.)
+  Since experiment 018
   the Gate 5 verdict DOES take anchor evidence into account when
   configured, and its mesh classification is this module's
   anchor_status(), reused by the harness.
