@@ -1,0 +1,160 @@
+{
+  "cleanup_own_alive": 0,
+  "convergence": {
+    "entries_payload_bytes": 337595,
+    "estimated_bytes_moved": 10803040,
+    "noop_sweep_at_origin_s": 0.088,
+    "noop_sweep_status": "converged",
+    "per_peer_sync_rounds": 16,
+    "per_round": [
+      {
+        "all_hashes_equal": true,
+        "peer_outcomes": [
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged",
+          "converged"
+        ],
+        "round": 1,
+        "wall_s": 1.212
+      }
+    ],
+    "rounds": 1,
+    "rss_kb_per_process": {
+      "srv0": 36748,
+      "srv1": 35660,
+      "srv2": 35632,
+      "srv3": 35580,
+      "srv4": 35620,
+      "srv5": 35816,
+      "srv6": 35756,
+      "srv7": 35536
+    },
+    "state_hash": "f7ab1f5a7ee205e771f4a65ec89a75d42a7ba2fd504de43cc5913e4c79af47d7",
+    "total_s": 1.237
+  },
+  "generation": {
+    "enroll_s": 0.004,
+    "payloads_file_bytes": 118900,
+    "per_registration": {
+      "count": 1000,
+      "max_ms": 61.569938,
+      "mean_ms": 3.083258663,
+      "median_ms": 2.7024955,
+      "min_ms": 0.114842,
+      "p95_ms": 4.933254
+    },
+    "phase_total_s": 3.213,
+    "register_total_s": 3.086,
+    "registry_file_bytes": 492340,
+    "users": 200
+  },
+  "kill_restart": {
+    "post_restart_sweep_round_s": 0.784,
+    "recovered_entries": 1000,
+    "restart_s": 0.206,
+    "victim": "srv3"
+  },
+  "machine": {
+    "cpus": 4,
+    "loadavg_at_start": [
+      2.71,
+      5.01,
+      5.45
+    ],
+    "platform": "Linux-7.0.0-43-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "mesh_entries_target": 1000,
+  "node_server_processes_after": 0,
+  "origination": {
+    "entries": 1000,
+    "first20_median_ms": 18.965156,
+    "last20_median_ms": 69.7210355,
+    "per_mutate": {
+      "count": 1000,
+      "max_ms": 207.454378,
+      "mean_ms": 44.436071176,
+      "median_ms": 39.718590500000005,
+      "min_ms": 13.518197,
+      "p95_ms": 81.682561
+    },
+    "total_s": 44.44
+  },
+  "outcome": "completed",
+  "policies_completed": 1000,
+  "policies_target": 1000,
+  "processes": 8,
+  "revocation": {
+    "control_policy_hash": "079a94fd6ac68c35b08a476af818cedfec7992088c41c683bbd46839510f7f28",
+    "final_check": "410 policy_revoked at all 8 processes; control serves exactly at all",
+    "per_push_s": [
+      0.09,
+      0.101,
+      0.096,
+      0.092,
+      0.093,
+      0.091,
+      0.092
+    ],
+    "push_chain": [
+      "srv0->srv1",
+      "srv1->srv2",
+      "srv2->srv3",
+      "srv3->srv4",
+      "srv4->srv5",
+      "srv5->srv6",
+      "srv6->srv7"
+    ],
+    "push_total_s": 0.655,
+    "revoked_policy_hash": "38743a0f80bd54f06af0093545cf475abd90d153de3b5c158e10ab002706b892"
+  },
+  "rung": 1,
+  "serving": {
+    "control_from_origin": {
+      "count": 20,
+      "max_ms": 1.185358,
+      "mean_ms": 0.74293025,
+      "median_ms": 0.6644220000000001,
+      "min_ms": 0.573841,
+      "p95_ms": 1.185358
+    },
+    "from_other_processes": {
+      "count": 80,
+      "max_ms": 23.229771,
+      "mean_ms": 1.4946821125,
+      "median_ms": 1.1502265,
+      "min_ms": 0.632329,
+      "p95_ms": 2.364748
+    },
+    "samples_control": 20,
+    "samples_other": 80
+  },
+  "startup": {
+    "max_s": 0.259,
+    "per_process_s": [
+      0.24,
+      0.259,
+      0.205,
+      0.205,
+      0.204,
+      0.217,
+      0.205,
+      0.207
+    ],
+    "total_sequential_s": 1.742
+  },
+  "total_s": 52.797
+}
