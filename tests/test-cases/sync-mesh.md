@@ -2263,3 +2263,190 @@
    no-rewrite control, the three load refusals, the
    anchor gate on recovery in all three standings, and
    the no-flag memory-only control).
+23. A certificate on a protected link can be revoked,
+   and the revocation is enforced at the handshake
+   (added 2026-11-06, experiment 034): cases 8 and 9
+   gave the networked transport its protected form -
+   mutual TLS (case 8, experiment 014), where a peer
+   with no credential or a credential from a rogue
+   authority cannot complete the handshake, and
+   certificate-to-node-id binding (case 9, experiment
+   017), where a credentialed peer claiming an id its
+   certificate was not issued for is refused after the
+   handshake with a stated `identity_mismatch`. Both
+   experiments stated the same remaining gap in their
+   honest limits: there is no revocation. A certificate
+   the CA issued keeps working until it expires - three
+   days for the throwaway test certificates - however
+   badly its holder misbehaves or however surely its
+   key is compromised; nothing in the transport can cut
+   one certificate off while leaving its siblings
+   standing. This case adds that cut: a certificate
+   revocation list (CRL), issued by the same CA,
+   naming revoked certificates by serial number, that
+   a process is started with and that the TLS
+   handshake itself then enforces.
+   - The surface: one more startup flag beside the
+     protected-link flags, `--tls-crl <path>` - the
+     path to a PEM CRL file issued by the CA named by
+     `--tls-ca`. It requires the TLS arguments
+     (`--tls-cert`, `--tls-key`, `--tls-ca`): a CRL
+     without a protected link is a configuration error,
+     refused at argument parsing in the style of the
+     existing flag rules. There is no new endpoint and
+     no wire surface: the CRL is an operator-supplied
+     startup fact, loaded into the process's TLS
+     verification at start, exactly as the mesh state
+     file's anchor gate (case 22) made a recovered
+     state a startup judgement.
+   - The mechanism, named because the standard
+     library forces it: `ssl` carries CRL enforcement
+     as a verification flag, `VERIFY_CRL_CHECK_LEAF`,
+     with the CRL itself loaded into the same verify
+     store as the CA (`load_verify_locations`). Both
+     context builders in `protected_link.py` -
+     `server_context` (the accepting side) and
+     `client_context` (the initiating side) - gain the
+     same optional CRL argument, and a server process
+     passes its CRL to both: the server context that
+     accepts peers, and the client context the process
+     itself initiates with (the `set_client_tls` path
+     `/sync` rides), so one flag governs both
+     directions of that process's links. The check is
+     the leaf check the flag names: the peer's own
+     certificate is checked against the list; the CA's
+     certificate is self-signed and is not itself a
+     list entry.
+   - The CRL names serials, not node ids, and the case
+     states what follows plainly: revoking a
+     certificate cuts off THAT certificate. A new
+     certificate issued by the same CA for the same
+     node id, with a new serial the list does not name,
+     still completes the handshake and works - the
+     revocation is of a credential, not of an identity,
+     and re-issuance is the CA operator's separate act.
+   - The end-to-end story over running server
+     processes: a peer presenting a valid certificate,
+     with binding on and its claim matching its
+     certificate, syncs and is served exactly as in
+     cases 8/9 BEFORE any revocation. The accepting
+     server is then restarted with a CRL that revokes
+     that peer's certificate (the lifecycle completed
+     at the CA: the certificate revoked in the CA's
+     own records and a CRL issued naming its serial).
+     The same presentation is now refused AT THE
+     HANDSHAKE: no endpoint runs, no HTTP answer of
+     any status is returned, and the refusal is named
+     `certificate revoked` in the evidence - the alert
+     the accepting side returns when it kills the
+     handshake (`sslv3 alert certificate revoked`; the
+     accepting process logs nothing for a refused
+     handshake, so the name lives in the exchange, not
+     in a log, and the suite reads it with a raw
+     handshake probe at TLS 1.2, the links' floor,
+     because under TLS 1.3 the same refusal can surface
+     on the first read as a bare EOF, which names
+     nothing - the refusal is identical in both
+     versions, only its readability differs). A sibling peer whose
+     certificate the CRL does not name keeps working
+     against the same restarted server, unchanged.
+   - Three doors, three refusals, asserted separately
+     in the same suite, because a revocation nobody
+     can tell apart from the older refusals has not
+     been shown to be a revocation: (a) the revoked
+     certificate fails the handshake with the refusal
+     named `certificate revoked`, as above; (b) a
+     rogue-CA credential fails the handshake as it did
+     in case 8 - the CLIENT's verification of the
+     server is fine, but the accepting side cannot
+     verify the rogue credential against its CA, and
+     the failure does NOT name a revocation; (c) a
+     valid, unrevoked certificate claiming an id it
+     was not issued for completes the handshake and is
+     refused over HTTP 403 as `identity_mismatch`, as
+     in case 9 - the handshake succeeding there is
+     itself part of the assertion, the three refusals
+     living at three different layers.
+   - The initiating direction: revocation is enforced
+     against a SERVER's certificate by the side that
+     connects out. A client context (and, in the
+     server-to-server form, a peer process initiating
+     `/sync`) configured with a CRL naming the server
+     process's certificate refuses that server at the
+     handshake when IT connects: the refusal names
+     `certificate revoked` on the initiating side, and
+     no state moves in either process. The same
+     initiating side, configured with a CRL that does
+     not name the server's certificate, connects and
+     syncs normally.
+   - A stale CRL enforces exactly its own list: a CRL
+     issued BEFORE a second certificate was revoked
+     names only the first; a server started with that
+     earlier CRL refuses the first certificate and
+     still accepts the second, and only the server
+     started with the later CRL refuses both. A CRL is
+     a signed statement by the CA as of its issue
+     time, and this case claims no freshness for it
+     beyond that - the list a process enforces is the
+     list it was handed at start.
+   - Updating the CRL is an operator act at start
+     time: a running process does not re-read the
+     file; a new list takes effect when the process is
+     restarted with it (the story above restarts for
+     exactly this reason). No endpoint delivers a CRL,
+     no push carries one, and nothing solicits one -
+     stated as the limit, mirroring case 22's startup
+     posture for the anchor gate.
+   - A malformed CRL refuses the start, under a name:
+     a `--tls-crl` path that does not exist, or whose
+     contents carry no parseable CRL, exits the
+     process nonzero at startup naming
+     `crl_unreadable`, before anything is served. A
+     process must never run believing it enforces
+     revocations it does not hold - the failure shape
+     this case refuses is the silent one, revocation
+     checking configured but absent, which is worse
+     than no revocation at all. (The name keeps the
+     family shape: `anchor_unreadable` in case 15,
+     `mesh_state_unreadable` in case 22.)
+   - Processes started without `--tls-crl` behave
+     exactly as today: case 8's and case 9's suites,
+     unmodified, are the proof, in the same run - the
+     CRL argument to both context builders defaults to
+     none, the verification flag is never set, and a
+     certificate a CRL somewhere names still works
+     against a process that was never handed the list.
+   The CRL's own provenance in the tests is fixture
+   machinery, stated as such: the protected fixtures
+   have always issued certificates with one-shot
+   `openssl x509 -req` calls, which keep no record a
+   revocation could be entered into. The smallest
+   extension that can revoke is a CA that keeps its
+   own books - an `openssl ca` database (index,
+   serial, CRL number) living in the test's temporary
+   directory - issuing the same certificates (same
+   SANs, same usages, issued FOR the same node ids)
+   and able to revoke one by serial and issue a CRL
+   over the revocations it has recorded. That
+   machinery lives beside `generate_test_credentials`
+   in `protected_link.py`, where the test-credential
+   generation has always lived; it is test-time
+   tooling on the same terms - everything generated at
+   runtime into a temporary directory, nothing read
+   from the repository, no key or CRL file committed.
+   Status: implemented at prototype scale in experiment
+   034 (the `--tls-crl` startup flag selecting the
+   issued CRL; `VERIFY_CRL_CHECK_LEAF` checking in both
+   `server_context` and `client_context`; revocation
+   enforced at the handshake in both directions over
+   running server processes, the revoked refusal named
+   in the handshake alert and kept distinct from 017's
+   `identity_mismatch` and 014's rogue-CA refusal; a
+   stale CRL enforcing exactly its list; re-issuance by
+   serial working; a malformed or missing CRL refusing
+   the start as `crl_unreadable`; no-CRL behavior
+   unchanged; the fixture CA's bookkeeping - `openssl
+   ca` database, revocation by serial, CRL issuance -
+   in `generate_revocation_credentials` beside the
+   one-shot fixtures). Tests:
+   `packages/synchronization/test_certificate_revocation.py`.
