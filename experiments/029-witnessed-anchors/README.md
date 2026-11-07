@@ -256,6 +256,17 @@ at any point.
   unavailable at re-anchor time (the write simply cannot be
   countersigned, and a witness-configured point then
   refuses the new anchor until one is).
+  (Experiment 038 confirms this limit's scope decision:
+  signer rotation is built, and it deliberately does NOT
+  rotate the witness - the witness is operator configuration,
+  never part of any anchor, delivery, or record, so witness
+  rotation is a separate record type and configuration act,
+  still unbuilt. What 038 did prove about the witness:
+  rotation changes nothing about its requirement - the
+  successor's anchors need the configured witness's
+  countersignature exactly as before, and experiment 028's
+  rewrite pair signed by the NEW signer without it is
+  refused as anchor_witness_invalid.)
 - The anchor is still a local stand-in file, unsigned and
   unwitnessed by anything outside this repo's own machinery:
   no external witness service, no public append-only log,
@@ -297,8 +308,9 @@ secrets only) - a design question about what enrollment
 MEANS, not a plumbing step, so it is recorded here as the
 open item rather than built past. Behind it stand the
 recorded gaps unchanged: a witnessed or external anchor
-service beyond the local file, signer and witness rotation
-and lost-secret recovery, anchor distribution beyond wire
+service beyond the local file, witness rotation
+and lost-secret recovery (signer rotation itself landed in
+experiment 038, after this list was written), anchor distribution beyond wire
 delivery, certificate revocation and lifecycle, node
 discovery, unattended drivers for the driven surfaces, mesh
 state persistence, real multi-machine deployment, the
