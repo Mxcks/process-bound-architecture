@@ -602,3 +602,176 @@
    refused in shape as `anchor_unreadable` with /health
    answering; the rewritten-then-honest flow over mutual
    TLS with a signed mesh anchor).
+16. One server pushes its standing record to another server
+   (added 2026-11-06, experiment 027): case 14 gave a running
+   server a wire delivery surface - `POST /deliver-snapshot`,
+   judged exactly as strictly as a file delivery - and
+   stated its remaining limit in the same breath: the
+   pushing peer in every case 14 test is a credential-
+   holding node CLIENT driving the client helpers; no server
+   process ever pushes its standing record to another
+   server, so two running servers cannot bring each other
+   current on the registry side even though their mesh sides
+   have synced since case 4. This case closes that gap with
+   the smallest addition that composes with what exists:
+   the RECEIVING side is case 14's surface, unmodified, and
+   the sending side is one new driven endpoint on the
+   pushing server, in the exact style of case 4's `/sync`.
+   A node server exposes `POST /push-snapshot` with payload
+   `{"peer": "<base URL>"}`, driven by a new client helper
+   (`push_snapshot`, in the style of `request_sync`, returning
+   the (status, body) pair as `fetch_policy` does, because a
+   push's refusal can ride a non-200 status and the caller
+   must see its body). Driven on a running server, the push:
+   - sends the entries of the record the pushing server's
+     PolicyNode STANDS ON (its loaded, verified entries -
+     what it serves from, which cases 13/14 keep in step
+     with its snapshot file) to the peer's case 14
+     `POST /deliver-snapshot`, over the same transport the
+     pushing process serves on (its client helpers present
+     its own credential and claim its own node id, as its
+     `/sync` initiation already does);
+   - returns, on HTTP 200, a report carrying the pushing
+     server's node id, the peer URL, `status` equal to the
+     peer's delivery status (case 14's vocabulary:
+     `delivered`, `delivery_refused`, `no_change`,
+     `no_snapshot`), and the peer's delivery report itself
+     under `delivery` - the peer judges the push, and its
+     report, refusals included, is the push's result, not a
+     verdict the sender re-derives;
+   - records the push's outcome on the pushing server's
+     `/health` as `last_snapshot_push`, beside case 13's
+     `last_snapshot_check` and case 14's
+     `last_snapshot_delivery` (null until the first push is
+     driven);
+   - answers a pushing server with no PolicyNode (a
+     mesh-only server) on HTTP 200 with status `no_snapshot`
+     and `delivery` null - there is no record to push - and
+     is otherwise undisturbed;
+   - refuses in `/sync`'s shape when the push cannot reach
+     judgement: a peer that cannot be reached, or a peer
+     whose transport refuses the pushing server before case
+     14's endpoint runs, is reported on HTTP 502 with an
+     `error` naming the refusal - over experiment 017's
+     binding transport, `identity_mismatch` with the
+     `claimed` and `certified` ids, so a transport refusal
+     is named in the push result, never hidden behind a
+     generic failure. With identity binding on, the pushing
+     server also runs case 11's initiating-side check on
+     the peer (its certificate id against the id it claims)
+     before anything is pushed, exactly as its `/sync`
+     initiation does.
+   Expected:
+   - The end-to-end story, over two running server
+     processes on experiment 007's plaintext transport: both
+     start over copies of the same 2-entry record with an
+     anchor over it (each server consults its own anchor
+     file; the anchor lifecycle below is performed for both,
+     as out-of-band anchor delivery would reach both). The
+     author revokes (registration case 6) and the lifecycle
+     is followed (the grown head re-anchored); the grown
+     record reaches server A through A's own accepted case
+     14 delivery (reports `delivered`). A push from A to B
+     is then driven: the push reports `delivered` with the
+     peer's report (counts 2 -> 3, head moved, loaded 3);
+     B - never restarted, its snapshot file never copied by
+     hand anywhere in the story - now answers a request for
+     the revoked policy with case 12's clean refusal (410,
+     `policy_revoked`), a policy that was NOT revoked keeps
+     serving with 200 and its exact bytes, B's snapshot file
+     is byte-for-byte the delivered record, B's `/health`
+     reports the loaded count 3 and the `delivered` last
+     delivery, and A's `/health` carries the push as its
+     last push. The same two processes' mesh surface is
+     undisturbed: a mutation on A still converges to B
+     through case 4's `/sync`.
+   - A push to a peer that already stands on the identical
+     record is case 14's `no_change`, not an error and not
+     a rewrite: the push reports `no_change` with the peer
+     report's `loaded_entries` null, and the peer's snapshot
+     file is byte-for-byte unwritten.
+   - A push that would move the peer BACKWARD is refused
+     under case 14's backward name, reported in the push
+     result: server B is brought ahead of A (a further
+     growth delivered to B alone through B's own case 14
+     delivery, lifecycle followed), and A's push of its
+     older record - exactly an earlier prefix of the chain
+     B stands on - reports `delivery_refused` with reason
+     `snapshot_regression`; B's file, view, and standing are
+     unchanged (its loaded count stays ahead, the later
+     record still stands), and A is unchanged.
+   - A push of a record whose anchor lifecycle the peer
+     cannot accept is refused under the lifecycle's own
+     name, reported in the push result: the grown record
+     reaches A (A's anchor advanced, A's case 14 delivery
+     accepted), but the peer's anchor still stands over the
+     old head, so A's push reports `delivery_refused` with
+     reason `anchor_stale`; the peer's file and view are
+     unchanged (the stale window on the peer, stated: it
+     still serves the policy whose revocation it has not
+     accepted). Once the lifecycle is completed for the peer
+     (its anchor advanced over the grown head), the same
+     push delivers and the peer flips to case 12's refusal.
+   - A peer with no anchor cannot launder a rewrite through
+     a push either - and an unanchored server cannot spread
+     one to an anchored peer: a server started WITHOUT
+     `--anchor` accepts experiment 012's rewritten record
+     through its own case 14 delivery (no consultation: the
+     acceptance case 5/8 state plainly for anchorless
+     nodes), then pushes it to a peer whose anchor pins the
+     genuine chain; the push reports `delivery_refused`
+     with reason `anchor_mismatch`, and the anchored peer's
+     file, view, and standing are unchanged.
+   - The full flow over experiment 014's protected transport
+     with experiment 017's identity binding on and a signed
+     anchor (as in case 14's protected leg): server A (its
+     certificate issued for its own node id, binding on)
+     accepts the revocation delivery with the same-signer
+     lifecycle followed, then pushes to server B over HTTPS;
+     the push reports `delivered`, B's revoked policy
+     refuses 410 over the protected link, B's file is the
+     delivered record, and B's `/health` reports the new
+     standing.
+   - The identity refusal across servers, at the transport,
+     exactly as in case 11: a pushing server started in
+     experiment 014 mode (mutual TLS, binding OFF) claiming
+     a node id its certificate was NOT issued for - the
+     false-claiming process case 11's notes describe - is
+     driven to push to a peer with binding on. The peer's
+     accepting-side check refuses the pushing server's
+     connection before case 14's endpoint runs: the push is
+     reported on HTTP 502 with error `identity_mismatch`,
+     naming the claimed id (what the pushing process claims)
+     and the certified id (what its certificate was issued
+     for), and the peer's file, view, and standing are
+     unchanged - it never even records a delivery.
+   - Servers on which the new surface is never driven behave
+     exactly as today: case 14's delivery, case 13's check,
+     the startup gate, and the mesh surface are untouched,
+     proven by the unmodified earlier suites in the same
+     run.
+   The push is driven by a client call, as `/sync` is: no
+   timer, scheduler, gossip, or discovery inside either
+   server fires one unattended, and this case transports the
+   record, not the anchor - each peer's anchor still arrives
+   out of band, and the lifecycle steps above are performed
+   per server, as anchor delivery would reach each. Status:
+   implemented at prototype scale in experiment 027
+   (`experiments/027-server-to-server-delivery/`); the case
+   was written before the build. Tests:
+   `packages/synchronization/test_server_to_server_delivery.py`
+   (the end-to-end story over two running plaintext servers -
+   case 14 delivery to A, one driven push to B, 410 over the
+   wire, B's file byte-for-byte the delivered record, the
+   mesh sync undisturbed, a second push `no_change`; a
+   backward push to an ahead peer refused as
+   `snapshot_regression` in the push result; a push refused
+   as `anchor_stale` while the peer's anchor stands over the
+   old head, delivered once the lifecycle completes for the
+   peer; an anchorless sender's rewrite refused by the
+   anchored peer as `anchor_mismatch`; a mesh-only sender
+   reporting `no_snapshot`; the full flow over mutual TLS
+   with identity binding and a signed anchor; a
+   false-claiming pusher refused at the binding peer's
+   transport as `identity_mismatch`, 502 naming claimed and
+   certified, the peer recording no delivery).
