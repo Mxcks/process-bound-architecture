@@ -135,6 +135,7 @@ from policy_node import (  # noqa: E402
     AnchorMismatch,
     AnchorSignatureInvalid,
     AnchorStale,
+    AnchorWitnessInvalid,
     PolicyNode,
     verify_registry_snapshot,
 )
@@ -552,7 +553,8 @@ class Gate5Harness:
     # -- anchor evidence (experiment 018) --------------------------------------
 
     def _registry_anchor_check(self, anchor_path, signer=None,
-                               secret_hex=None) -> GateCheck:
+                               secret_hex=None, witness=None,
+                               witness_secret_hex=None) -> GateCheck:
         """Consult experiment 012's registry anchor for this
         scenario's snapshot, classified by experiment 015's own
         PolicyNode consultation: a probe node built over the
@@ -567,7 +569,12 @@ class Gate5Harness:
         secret_hex), the probe is built with it and the anchor's
         signature is verified as part of the same consultation:
         an AnchorSignatureInvalid refusal is a failed check whose
-        detail names anchor_signature_invalid, and nothing else."""
+        detail names anchor_signature_invalid, and nothing else.
+        With a witness identity (experiment 029, witness +
+        witness_secret_hex), the probe is built with it and the
+        anchor's countersignature is verified in the same
+        consultation: an AnchorWitnessInvalid refusal is a failed
+        check whose detail names anchor_witness_invalid."""
         try:
             probe = PolicyNode(
                 node_id="gate5-anchor-probe",
@@ -577,6 +584,8 @@ class Gate5Harness:
                 anchor_path=anchor_path,
                 anchor_signer=signer,
                 anchor_secret_hex=secret_hex,
+                anchor_witness=witness,
+                anchor_witness_secret_hex=witness_secret_hex,
             )
         except AnchorSignatureInvalid as exc:
             return GateCheck(
@@ -585,6 +594,14 @@ class Gate5Harness:
                 f"(the anchor's signature does not verify for the "
                 f"configured signing identity; refused under this "
                 f"name, never treated as a valid anchor)",
+            )
+        except AnchorWitnessInvalid as exc:
+            return GateCheck(
+                "anchor_evidence_registry", False,
+                f"registry anchor evidence: anchor_witness_invalid "
+                f"(the anchor's countersignature does not verify "
+                f"for the configured witness identity; refused "
+                f"under this name, never treated as a valid anchor)",
             )
         except AnchorStale as exc:
             return GateCheck(
@@ -618,7 +635,8 @@ class Gate5Harness:
         )
 
     def _mesh_anchor_check(self, anchor_path, signer=None,
-                           secret_hex=None) -> GateCheck:
+                           secret_hex=None, witness=None,
+                           witness_secret_hex=None) -> GateCheck:
         """Consult experiment 012's mesh anchor for the canary
         node's state, classified by experiment 015's own
         AnchoredSyncNode: a probe node restored to the canary's
@@ -627,10 +645,13 @@ class Gate5Harness:
         classification, reused as-is. With a signing identity
         (experiment 019) the probe is built with it, and
         anchor_signature_invalid joins the possible statuses
-        under its own name."""
+        under its own name; with a witness identity (experiment
+        029) anchor_witness_invalid joins under its own name."""
         probe = AnchoredSyncNode(
             "gate5-anchor-probe", anchor_path=anchor_path,
             anchor_signer=signer, anchor_secret_hex=secret_hex,
+            anchor_witness=witness,
+            anchor_witness_secret_hex=witness_secret_hex,
         )
         restored = probe.restore_to_entries(self.canary_node.entries())
         if restored.divergence_detected:
@@ -663,6 +684,14 @@ class Gate5Harness:
                 "configured signing identity; refused under this "
                 "name, never treated as a valid anchor)",
             )
+        if status == "anchor_witness_invalid":
+            return GateCheck(
+                "anchor_evidence_mesh", False,
+                "mesh anchor evidence: anchor_witness_invalid "
+                "(the anchor's countersignature does not verify "
+                "for the configured witness identity; refused "
+                "under this name, never treated as a valid anchor)",
+            )
         return GateCheck(
             "anchor_evidence_mesh", False,
             f"mesh anchor evidence: {status} (the canary node's "
@@ -682,7 +711,11 @@ class Gate5Harness:
                  registry_anchor_signer=None,
                  registry_anchor_secret_hex=None,
                  mesh_anchor_signer=None,
-                 mesh_anchor_secret_hex=None) -> GateVerdict:
+                 mesh_anchor_secret_hex=None,
+                 registry_anchor_witness=None,
+                 registry_anchor_witness_secret_hex=None,
+                 mesh_anchor_witness=None,
+                 mesh_anchor_witness_secret_hex=None) -> GateVerdict:
         checks: list[GateCheck] = []
         canary: CanaryReport | None = None
         faults: list[FaultReport] = []
@@ -725,12 +758,16 @@ class Gate5Harness:
                 registry_anchor_path,
                 signer=registry_anchor_signer,
                 secret_hex=registry_anchor_secret_hex,
+                witness=registry_anchor_witness,
+                witness_secret_hex=registry_anchor_witness_secret_hex,
             ))
         if mesh_anchor_path is not None:
             checks.append(self._mesh_anchor_check(
                 mesh_anchor_path,
                 signer=mesh_anchor_signer,
                 secret_hex=mesh_anchor_secret_hex,
+                witness=mesh_anchor_witness,
+                witness_secret_hex=mesh_anchor_witness_secret_hex,
             ))
 
         try:
