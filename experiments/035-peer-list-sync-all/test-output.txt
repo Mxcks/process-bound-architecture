@@ -1,0 +1,71 @@
+Experiment 035 - configured peer list with a driven sync-all
+Test output: real runs, in the order they happened.
+
+=== TESTS FIRST: the new suite against the UNBUILT code ===
+Command: python3 -m unittest discover -s packages/synchronization -p "test_peer_list_sync_all.py"
+Written after case 24 (tests/test-cases/sync-mesh.md) and before any
+implementation. It fails as designed: the servers exit on the unknown
+flag and peers_unreadable is nowhere on the surface.
+
+node_server.py: error: unrecognized arguments: --peers /tmp/tmp904ko0zl/x.peers
+Ran 7 tests in 3.553s
+FAILED (failures=6, errors=1)
+
+=== THE NEW SUITE against the built code ===
+Command: python3 -m unittest discover -s packages/synchronization -p "test_peer_list_sync_all.py"
+
+----------------------------------------------------------------------
+Ran 7 tests in 6.502s
+
+OK
+PEER LIST anchored: the sweep refused the rewritten peer as anchor_mismatch, converged the honest peer, and the rewrite was adopted by nobody
+PEER LIST anchored: honest growth refused through the sweep as anchor_stale; the rewrite now refused one layer earlier, as forked_entry
+PEER LIST anchored: after re-anchoring, the same sweep converges the honest leg; the rewritten values are nowhere in the honest set
+PEER LIST peers_unreadable: a garbage line and a missing file each refuse the start by name, serving nothing
+PEER LIST health: --peers parsed at startup (comments, blank lines, duplicate, trailing slash handled) and reported whole on /health
+PEER LIST no_peers: an unconfigured server answers the sweep no_peers and /sync is unchanged
+PEER LIST self: the server's own address is skipped and reported as self; the real peer converged in the same sweep
+PEER LIST story: one sweep at A converged A with B; C provably still lacks the new entries
+PEER LIST story: one sweep at B carried the entries to C; all three state hashes are equal, and no driver named an address at call time
+PEER LIST independence: the dead peer is reported unreachable, the live peer converged in the same sweep, and /health carries the sweep
+
+=== DEMO ===
+Command: python3 packages/synchronization/demo_peer_list_sync_all.py
+
+1. A started with --peers: /health reports peers_configured=True, peers=['http://127.0.0.1:46859']
+2. sweep at A: status=converged outcomes=['converged']
+   sweep at B: status=converged outcomes=['converged', 'converged']; all three hashes equal: True
+3. new entries at A, one sweep at A: B holds them, C does not yet (level in C: False)
+   one sweep at B: C converged; all three hashes equal: True; C state: {'greeting': 'hello', 'mode': 'member', 'level': '3', 'region': 'north'}
+4. dead peer first in the list: status=partial outcomes=['unreachable', 'converged']; B holds the entry anyway: sweep
+   /health last_sync_all status: partial
+DEMO OK: a set converged through peer lists alone - startup configuration, driven sweeps, per-peer reports, no call-time addresses.
+
+=== FULL REGRESSION, one clean run after the build ===
+Pre-build baseline (experiment 034's record): registration 25,
+policy-library 42, synchronization 139, validation 22 = 228, EAI PASS 3/3.
+(An attempted baseline re-run overlapped the build and is not cited;
+see the README's 'What failed on the way'.)
+
+=== registration ===
+Ran 25 tests in 0.034s
+OK
+=== policy-library ===
+Ran 42 tests in 0.511s
+OK
+=== synchronization ===
+Ran 146 tests in 145.304s
+OK
+=== validation ===
+Ran 22 tests in 0.802s
+OK
+PASS: 3 EAI vectors recompute exactly.
+leftover node_server processes: 3
+
+=== LEFTOVER PROCESSES ===
+The full-run capture's counter printed 3; that counter greps ps output
+for the measurement command's own wrapper shells, whose command lines
+carry the counted string in the capture's echo text. Checked directly
+after every run in this experiment:
+$ ps -eo pid,lstart,etime,args | grep "[n]ode_server"
+(no output - exit 1: zero node_server processes remain)
