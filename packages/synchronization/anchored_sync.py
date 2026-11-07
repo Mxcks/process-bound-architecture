@@ -91,7 +91,12 @@ HONEST LIMITS (prototype, NOT production)
   signature and the anchor's kept history as part of this
   consultation, refusing a merged state whose anchor signature
   does not verify as a divergence named
-  anchor_signature_invalid). The
+  anchor_signature_invalid; amended by experiment 029: the
+  anchor may also be countersigned by a witness, and a node
+  constructed with a witness identity - anchor_witness +
+  anchor_witness_secret_hex - requires that countersignature
+  in the same consultation, refusing as
+  anchor_witness_invalid). The
   experiment 007/014 server processes do not construct anchored
   nodes, so networked sync does not consult a mesh anchor (their
   --anchor, added in experiment 018, consults the registry anchor
@@ -135,6 +140,8 @@ class AnchoredSyncNode(SyncNode):
         *,
         anchor_signer: str | None = None,
         anchor_secret_hex: str | None = None,
+        anchor_witness: str | None = None,
+        anchor_witness_secret_hex: str | None = None,
     ):
         super().__init__(node_id)
         self.anchor_path = Path(anchor_path) if anchor_path is not None else None
@@ -148,16 +155,30 @@ class AnchoredSyncNode(SyncNode):
             )
         self.anchor_signer = anchor_signer
         self.anchor_secret_hex = anchor_secret_hex
+        # Experiment 029: the witness identity this node verifies
+        # its anchor's countersignature with, when configured
+        # (both or neither), in the signer's opt-in style. Both
+        # None is experiment 019's judgement: no countersignature
+        # is required.
+        if (anchor_witness is None) != (anchor_witness_secret_hex is None):
+            raise ValueError(
+                "anchor_witness and anchor_witness_secret_hex must be "
+                "given together"
+            )
+        self.anchor_witness = anchor_witness
+        self.anchor_witness_secret_hex = anchor_witness_secret_hex
 
     def _check_anchor(self):
         """The anchor check for this node, with the signing
-        identity when one is configured."""
+        identity and the witness identity when configured."""
+        kwargs = {}
         if self.anchor_signer is not None:
-            return check_node_against_anchor(
-                self, self.anchor_path,
-                signer=self.anchor_signer, secret_hex=self.anchor_secret_hex,
-            )
-        return check_node_against_anchor(self, self.anchor_path)
+            kwargs["signer"] = self.anchor_signer
+            kwargs["secret_hex"] = self.anchor_secret_hex
+        if self.anchor_witness is not None:
+            kwargs["witness"] = self.anchor_witness
+            kwargs["witness_secret_hex"] = self.anchor_witness_secret_hex
+        return check_node_against_anchor(self, self.anchor_path, **kwargs)
 
     # -- introspection ----------------------------------------------------
 
@@ -165,8 +186,10 @@ class AnchoredSyncNode(SyncNode):
         """This node's own standing against its configured anchor:
         "no_anchor", "anchored", "anchor_stale",
         "anchor_mismatch", or (experiment 019, with a signing
-        identity configured) "anchor_signature_invalid", by the
-        same classification receive uses.
+        identity configured) "anchor_signature_invalid", or
+        (experiment 029, with a witness configured)
+        "anchor_witness_invalid", by the same classification
+        receive uses.
         Raises MeshAnchorError if a configured anchor is unreadable.
         """
         if self.anchor_path is None:
@@ -174,6 +197,8 @@ class AnchoredSyncNode(SyncNode):
         check = self._check_anchor()
         if check.status == "anchor_signature_invalid":
             return "anchor_signature_invalid"
+        if check.status == "anchor_witness_invalid":
+            return "anchor_witness_invalid"
         if check.ok:
             return "anchored"
         return "anchor_stale" if self._is_honest_extension() else "anchor_mismatch"
@@ -221,6 +246,8 @@ class AnchoredSyncNode(SyncNode):
             status = (
                 "anchor_signature_invalid"
                 if check.status == "anchor_signature_invalid"
+                else "anchor_witness_invalid"
+                if check.status == "anchor_witness_invalid"
                 else "anchored"
                 if check.ok
                 else "anchor_stale"
