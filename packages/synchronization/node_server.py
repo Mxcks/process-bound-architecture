@@ -22,7 +22,7 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      mesh_anchor_configured, mesh_anchor_status,
                      snapshot_entries, last_snapshot_check,
                      last_snapshot_delivery, last_snapshot_push,
-                     last_anchor_delivery}
+                     last_anchor_delivery, last_anchor_push}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -109,6 +109,33 @@ POST /push-snapshot
                     /health carries the last push's outcome as
                     last_snapshot_push, beside last_snapshot_check
                     and last_snapshot_delivery.
+POST /push-anchor
+                 -> {peer: "http://127.0.0.1:PORT"}: this process
+                    pushes its own standing registry record AND
+                    its own registry anchor to a peer process
+                    (experiment 030): it sends the entries its
+                    PolicyNode stands on and the anchor object
+                    its own anchor file holds to the peer's
+                    POST /deliver-anchor (experiment 028) in its
+                    paired form, and the peer judges the pair
+                    together under exactly experiment 028's rules
+                    - the receiving side is experiment 028's
+                    surface, unmodified. The response is the
+                    push's report: on 200, the peer's paired
+                    delivery status as "status" and the peer's
+                    paired delivery report itself under
+                    "delivery" (on a process with no snapshot,
+                    status "no_snapshot" and "delivery" null);
+                    a peer that cannot be reached, a peer whose
+                    transport refuses this process before the
+                    paired endpoint runs, or this process's own
+                    anchor unreadable on its own side is reported
+                    on 502 in /sync's refusal shape. A process
+                    with no anchor configured sends the record
+                    alone to the peer's POST /deliver-snapshot -
+                    experiment 027's push exactly. /health
+                    carries the last paired push's outcome as
+                    last_anchor_push, beside last_snapshot_push.
 POST /deliver-anchor
                  -> {anchor: {...}} or {anchor: {...},
                     entries: [...]}: receive one registry
@@ -272,6 +299,22 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   ids) is reported by the push on 502 in /sync's refusal
   shape, so the refusal is named in the push result, never
   hidden behind a generic transport failure.
+- A record and anchor this process pushes to a peer as a
+  pair (POST /push-anchor, experiment 030) are judged by
+  the PEER's experiment 028 paired judgement, not by the
+  sender: the sender contributes only what it stands on -
+  the entries its PolicyNode stands on, and the anchor
+  object its own anchor file holds (the file its PolicyNode
+  itself consults, so the file and the standing agree) -
+  and reports the peer's paired delivery report, refusals
+  included, as the push's result. The identity checks and
+  the 502 refusal shape are experiment 027's, unchanged; a
+  sender with no anchor configured sends the record alone
+  through experiment 025's surface, as experiment 027
+  built. The push performs no lifecycle step for the peer:
+  succession, freshness, and any witness countersignature
+  (experiment 029) are the sender's completed facts,
+  carried inside the two objects and judged at the peer.
 - A registry anchor delivered over the wire (POST
   /deliver-anchor, experiment 028) is judged as strictly
   as the record, and - when it arrives paired with the
@@ -375,7 +418,10 @@ HONEST LIMITS (prototype, NOT production)
   Since experiment 028 the anchor such a delivery is
   consulted against can itself be delivered to the running
   server, when a client drives POST /deliver-anchor on it,
-  alone or paired with the record it blesses.
+  alone or paired with the record it blesses. Since
+  experiment 030 a server can also push its own record and
+  anchor together to a peer, when a client drives
+  POST /push-anchor on it.
   No timer, scheduler,
   or thread inside the server fires any of these, nothing
   solicits a delivery, there is no broadcast or gossip of the
@@ -400,11 +446,14 @@ HONEST LIMITS (prototype, NOT production)
   holder of the signer's secret can re-anchor anything,
   including a rewrite, and an anchor delivery by that
   holder is accepted as legitimately as one placed by
-  hand (case 17's finding). There is also no server-side
-  anchor push: a server receives anchors, it does not send
-  its anchor to a peer (POST /push-snapshot transports the
-  record only), and no timer, scheduler, or solicitation
-  moves an anchor unattended either. An
+  hand (case 17's finding). A server can also SEND its
+  anchor onward since experiment 030, but only paired with
+  its record and only when a client drives the push
+  (POST /push-anchor): POST /push-snapshot still transports
+  the record only, no timer, scheduler, or solicitation
+  moves an anchor unattended, and there is no anchor-alone
+  server push - the anchor travels with the record it
+  blesses, or not at all. An
   external chain anchor exists (experiment 012) and, since
   experiment 018, a server started with --anchor consults the
   registry anchor at startup (see above); since experiment
@@ -695,6 +744,11 @@ class NetworkNode:
         # report, in the same field style as the last check's
         # and the last delivery's.
         self.last_anchor_delivery: dict | None = None
+        # Experiment 030: the most recent PAIRED push this
+        # process initiated toward a peer (POST /push-anchor)
+        # - the push's response body, a 200 report or a 502
+        # refusal alike - beside the last snapshot push's.
+        self.last_anchor_push: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -1649,6 +1703,31 @@ def push_snapshot(base_url: str, peer_url: str) -> tuple[int, dict]:
     return post_json(base_url, "/push-snapshot", {"peer": peer_url})
 
 
+def push_anchor(base_url: str, peer_url: str) -> tuple[int, dict]:
+    """Ask the node at base_url to push its standing registry
+    record AND its registry anchor to the peer process at
+    peer_url (server-to-server, experiment 030): the pushing
+    server sends the entries its PolicyNode stands on and the
+    anchor object its own anchor file holds to the peer's
+    /deliver-anchor (experiment 028) in its paired form, which
+    judges the pair together under exactly case 17's rules -
+    neither half applied unless both stand. A pushing server
+    with no anchor configured sends the record alone to the
+    peer's /deliver-snapshot, exactly as push_snapshot does.
+    Returns the (status, body) pair, like push_snapshot,
+    because a push's refusal can ride a non-200 status and
+    the caller must see its body. On 200 the body is the
+    push's report: "status" equal to the peer's paired
+    delivery status ("delivered", "delivery_refused",
+    "no_change", or "no_snapshot" when the pushing server
+    holds no snapshot) and the peer's paired delivery report
+    under "delivery". On 502 the body names the refusal -
+    "identity_mismatch" with the claimed and certified ids
+    over a binding transport, in /sync's refusal shape, or
+    the sender's own anchor unreadable on its own side."""
+    return post_json(base_url, "/push-anchor", {"peer": peer_url})
+
+
 def fetch_policy(base_url: str, policy_hash: str) -> tuple[int, dict]:
     """Fetch a served policy. Returns (status, body); on 200 the
     body carries the code as base64 in "code_base64"."""
@@ -1788,6 +1867,12 @@ def make_handler(node: NetworkNode):
                         # anchor delivery arrives), beside the
                         # last snapshot delivery's.
                         "last_anchor_delivery": node.last_anchor_delivery,
+                        # Experiment 030: the last PAIRED push
+                        # this process initiated toward a peer
+                        # (its response body; None until the
+                        # first paired push is driven), beside
+                        # the last snapshot push's.
+                        "last_anchor_push": node.last_anchor_push,
                     })
                 return
             if self.path == "/state":
@@ -1939,6 +2024,20 @@ def make_handler(node: NetworkNode):
                     return
                 self._push_snapshot_to_peer(peer)
                 return
+            if self.path == "/push-anchor":
+                # Experiment 030: this process pushes its own
+                # standing registry record AND its registry
+                # anchor to a peer process (see
+                # _push_anchor_to_peer). The payload is the
+                # peer's base URL, exactly /push-snapshot's
+                # shape.
+                peer = payload.get("peer")
+                if not isinstance(peer, str) or not peer:
+                    self._send_json(400, {
+                        "error": "push-anchor needs a peer base URL"})
+                    return
+                self._push_anchor_to_peer(peer)
+                return
             if self.path == "/deliver-anchor":
                 # Experiment 028: one registry anchor delivery
                 # received over the wire (see NetworkNode.
@@ -2058,6 +2157,144 @@ def make_handler(node: NetworkNode):
             # refusals included: the peer judged, and its
             # verdict is reported, not re-derived here.
             self._send_json(200, self._record_push({
+                "node_id": node.node_id,
+                "peer": peer,
+                "status": delivery.get("status"),
+                "delivery": delivery,
+            }))
+
+        def _record_anchor_push(self, body: dict) -> dict:
+            """Record a PAIRED push's outcome as this process's
+            last anchor push (experiment 030) and return the
+            body for sending: /health carries the response
+            body of the last paired push driven on this
+            process, a 200 report or a 502 refusal alike,
+            beside the last snapshot push."""
+            with node.lock:
+                node.last_anchor_push = body
+            return body
+
+        def _push_anchor_to_peer(self, peer: str) -> None:
+            # Initiating-side identity check (experiment 017),
+            # exactly as _push_snapshot_to_peer: with binding
+            # on, the peer server's certificate id is checked
+            # against the node id the peer claims in its health
+            # response BEFORE anything is pushed. A mismatch
+            # refuses the push outright; neither half moves.
+            if node.bind_identity:
+                try:
+                    verify_peer_identity(peer)
+                except protected_link.IdentityMismatch as exc:
+                    print(
+                        f"identity_mismatch refused paired push to {peer}: "
+                        f"claimed={exc.claimed} certified={exc.certified}",
+                        flush=True,
+                    )
+                    self._send_json(502, self._record_anchor_push({
+                        "error": "identity_mismatch",
+                        "claimed": exc.claimed,
+                        "certified": exc.certified,
+                        "detail": str(exc),
+                    }))
+                    return
+                except (AssertionError, urllib.error.URLError, OSError) as exc:
+                    self._send_json(502, self._record_anchor_push(
+                        {"error": f"peer unreachable: {exc}"}))
+                    return
+            # What this process stands on, both halves (case
+            # 19): the record is the PolicyNode's loaded,
+            # verified entries - what it serves from, exactly
+            # as _push_snapshot_to_peer reads them; the anchor
+            # is the object this process's own anchor file
+            # holds, read from that file under the same lock.
+            # For the anchor the file IS the standing (the
+            # PolicyNode consults that very file at startup
+            # and on every reload), so the file and the
+            # standing agree by construction. A process with
+            # no PolicyNode holds neither half to push.
+            with node.lock:
+                entries = (
+                    [dict(e) for e in node.policy_node._entries]
+                    if node.policy_node is not None else None
+                )
+                anchor = None
+                anchor_error: Exception | None = None
+                if node.anchor_path is not None:
+                    try:
+                        anchor = json.loads(
+                            node.anchor_path.read_text(encoding="utf-8"))
+                        if not isinstance(anchor, dict):
+                            raise ValueError(
+                                "anchor file does not hold an "
+                                "anchor object")
+                    except (OSError, ValueError) as exc:
+                        anchor = None
+                        anchor_error = exc
+            if entries is None:
+                self._send_json(200, self._record_anchor_push({
+                    "node_id": node.node_id,
+                    "peer": peer,
+                    "status": "no_snapshot",
+                    "delivery": None,
+                }))
+                return
+            if anchor_error is not None:
+                # This process's own anchor cannot be read: it
+                # has nothing honest to send, and no contact
+                # with the peer is made. A sender-side refusal,
+                # reported on 502 in /sync's family rather than
+                # as a push of nothing.
+                self._send_json(502, self._record_anchor_push(
+                    {"error": f"own anchor unreadable: {anchor_error}"}))
+                return
+            if anchor is None:
+                # No anchor configured on this process: the
+                # record alone, to the peer's /deliver-snapshot
+                # - case 16's push exactly, its outcome
+                # recorded here as this process's last anchor
+                # push. The new surface adds nothing when there
+                # is no anchor to carry.
+                path = "/deliver-snapshot"
+                payload = {"entries": entries}
+            else:
+                # The peer judges the pair together: its
+                # /deliver-anchor in the paired form
+                # (experiment 028) runs case 17's whole
+                # judgement - succession, the backward fence,
+                # signature and history, the witness judgement
+                # where the peer is witness-configured, and
+                # pairing - before anything changes.
+                path = "/deliver-anchor"
+                payload = {"anchor": anchor, "entries": entries}
+            # post_json is used directly rather than the
+            # deliver helpers (which assert a 200) because a
+            # refusal can arrive as a non-200 and its body is
+            # the outcome, exactly as in _push_snapshot_to_peer.
+            try:
+                status, delivery = post_json(peer, path, payload)
+            except (urllib.error.URLError, OSError) as exc:
+                self._send_json(502, self._record_anchor_push(
+                    {"error": f"peer push failed: {exc}"}))
+                return
+            if status != 200:
+                # The peer refused before its delivery endpoint
+                # ran - over a binding transport, experiment
+                # 017's accepting-side identity_mismatch (403
+                # naming claimed and certified ids). The refusal
+                # is the push's outcome and is reported in the
+                # same shape /sync reports its refusals.
+                body = {"error": delivery.get(
+                    "error", f"peer refused the push: HTTP {status}")}
+                for key in ("claimed", "certified", "detail"):
+                    if key in delivery:
+                        body[key] = delivery[key]
+                self._send_json(502, self._record_anchor_push(body))
+                return
+            # The peer's paired delivery report IS the push's
+            # result, refusals included: the peer judged the
+            # pair as one thing, and its verdict is reported,
+            # not re-derived here.
+            self._send_json(200, self._record_anchor_push({
                 "node_id": node.node_id,
                 "peer": peer,
                 "status": delivery.get("status"),
