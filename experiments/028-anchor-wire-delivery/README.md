@@ -359,6 +359,17 @@ this pass.
   (experiment 026) still arrives out of band. This
   experiment delivers the REGISTRY anchor only; the mesh
   side's consultation inputs are unchanged.
+  (Superseded in part by experiment 031: the mesh anchor
+  now travels too - `POST /deliver-mesh-anchor` delivers
+  it to a running server under sync-mesh case 20, judged
+  against the mesh state the server holds by the mesh
+  side's own machinery, so the mesh anchor's lifecycle can
+  also be completed at a running server without a hand
+  placing the file. What stands of this bullet: THIS
+  experiment delivered the registry anchor only, and no
+  server PUSH surface carries the mesh anchor even now -
+  experiment 031's mesh surface is client-driven, exactly
+  as this one was before experiment 030 built its sender.)
 - Succession has one soft edge, inherited from case 10
   and stated rather than widened: on a server with NO
   signer configured whose current anchor is head-only
