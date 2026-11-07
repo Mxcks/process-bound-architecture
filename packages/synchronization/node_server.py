@@ -20,6 +20,7 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      serve_policies, policy_configured,
                      anchor_configured, anchor_status,
                      mesh_anchor_configured, mesh_anchor_status,
+                     mesh_state_configured, mesh_state_load,
                      snapshot_entries, last_snapshot_check,
                      last_snapshot_delivery, last_snapshot_push,
                      last_anchor_delivery, last_anchor_push,
@@ -522,6 +523,40 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   freshness, and any witness countersignature (experiment
   029) are the sender's completed facts, carried inside
   the anchor object and judged at the peer.
+- A mesh state file configured at startup (--mesh-state,
+  experiment 033) is judged on load exactly as strictly
+  as any state that arrives over the wire - by the
+  mesh's own verification, never by the fact that it is
+  this process's own file: the entries are deserialized
+  with the wire's own decoding and the whole set is put
+  through the node's restore_to_entries (Gate 3's
+  whole-set judge: hash recompute, fork refusal,
+  per-origin chain check) BEFORE the process serves
+  anything, and a file that does not parse refuses the
+  start as mesh_state_unreadable, a tampered entry as
+  tampered_entry, a fork as forked_entry, a broken
+  chain as broken_chain - MeshStateRefused out of the
+  node's construction, the process exiting nonzero
+  naming the refusal. With a mesh anchor ALSO
+  configured, the recovered state is then consulted
+  against the anchor (anchor_status()'s own
+  classification) and a standing other than anchored
+  refuses the start under the anchor's own name: the
+  gate fires on a RECOVERED state, because persistence
+  makes the state a durable claim the process stands on
+  at startup, judged as the registry snapshot has been
+  judged at startup since experiment 018; a fresh start
+  over no file yet recovers nothing and gates on
+  nothing. Writes are the same discipline on the way
+  out (case 14's replace-from-verified-candidate): the
+  accepted state is serialized in the wire's own entry
+  format to a candidate file, the candidate is judged
+  by the same whole-set verification, and only a
+  candidate that stands replaces the state file - so
+  the file on disk is always a file the mesh's own
+  verification accepts, and a kill mid-write leaves the
+  previous standing file or the new one, never a torn
+  one.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -557,7 +592,22 @@ HONEST LIMITS (prototype, NOT production)
   Kill the process and its unreplicated entries are gone; what
   survives a kill is exactly what had already synced to another
   process (that is the availability claim the tests make, and the
-  only one).
+  only one). (Superseded in part by experiment 033: started
+  with --mesh-state, the process persists every accepted mesh
+  change to that file - verified-candidate writes inside the
+  mesh operations themselves - and a restart over the file
+  recovers the state exactly, entries that never synced
+  anywhere included, the load judged by the mesh's own
+  verification and, with --mesh-anchor, gated on the anchor
+  before the process serves. Without the flag this limit
+  stands exactly as written. The file survives the PROCESS,
+  not the machine: it is a local file under the operator's
+  hand, tamper-evident on load, not tamper-proof - wholesale
+  replacement with an older verified state recovers that
+  older state, which the anchor gate refuses where an anchor
+  is configured and a truncation on a line boundary recovers
+  as the same kind of older state, exactly case 10/17's
+  stated limit for every durable record in this stack.)
 - Sync is still Gate 3's bulk anti-entropy (full entry lists both
   ways), now serialized as JSON. No streaming, no deltas, and no
   performance, scale, or latency numbers are measured or claimed.
@@ -815,6 +865,32 @@ def entry_from_dict(data: dict) -> StateEntry:
 # -- the node one process owns ----------------------------------------------
 
 
+class MeshStateRefused(Exception):
+    """A configured mesh state file could not be stood on at
+    startup (experiment 033, sync-mesh case 22).
+
+    Carries the refusal's own name in `.reason`:
+    mesh_state_unreadable for a file that does not parse,
+    Gate 3's divergence names (tampered_entry,
+    forked_entry, broken_chain) for a file the mesh's own
+    verification refuses, and the mesh anchor's names
+    (anchor_stale, anchor_mismatch,
+    anchor_signature_invalid, anchor_witness_invalid,
+    anchor_unreadable) when a recovered state is refused
+    by a configured mesh anchor's startup gate. Raised out
+    of NetworkNode construction, so the process exits
+    nonzero naming the refusal - exactly the refused-start
+    mechanics of a tampered registry snapshot since
+    experiment 007.
+    """
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(
+            f"mesh state recovery refused: {reason}: {detail}")
+        self.reason = reason
+        self.detail = detail
+
+
 class NetworkNode:
     """One node's worth of state for one server process.
 
@@ -844,6 +920,7 @@ class NetworkNode:
         mesh_anchor_secret_hex: str | None = None,
         mesh_anchor_witness: str | None = None,
         mesh_anchor_witness_secret_hex: str | None = None,
+        mesh_state_path: str | Path | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -895,6 +972,28 @@ class NetworkNode:
             )
         else:
             self.sync_node = SyncNode(node_id)
+        # Experiment 033: an optional durable record for
+        # this process's mesh state (sync-mesh case 22).
+        # With a state file configured, every accepted
+        # change to the mesh state is persisted to it (see
+        # _persist_mesh_state_if_changed) and an existing
+        # file is recovered - judged, never trusted - at
+        # construction (see _load_mesh_state); without one,
+        # the mesh state is process memory exactly as
+        # experiments 007-032 left it. Independent of the
+        # registry snapshot and of the mesh anchor: the
+        # mesh side exists on mesh-only processes too, and
+        # persistence is its own opt-in.
+        self.mesh_state_path = (
+            Path(mesh_state_path) if mesh_state_path else None
+        )
+        # The load report for /health (case 22): a dict
+        # with status "recovered" or "fresh" when a state
+        # file is configured, None when none is.
+        self.mesh_state_load: dict | None = None
+        self._mesh_state_persisted_hash: str | None = None
+        if self.mesh_state_path is not None:
+            self._load_mesh_state()
         self.snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path else None
         )
@@ -1034,18 +1133,179 @@ class NetworkNode:
         for every other node access from the handler.
         """
         if self.mesh_anchor_path is None:
-            return self.sync_node.receive_entries(entries)
+            result = self.sync_node.receive_entries(entries)
+            self._persist_mesh_state_if_changed()
+            return result
         _anchored_sync_node, mesh_anchor_error = _anchored_mesh()
         try:
-            return self.sync_node.receive_entries(entries)
+            result = self.sync_node.receive_entries(entries)
         except mesh_anchor_error:
-            return SyncResult(
+            result = SyncResult(
                 accepted=0,
                 divergence_detected=True,
                 rolled_back=True,
                 reason="anchor_unreadable",
                 state_hash=self.sync_node.state_hash(),
             )
+        self._persist_mesh_state_if_changed()
+        return result
+
+    def mutate_mesh(self, key: str, value: str) -> StateEntry:
+        """Mutate this process's own mesh state (the
+        /mutate surface's operation), experiment 033: the
+        mutation itself is Gate 3's, unchanged; with a
+        mesh state file configured the accepted change is
+        persisted before the entry is returned, so the
+        response the caller is about to receive is already
+        durable. Callers hold self.lock, as for every
+        other node access from the handler."""
+        entry = self.sync_node.mutate(key, value)
+        self._persist_mesh_state_if_changed()
+        return entry
+
+    def _load_mesh_state(self) -> None:
+        """Recover the persisted mesh state at startup
+        (experiment 033, sync-mesh case 22).
+
+        No file at the configured path: a fresh start -
+        nothing is loaded, the load is reported "fresh",
+        and the file is created by the first accepted
+        change, not at startup. A file that exists is
+        judged, never trusted, before the process serves
+        anything: its lines are deserialized with the
+        wire's own entry decoding (a file that does not
+        parse - malformed JSON, a bad entry encoding, a
+        file cut mid-line - refuses the start as
+        mesh_state_unreadable), and the whole set is
+        judged by the mesh's own whole-set verification,
+        this node's restore_to_entries (experiment 013's
+        primitive: every hash recomputed, forks refused,
+        every per-origin chain checked), a divergence
+        refusing the start under Gate 3's own name
+        (tampered_entry, forked_entry, broken_chain).
+        The recovered set becomes the node's state and its
+        checkpoint, exactly - same entries, same state
+        hash.
+
+        The anchor gate: when a mesh anchor is ALSO
+        configured, the recovered state is then consulted
+        against it by this node's own anchor_status()
+        classification, and any standing other than
+        "anchored" refuses the start under the anchor's
+        own name. The gate fires only here, on a
+        RECOVERED state: persistence makes the state a
+        durable claim the process stands on at startup,
+        judged the way the registry snapshot has been
+        judged at startup since experiment 018. A fresh
+        start recovers nothing and gates on nothing.
+        """
+        path = self.mesh_state_path
+        self._mesh_state_persisted_hash = self.sync_node.state_hash()
+        if not path.exists():
+            self.mesh_state_load = {
+                "status": "fresh",
+                "entries": 0,
+                "state_hash": self.sync_node.state_hash(),
+            }
+            return
+        try:
+            entries = [
+                entry_from_dict(json.loads(line))
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise MeshStateRefused(
+                "mesh_state_unreadable",
+                f"mesh state file {path} does not parse as "
+                f"mesh entries: {exc}",
+            ) from exc
+        verdict = self.sync_node.restore_to_entries(entries)
+        if verdict.divergence_detected:
+            raise MeshStateRefused(
+                verdict.reason,
+                f"mesh state file {path} failed the mesh's "
+                f"own verification on load: {verdict.reason}",
+            )
+        self._mesh_state_persisted_hash = self.sync_node.state_hash()
+        self.mesh_state_load = {
+            "status": "recovered",
+            "entries": len(entries),
+            "state_hash": self.sync_node.state_hash(),
+        }
+        if self.mesh_anchor_path is not None:
+            status = self.mesh_anchor_status
+            if status != "anchored":
+                raise MeshStateRefused(
+                    status,
+                    f"recovered mesh state in {path} is "
+                    f"refused by the configured mesh anchor "
+                    f"at startup: {status}",
+                )
+
+    def _persist_mesh_state_if_changed(self) -> None:
+        """Persist this process's mesh state if it moved
+        (experiment 033, sync-mesh case 22).
+
+        Called at the end of the node's two mesh
+        operations - its own mutation (mutate_mesh) and
+        its one receive (receive_mesh_entries) - under
+        the node's lock, before the driving response
+        returns. A write happens only when the state hash
+        differs from the hash this process last loaded or
+        wrote, so a refused receive and a no-op sync
+        rewrite nothing, byte for byte.
+
+        The write is case 14's replace-from-verified-
+        candidate discipline: the full entry set is
+        serialized to a candidate file beside the state
+        file, in the wire's own entry format (one JSON
+        object per line, Gate 1's log format, in the
+        node's deterministic total order), the candidate
+        is flushed and fsynced, its bytes are read back
+        and judged by Gate 3's own whole-set verification
+        (a scratch node's restore_to_entries), and only
+        a candidate that stands is os.replace'd over the
+        state file. A kill at any point leaves either the
+        previous standing file or the new one, never a
+        torn one, and nothing unverified is ever the
+        standing file.
+        """
+        if self.mesh_state_path is None:
+            return
+        current_hash = self.sync_node.state_hash()
+        if current_hash == self._mesh_state_persisted_hash:
+            return
+        candidate_path = self.mesh_state_path.with_name(
+            self.mesh_state_path.name + ".persist-candidate")
+        candidate_bytes = "".join(
+            json.dumps(entry_to_dict(entry), sort_keys=True) + "\n"
+            for entry in self.sync_node.entries()
+        ).encode("utf-8")
+        with candidate_path.open("wb") as fh:
+            fh.write(candidate_bytes)
+            fh.flush()
+            os.fsync(fh.fileno())
+        judged = [
+            entry_from_dict(json.loads(line))
+            for line in candidate_path.read_text(
+                encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        verdict = SyncNode(
+            "mesh-state-candidate").restore_to_entries(judged)
+        if verdict.divergence_detected:
+            # The node's held state passed Gate 3's
+            # verification to get in; a candidate built from
+            # it that does not stand is an internal
+            # inconsistency, refused loudly here rather than
+            # written as the standing state.
+            raise RuntimeError(
+                f"mesh state candidate for "
+                f"{self.mesh_state_path} failed verification "
+                f"before replace: {verdict.reason}")
+        os.replace(candidate_path, self.mesh_state_path)
+        self._mesh_state_persisted_hash = current_hash
 
     @property
     def snapshot_loaded_count(self) -> int | None:
@@ -2485,6 +2745,17 @@ def make_handler(node: NetworkNode):
                         # currently holds.
                         "mesh_anchor_configured": node.mesh_anchor_path is not None,
                         "mesh_anchor_status": node.mesh_anchor_status,
+                        # Experiment 033: the mesh side's
+                        # persistence standing, beside the
+                        # mesh anchor fields above - whether
+                        # a mesh state file is configured for
+                        # this process, and the load report
+                        # from its startup (recovered / fresh,
+                        # with the recovered entry count and
+                        # state hash; null when no state file
+                        # is configured).
+                        "mesh_state_configured": node.mesh_state_path is not None,
+                        "mesh_state_load": node.mesh_state_load,
                         # Experiment 024: the running process's
                         # current registry standing - how many
                         # entries its PolicyNode serves from, and
@@ -2603,7 +2874,7 @@ def make_handler(node: NetworkNode):
                     self._send_json(400, {"error": "mutate needs string key and value"})
                     return
                 with node.lock:
-                    entry = node.sync_node.mutate(key, value)
+                    entry = node.mutate_mesh(key, value)
                     state_hash = node.sync_node.state_hash()
                 self._send_json(200, {
                     "entry": entry_to_dict(entry),
@@ -3276,6 +3547,22 @@ def main(argv: list[str] | None = None) -> int:
                              "A file, not a value argument, so the "
                              "secret does not ride in the process "
                              "command line")
+    parser.add_argument("--mesh-state", default=None,
+                        help="path to a file holding this process's "
+                             "persisted mesh state (experiment 033); "
+                             "independent of --snapshot and "
+                             "--mesh-anchor. An existing file is "
+                             "recovered at startup - judged by the "
+                             "mesh's own verification, never trusted, "
+                             "and, with --mesh-anchor, gated on the "
+                             "anchor - and every accepted mesh "
+                             "change is written back to it before "
+                             "the driving response returns. A file "
+                             "that does not exist yet starts the "
+                             "process fresh and is created on the "
+                             "first accepted change. Without it the "
+                             "mesh state is process memory only, "
+                             "exactly as experiments 007-032 left it")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -3390,6 +3677,7 @@ def main(argv: list[str] | None = None) -> int:
         mesh_anchor_secret_hex=mesh_anchor_secret_hex,
         mesh_anchor_witness=args.mesh_anchor_witness,
         mesh_anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
+        mesh_state_path=args.mesh_state,
     )
     tls_context = None
     if all(tls_values):
