@@ -1,0 +1,182 @@
+Experiment 029 (witnessed anchors) - real run output, 2026-11-06.
+Cases written before code: registration case 11 and sync-mesh case 18
+(tests/test-cases/registration.md, tests/test-cases/sync-mesh.md).
+
+=== TESTS FIRST: the five new suites run against the unbuilt code ===
+Every failure is on the missing witness machinery (the witness keyword
+arguments, the AnchorWitnessInvalid name), never on an assertion about
+built behavior. Summary capture of the run:
+
+=== TESTS FIRST, against unbuilt code ===
+--- packages/registration/test_witnessed_anchor.py ---
+      1 FAILED (errors=5)
+      1 Ran 5 tests in 0.268s
+      1 TypeError: check_registry_against_anchor() got an unexpected keyword argument 'witness'
+      4 TypeError: write_anchor() got an unexpected keyword argument 'witness'
+Ran 5 tests in 0.007s
+FAILED (errors=5)
+--- packages/policy-library/test_witnessed_anchor_consultation.py ---
+      1 ImportError: cannot import name 'AnchorWitnessInvalid' from 'policy_node' (/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/policy-library/policy_node.py). Did you mean: 'AnchorSignatureInvalid'?
+--- packages/validation/test_gate5_witnessed_anchor.py ---
+      1 FAILED (errors=4)
+      1 Ran 4 tests in 0.131s
+      4 TypeError: write_anchor() got an unexpected keyword argument 'witness'
+Ran 4 tests in 0.199s
+FAILED (errors=4)
+--- packages/synchronization/test_witnessed_mesh_anchor.py ---
+      1 FAILED (errors=4)
+      1 Ran 4 tests in 0.005s
+      1 TypeError: check_node_against_anchor() got an unexpected keyword argument 'witness'
+      3 TypeError: write_mesh_anchor() got an unexpected keyword argument 'witness'
+Ran 4 tests in 0.019s
+FAILED (errors=4)
+--- packages/synchronization/test_witnessed_anchor_in_servers.py ---
+      1 FAILED (errors=6)
+      1 Ran 6 tests in 0.061s
+      6 TypeError: write_anchor() got an unexpected keyword argument 'witness'
+Ran 6 tests in 0.110s
+FAILED (errors=6)
+
+=== PRE-BUILD BASELINE (before any experiment 029 code) ===
+=== registration ===
+----------------------------------------------------------------------
+Ran 20 tests in 0.105s
+
+OK
+=== policy-library ===
+F1 REMAINING FACT: with no reload called, the placed object still serves from its placement-time view
+FIXED F1 placed-holders-reload: reload_snapshot delivered the revocation; serve() on the placed policy raises PolicyRevoked
+AUTOMATIC DELIVERY: one watcher tick delivered the revocation; the placed policy raises PolicyRevoked and the non-revoked policy keeps serving
+AUTOMATIC DELIVERY + HEALING: the post-delivery recruit holds the updated record and refuses the revoked policy
+=== synchronization ===
+WIRE TRANSPORT anchor_mismatch: a rewritten chain refused under the rewrite's own name, not the backward name
+WIRE TRANSPORT tampered_record: an entry edited in transit refused, file and view unchanged
+WIRE TRANSPORT anchor_signature_invalid (mutual TLS, identity binding): the grown head anchored by an untrusted identity refused, file and view unchanged
+WIRE TRANSPORT (mutual TLS, signed anchor): same-signer anchor, one push delivered to the running server; 410 over HTTPS
+=== validation ===
+----------------------------------------------------------------------
+Ran 18 tests in 0.630s
+
+OK
+=== EAI ===
+PASS: 3 EAI vectors recompute exactly.
+=== leftover node_server ===
+1
+
+Note: the synchronization package baseline of 81 tests OK is experiment 028's recorded full-suite result (158/158 total: registration 20, policy-library 39, synchronization 81, validation 18). One load-affected synchronization re-run during this experiment's baseline pass reported Ran 81, FAILED (errors=1) with ValueError: invalid literal for int() with base 10: '' - the known wait_ready port-file read race from experiments 026-028 (an empty port file read mid-write; no assertion failed). The post-build full regression below ran clean.
+
+=== NEW SUITES AFTER THE BUILD (run directly) ===
+--- python3 packages/registration/test_witnessed_anchor.py
+test_countersigned_anchor_records_witness_and_verifies (__main__.WitnessedAnchorTests.test_countersigned_anchor_records_witness_and_verifies) ... ok
+test_missing_wrong_and_tampered_witness_is_witness_invalid (__main__.WitnessedAnchorTests.test_missing_wrong_and_tampered_witness_is_witness_invalid) ... ok
+test_no_witness_configured_judges_as_case_10 (__main__.WitnessedAnchorTests.test_no_witness_configured_judges_as_case_10) ... ok
+test_reanchor_countersigned_appends_and_succession_holds (__main__.WitnessedAnchorTests.test_reanchor_countersigned_appends_and_succession_holds) ... ok
+test_witness_write_discipline (__main__.WitnessedAnchorTests.test_witness_write_discipline) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.012s
+
+OK
+WITNESSED ANCHOR: alice signs, carol countersigns; a witness-configured check is anchored with both judgements recorded
+WITNESSED ANCHOR refusals: signer-alone, wrong-witness, and tampered countersignature are anchor_witness_invalid; a tampered signer signature stays anchor_signature_invalid
+WITNESSED ANCHOR succession: bob's anchor, genuinely countersigned by the witness, is still refused as different_signer and logged
+
+--- python3 packages/policy-library/test_witnessed_anchor_consultation.py
+test_countersigned_anchor_with_witness_serves (__main__.WitnessedAnchorConsultationServingTests.test_countersigned_anchor_with_witness_serves) ... ok
+test_no_witness_configured_judges_as_019 (__main__.WitnessedAnchorConsultationServingTests.test_no_witness_configured_judges_as_019) ... ok
+test_signer_alone_and_wrong_witness_refused_at_load (__main__.WitnessedAnchorConsultationServingTests.test_signer_alone_and_wrong_witness_refused_at_load) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.020s
+
+OK
+WITNESSED CONSULTATION (Gate 2): countersigned anchor anchored, policy serves, both judgements recorded in the check
+WITNESSED CONSULTATION (Gate 2) refusals: signer-alone and wrong-witness anchors refused at load as anchor_witness_invalid
+
+--- python3 packages/synchronization/test_witnessed_mesh_anchor.py
+test_countersigned_mesh_anchor_verifies (__main__.WitnessedMeshAnchorTests.test_countersigned_mesh_anchor_verifies) ... ok
+test_no_witness_configured_judges_as_before (__main__.WitnessedMeshAnchorTests.test_no_witness_configured_judges_as_before) ... ok
+test_signer_alone_refused_at_check_and_in_sync (__main__.WitnessedMeshAnchorTests.test_signer_alone_refused_at_check_and_in_sync) ... ok
+test_succession_and_write_discipline_hold (__main__.WitnessedMeshAnchorTests.test_succession_and_write_discipline_hold) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.007s
+
+OK
+WITNESSED MESH ANCHOR: alice signs, carol countersigns; a converged node verifies with both judgements recorded
+WITNESSED MESH ANCHOR refusal: a merge over a signer-alone anchor refused as a divergence named anchor_witness_invalid, rolled back
+
+--- python3 packages/validation/test_gate5_witnessed_anchor.py
+test_countersigned_anchors_keep_verdict_passing (__main__.Gate5WitnessedAnchorEvidenceTests.test_countersigned_anchors_keep_verdict_passing) ... ok
+test_signer_alone_anchors_without_witness_behave_as_019 (__main__.Gate5WitnessedAnchorEvidenceTests.test_signer_alone_anchors_without_witness_behave_as_019) ... ok
+test_signer_alone_mesh_anchor_fails_verdict_on_witness_only (__main__.Gate5WitnessedAnchorEvidenceTests.test_signer_alone_mesh_anchor_fails_verdict_on_witness_only) ... ok
+test_signer_alone_registry_anchor_fails_verdict_on_witness_only (__main__.Gate5WitnessedAnchorEvidenceTests.test_signer_alone_registry_anchor_fails_verdict_on_witness_only) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.112s
+
+OK
+GATE 5 witnessed evidence: countersigned anchors on both chains, verdict passing
+GATE 5 witnessed evidence: a signer-alone registry anchor fails the verdict on the registry anchor check alone, named anchor_witness_invalid
+
+--- python3 packages/synchronization/test_witnessed_anchor_in_servers.py
+test_mesh_witness_standing_on_health (__main__.MeshWitnessServerTests.test_mesh_witness_standing_on_health) ... ok
+test_finding_rerun_at_witness_configured_server (__main__.WitnessedServerTests.test_finding_rerun_at_witness_configured_server) ... ok
+test_honest_pair_lands_and_succession_still_first (__main__.WitnessedServerTests.test_honest_pair_lands_and_succession_still_first) ... ok
+test_live_reload_refused_signer_alone_then_lands_witnessed (__main__.WitnessedServerTests.test_live_reload_refused_signer_alone_then_lands_witnessed) ... ok
+test_startup_witness_required_and_countersigned_serves (__main__.WitnessedServerTests.test_startup_witness_required_and_countersigned_serves) ... ok
+test_witness_is_configuration_only (__main__.WitnessedServerTests.test_witness_is_configuration_only) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 2.177s
+
+OK
+WITNESSED SERVER mesh side: a signer-alone mesh anchor reports anchor_witness_invalid on /health when a mesh witness is configured
+FINDING RE-RUN leg (i): the pair experiment 028 accepted, with no countersignature, is REFUSED as anchor_witness_invalid
+FINDING RE-RUN leg (ii): the same pair countersigned by a non-witness identity is REFUSED under the same name
+FINDING RE-RUN leg (iii): the same pair countersigned by the configured witness is ACCEPTED - two secrets' custody is the fence now, and a party holding both still blesses a rewrite; the model is unchanged
+WITNESSED SERVER honest flow: grown record + countersigned anchor delivered together, the revocation live, no restart
+WITNESSED SERVER succession: bob's anchor, genuinely countersigned by the configured witness, still refused as different_signer
+WITNESSED SERVER live reload: a signer-alone re-anchor refuses the reload as anchor_witness_invalid, the stale view serving
+WITNESSED SERVER startup: a signer-alone anchor refuses the start as anchor_witness_invalid when a witness is configured
+WITNESSED SERVER configuration: a delivery countersigned by a new identity is refused and installs nothing; the configured witness is unchanged and its pair still lands
+
+=== DEMO (packages/registration/demo_witnessed_anchor.py) ===
+Setup. Policy registered: dcab37d1f0094a82...
+1. Witnessed anchor: signer alice - witness carol - countersignature: 6eceaa2d0ca4bc5c...
+   Witness-configured check: True - status: anchored - signature valid: True - witness valid: True
+2. Signer-alone anchor under a witness check: False - status: anchor_witness_invalid
+3. Bob-countersigned anchor under carol's check: False - status: anchor_witness_invalid
+4. Bob's countersigned re-anchor refused: re-anchor refused: anchor is signed by alice, not by bob (same-identity rule, ex...
+   Anchor audit log: [('reanchor_rejected', 'different_signer', 'bob')]
+   Anchor still alice's, witnessed by: carol
+5. Tampered countersignature: False - status: anchor_witness_invalid
+   Tampered signer signature: False - status: anchor_signature_invalid
+Demo state left in: /tmp/pba-witnessed-anchor-demo-57_5_09u
+
+=== FULL REGRESSION AFTER THE BUILD ===
+--- python3 -m unittest discover -s packages/registration
+Ran 25 tests in 0.055s
+OK
+--- python3 -m unittest discover -s packages/policy-library
+Ran 42 tests in 1.015s
+OK
+--- python3 -m unittest discover -s packages/synchronization
+Ran 91 tests in 99.648s
+OK
+--- python3 -m unittest discover -s packages/validation
+Ran 22 tests in 0.614s
+OK
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+--- leftover node_server processes (standalone ps check)
+1
+Leftover-process note: the regression capture's own count read 1 because
+that command's text contains the searched string (the counting shell
+matches itself). The standalone check, run as its own command
+immediately after, reads 0:
+--- ps aux | grep "[n]ode_server" | wc -l
+0
+
+Totals: baseline 158 (20 + 39 + 81 + 18) + 22 new tests = 180/180 OK.
+EAI handoff verification: PASS 3/3.
