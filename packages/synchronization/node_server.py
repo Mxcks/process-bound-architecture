@@ -21,7 +21,8 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      anchor_configured, anchor_status,
                      mesh_anchor_configured, mesh_anchor_status,
                      snapshot_entries, last_snapshot_check,
-                     last_snapshot_delivery}
+                     last_snapshot_delivery, last_snapshot_push,
+                     last_anchor_delivery}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -108,6 +109,50 @@ POST /push-snapshot
                     /health carries the last push's outcome as
                     last_snapshot_push, beside last_snapshot_check
                     and last_snapshot_delivery.
+POST /deliver-anchor
+                 -> {anchor: {...}} or {anchor: {...},
+                    entries: [...]}: receive one registry
+                    ANCHOR delivery over the wire (experiment
+                    028): the anchor object's own JSON - the
+                    content of an experiment 012/019 anchor
+                    file, as data, never a file path - alone, or
+                    paired with the snapshot entries it blesses.
+                    The anchor is judged BEFORE anything
+                    changes, in sync-mesh case 17's order:
+                    configuration (no_anchor / no_snapshot), it
+                    must read as an anchor, byte-identical is
+                    no_change, succession judged anchor to
+                    anchor (experiment 019's same-identity rule:
+                    different_signer, audit-logged, the current
+                    anchor untouched), the backward fence
+                    (anchor_regression), signature and kept
+                    history under this process's configured
+                    identity (anchor_signature_invalid), and
+                    pairing - an anchor alone must pair with
+                    the record this process already stands on
+                    (anchor_unpaired), and a pair is judged
+                    together by a full PolicyNode construction
+                    over the candidate record with the candidate
+                    anchor, exactly as a file delivery is
+                    judged, so neither half is applied unless
+                    both stand. A stood anchor replaces the
+                    anchor file and the running PolicyNode
+                    reloads; a stood pair replaces both files
+                    and reloads once from the pair. The response
+                    is the delivery's report: status
+                    "delivered", "delivery_refused" (with the
+                    refusal's own name as "reason"),
+                    "no_change", "no_anchor", or "no_snapshot",
+                    plus the anchor's before/after heads,
+                    counts, and history sequences, the delivered
+                    signer, the loaded entry count when a paired
+                    record was applied, and the anchor status
+                    after the delivery. /health carries the last
+                    anchor delivery's report as
+                    last_anchor_delivery, beside
+                    last_snapshot_delivery. The REGISTRY anchor
+                    only: the mesh anchor of experiment 026
+                    still arrives out of band.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -227,6 +272,49 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   ids) is reported by the push on 502 in /sync's refusal
   shape, so the refusal is named in the push result, never
   hidden behind a generic transport failure.
+- A registry anchor delivered over the wire (POST
+  /deliver-anchor, experiment 028) is judged as strictly
+  as the record, and - when it arrives paired with the
+  record it blesses - judged TOGETHER with it: the
+  delivered anchor is serialized to a candidate file and
+  read with experiment 012's reader, its succession is
+  judged anchor to anchor under experiment 019's
+  same-identity rule (a different signer's anchor, or an
+  unsigned one over a signed anchor, is refused as
+  different_signer and the refusal is appended to the
+  anchor audit log beside the current anchor, which is
+  left byte-for-byte unchanged), a backward anchor is
+  refused as anchor_regression under case 17's fence (an
+  earlier version of this very anchor file, or an anchor
+  pinning an earlier prefix of the chain this process
+  stands on - never a foreign chain, which falls through
+  to pairing), and its signature and kept history are
+  verified with experiment 019's own verification where a
+  signing identity is configured (anchor_signature_
+  invalid, before any head judgement). Pairing is then
+  experiment 015/019's consultation itself: an anchor
+  alone must be exactly the standing record's anchor
+  (checked against the snapshot file), and a pair is
+  judged by a full PolicyNode construction over the
+  candidate record with the CANDIDATE anchor. Only a
+  delivery that stands replaces files: the anchor file
+  from the verified candidate, and for a pair the snapshot
+  file from the verified delivered record, the running
+  PolicyNode reloading from what was delivered and
+  verified. What this verification does NOT do is stated
+  as plainly: an anchor over a REWRITTEN record, signed by
+  the very identity that signed this process's current
+  anchor with its history honestly extended, passes every
+  judgement above - succession, the backward fence, the
+  signature - because under experiment 019's symmetric
+  model the secret that verifies is the secret that signs,
+  and its holder is exactly who the same-identity rule
+  trusts. Case 17's finding test proves the acceptance and
+  the two refusals around it (the genuine anchor over the
+  rewrite: anchor_mismatch; a different identity's:
+  different_signer). The fence a blessed rewrite meets is
+  the custody of the signer's secret, not the wire - as it
+  already was for an anchor placed by hand.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -276,6 +364,10 @@ HONEST LIMITS (prototype, NOT production)
   POST /deliver-snapshot (experiment 025). Since experiment
   027 a server can also push its own standing record to a
   peer, when a client drives POST /push-snapshot on it.
+  Since experiment 028 the anchor such a delivery is
+  consulted against can itself be delivered to the running
+  server, when a client drives POST /deliver-anchor on it,
+  alone or paired with the record it blesses.
   No timer, scheduler,
   or thread inside the server fires any of these, nothing
   solicits a delivery, there is no broadcast or gossip of the
@@ -283,9 +375,28 @@ HONEST LIMITS (prototype, NOT production)
   exactly as stale as experiment 007 left it (though since
   experiment 021 its refusal over the wire is a clean 410,
   not a dropped connection). The anchor a delivery is
-  consulted against still arrives out of band: the anchor
-  file is the local stand-in of experiments 012-019, and
-  experiment 025 transports the record, not the anchor. An
+  consulted against is the local stand-in file of
+  experiments 012-019. Since experiment 028 it can also
+  ARRIVE over the wire: a running server accepts an anchor
+  delivery (POST /deliver-anchor), alone or paired with
+  the record it blesses, judged in case 17's order before
+  anything changes (see the VERIFICATION section above) -
+  so the anchor lifecycle a case 14 delivery assumes can
+  now be completed at a running server without a hand
+  placing the file. What remains out of band is the
+  anchor's WITNESS, not its transport: nothing here or in
+  any earlier experiment holds the head where the record's
+  writer cannot reach it, the anchor file remains a local
+  file an operator can still replace or roll back by hand,
+  and signing remains experiment 019's symmetric HMAC - a
+  holder of the signer's secret can re-anchor anything,
+  including a rewrite, and an anchor delivery by that
+  holder is accepted as legitimately as one placed by
+  hand (case 17's finding). There is also no server-side
+  anchor push: a server receives anchors, it does not send
+  its anchor to a peer (POST /push-snapshot transports the
+  record only), and no timer, scheduler, or solicitation
+  moves an anchor unattended either. An
   external chain anchor exists (experiment 012) and, since
   experiment 018, a server started with --anchor consults the
   registry anchor at startup (see above); since experiment
@@ -301,13 +412,16 @@ HONEST LIMITS (prototype, NOT production)
   started with --mesh-anchor (experiment 026, in the
   VERIFICATION section below); a process started without
   one consults no mesh anchor, exactly as experiments
-  007-025 left it.
+  007-025 left it - and the MESH anchor still arrives out
+  of band even now: experiment 028 delivers the registry
+  anchor only.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
 import os
 import socket
@@ -375,6 +489,40 @@ def _anchored_mesh():
 
         _ANCHORED_MESH = (AnchoredSyncNode, MeshAnchorError)
     return _ANCHORED_MESH
+
+
+_REGISTRY_ANCHOR = None
+
+
+def _registry_anchor():
+    """Experiment 012/019's REGISTRY anchor module, loaded lazily
+    by file path under a private name (experiment 028).
+
+    The same collision as _anchored_mesh, one package over: this
+    package's own anchor.py is the MESH anchor, and the registry
+    anchor lives in packages/registration/anchor.py. Loading by
+    path - the way policy_node.py loads the same module for its
+    consultation - reuses experiment 019's signature and history
+    verification, its audit log, and its anchor check exactly,
+    with no copy in this package and no import of the
+    registration channel. Lazy, like _anchored_mesh, so every
+    existing consumer's import resolution is exactly as it was;
+    only an anchor delivery ever loads it, and only a process
+    that receives one has an anchor configured.
+    """
+    global _REGISTRY_ANCHOR
+    if _REGISTRY_ANCHOR is None:
+        anchor_file = _HERE.parent / "registration" / "anchor.py"
+        spec = importlib.util.spec_from_file_location(
+            "pba_node_server_registry_anchor", anchor_file)
+        module = importlib.util.module_from_spec(spec)
+        # Registered before exec: the anchor module declares
+        # dataclasses, which resolve their module namespace
+        # through sys.modules (as policy_node.py's loader notes).
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _REGISTRY_ANCHOR = module
+    return _REGISTRY_ANCHOR
 
 
 # -- entry serialization ---------------------------------------------------
@@ -515,6 +663,10 @@ class NetworkNode:
         # a 200 report or a 502 refusal alike - beside the
         # last check's and the last delivery's.
         self.last_snapshot_push: dict | None = None
+        # Experiment 028: the most recent anchor delivery's
+        # report, in the same field style as the last check's
+        # and the last delivery's.
+        self.last_anchor_delivery: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -841,6 +993,369 @@ class NetworkNode:
         self.last_snapshot_delivery = report
         return report
 
+    def deliver_anchor(self, anchor_data: dict,
+                       entries: list[dict] | None = None) -> dict:
+        """One registry anchor delivery received over the wire
+        (experiment 028, sync-mesh case 17).
+
+        `anchor_data` is the anchor object's own JSON - the
+        content of an experiment 012/019 anchor file, handed
+        over as data, never a path. `entries`, when given, are
+        the Gate 1 log entries of the record the delivered
+        anchor blesses (case 14's delivery payload): the pair
+        is judged TOGETHER and neither half is applied unless
+        both stand. The REGISTRY anchor only; the mesh anchor
+        of experiment 026 still arrives out of band.
+
+        The anchor is judged BEFORE anything changes, in case
+        17's stated order, reusing experiment 019's verification
+        and audit code (loaded by _registry_anchor(), never
+        copied):
+
+        - Configuration: no anchor path configured on this
+          process: "no_anchor" - configuration is a startup
+          choice and a delivery never turns consultation on.
+          An anchor configured but no PolicyNode: "no_snapshot"
+          - no record to pair an anchor against.
+        - The delivered bytes are serialized to a candidate
+          file beside the anchor (the anchor file's own format)
+          and read with experiment 012's reader; a body that is
+          not a registry anchor is refused under the anchor
+          module's own error name (experiment 022's naming, as
+          deliver_snapshot uses it). A configured anchor that
+          cannot be read NOW is refused as "anchor_unreadable"
+          (case 15's name for the same condition on the mesh
+          side): the current anchor is the ground every
+          judgement below stands on, and an unreadable one is a
+          refusal, never a silent pass.
+        - Paired pre-judgements (case 14's, on the delivered
+          hashes): entries identical to the standing chain
+          reduce the pair to the anchor-alone judgement below,
+          with the snapshot half reported "no_change"; entries
+          that are exactly an earlier prefix are refused as
+          "snapshot_regression" with NEITHER half applied - the
+          backward name for the record half is case 14's, and
+          a shorter chain that is not that prefix never reaches
+          it.
+        - Anchor-alone only: a delivery byte-for-byte identical
+          to the current anchor file is "no_change" - nothing
+          written, nothing re-judged.
+        - Succession, judged anchor to anchor (registration
+          case 10's same-identity rule): a signed current
+          anchor may be succeeded only by a delivered anchor
+          signed by the SAME identity; a different identity -
+          or an unsigned anchor over a signed one - is refused
+          as "different_signer", the refusal appended to the
+          anchor audit log beside the current anchor in case
+          10's event shape, the current anchor file untouched.
+          A signed delivery over an UNSIGNED current anchor
+          establishes the signer (case 10's stated exception)
+          and passes this judgement.
+        - The backward fence, fenced as case 14 fences its
+          own: a delivered anchor that is an earlier state -
+          its kept history a proper prefix of the current
+          anchor's kept history (an earlier version of this
+          very anchor file), or its head pinning an earlier
+          prefix of the chain this process stands on - is
+          refused as "anchor_regression", audit-logged in the
+          same shape. A foreign chain's head is an earlier
+          state of neither and falls through to pairing, so
+          the backward name cannot launder a rewrite.
+        - Signature and history: with a signing identity
+          configured on this process, experiment 019's own
+          verification of the delivered record (signer match,
+          history chain and signatures, top fields tied to the
+          last history entry) must pass, or the refusal is
+          "anchor_signature_invalid" - before any head
+          judgement, as in every consultation since experiment
+          019. With no identity configured, a signed delivered
+          anchor's kept history must still verify as a chain
+          (the part of the history verification that needs no
+          secret); an unsigned one is judged by its head.
+        - Pairing. Anchor alone: experiment 012's check of the
+          server's snapshot file against the candidate anchor
+          must be ok - the anchor pairs with the record this
+          process already stands on - or the delivery is
+          refused as "anchor_unpaired", the name case 17 sets:
+          it pairs with nothing here. Paired: a full PolicyNode
+          construction over a candidate record file with the
+          CANDIDATE anchor as its anchor and this process's
+          signing configuration - experiment 015/019's
+          consultation - judges the pair together
+          (anchor_stale / anchor_mismatch / tampered_record /
+          anchor_signature_invalid, under experiment 022's
+          naming). Only a pair that stands is applied.
+
+        Application. Anchor alone: the anchor file is replaced
+        from the verified candidate (os.replace) and the
+        running PolicyNode reloads its standing record against
+        it, so the anchor standing /health reports afterward is
+        the new anchor's verdict, not a cached one. Paired: the
+        snapshot file is replaced from the verified delivered
+        record and the anchor file from the verified delivered
+        anchor, and the PolicyNode reloads ONCE from the
+        replaced pair (experiment 024's reload path); the
+        record half is also recorded as this process's last
+        snapshot delivery, in deliver_snapshot's report shape,
+        because a record delivery did occur. A refused delivery
+        at any judgement changes neither file, byte-for-byte,
+        and the previous view keeps serving.
+
+        The delivery is driven by the pushing peer (POST
+        /deliver-anchor); no timer or thread in this process
+        solicits one. Callers hold self.lock, as for every
+        other node access from the handler.
+        """
+        anchor_mod = _registry_anchor()
+        carried_entries = entries is not None
+
+        def _report(status, reason, before, delivered, loaded_entries,
+                    snapshot_status):
+            return {
+                "node_id": self.node_id,
+                "status": status,
+                "reason": reason,
+                "paired": carried_entries,
+                "before_head": before.chain_head if before else None,
+                "after_head": delivered.chain_head if delivered else None,
+                "before_count": before.entry_count if before else None,
+                "after_count": delivered.entry_count if delivered else None,
+                "before_seq": before.anchor_seq if before else None,
+                "after_seq": delivered.anchor_seq if delivered else None,
+                "signer": delivered.signer if delivered else None,
+                "loaded_entries": loaded_entries,
+                "snapshot_status": snapshot_status,
+                "anchor_status": self.anchor_status,
+            }
+
+        # Configuration first (case 17).
+        if self.anchor_path is None:
+            report = _report("no_anchor", None, None, None, None, None)
+            self.last_anchor_delivery = report
+            return report
+        if self.policy_node is None or self.snapshot_path is None:
+            report = _report("no_snapshot", None, None, None, None, None)
+            self.last_anchor_delivery = report
+            return report
+
+        candidate_anchor_path = self.anchor_path.with_name(
+            self.anchor_path.name + ".wire-candidate")
+        candidate_record_path = self.snapshot_path.with_name(
+            self.snapshot_path.name + ".wire-candidate")
+        try:
+            candidate_anchor_path.write_bytes(
+                (json.dumps(anchor_data, sort_keys=True, indent=2) + "\n"
+                 ).encode("utf-8"))
+            try:
+                delivered = anchor_mod.read_anchor(candidate_anchor_path)
+            except Exception as exc:
+                report = _report("delivery_refused",
+                                 _reload_refusal_reason(exc),
+                                 None, None, None, None)
+                self.last_anchor_delivery = report
+                return report
+            try:
+                current = anchor_mod.read_anchor(self.anchor_path)
+                current_bytes = self.anchor_path.read_bytes()
+            except Exception:
+                report = _report("delivery_refused", "anchor_unreadable",
+                                 None, delivered, None, None)
+                self.last_anchor_delivery = report
+                return report
+
+            # Case 14's hash-only pre-judgements on a paired
+            # delivery's record half.
+            judge_pair = carried_entries
+            snapshot_status = None
+            if carried_entries:
+                loaded_hashes = [e["entry_hash"]
+                                 for e in self.policy_node._entries]
+                delivered_hashes = [e.get("entry_hash") for e in entries]
+                if delivered_hashes == loaded_hashes:
+                    judge_pair = False
+                    snapshot_status = "no_change"
+                elif (len(delivered_hashes) < len(loaded_hashes)
+                        and delivered_hashes
+                        == loaded_hashes[:len(delivered_hashes)]):
+                    report = _report("delivery_refused",
+                                     "snapshot_regression",
+                                     current, delivered, None, None)
+                    self.last_anchor_delivery = report
+                    return report
+
+            def _succession_or_regression_reason() -> str | None:
+                """The anchor-to-anchor judgements (case 17):
+                succession, then the backward fence - each
+                refusal audit-logged beside the current anchor
+                in registration case 10's event shape."""
+                if (current.signer is not None
+                        and delivered.signer != current.signer):
+                    anchor_mod._append_anchor_audit(
+                        self.anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "different_signer",
+                            "attempted_signer": delivered.signer,
+                            "current_signer": current.signer,
+                            "chain": "registry",
+                            "chain_head": delivered.chain_head,
+                            "entry_count": delivered.entry_count,
+                        },
+                    )
+                    return "different_signer"
+                standing = self.policy_node._entries
+                pins_earlier_prefix = (
+                    delivered.entry_count < len(standing)
+                    and delivered.chain_head == (
+                        standing[delivered.entry_count - 1]["entry_hash"]
+                        if delivered.entry_count > 0 else GENESIS_HASH)
+                )
+                earlier_version = (
+                    bool(delivered.history) and bool(current.history)
+                    and len(delivered.history) < len(current.history)
+                    and [dict(e) for e in delivered.history]
+                    == [dict(e) for e in
+                        current.history[:len(delivered.history)]]
+                )
+                if pins_earlier_prefix or earlier_version:
+                    anchor_mod._append_anchor_audit(
+                        self.anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "anchor_regression",
+                            "attempted_signer": delivered.signer,
+                            "current_signer": current.signer,
+                            "chain": "registry",
+                            "chain_head": delivered.chain_head,
+                            "entry_count": delivered.entry_count,
+                        },
+                    )
+                    return "anchor_regression"
+                return None
+
+            def _signature_reason() -> str | None:
+                """Experiment 019's verification of the delivered
+                anchor, before any head judgement (case 17)."""
+                if self.anchor_signer is not None:
+                    if not anchor_mod._signature_verifies(
+                            delivered, self.anchor_signer,
+                            self.anchor_secret_hex):
+                        return "anchor_signature_invalid"
+                elif delivered.signer is not None:
+                    if not anchor_mod.verify_anchor_history(
+                            candidate_anchor_path,
+                            signer=delivered.signer):
+                        return "anchor_signature_invalid"
+                return None
+
+            if not judge_pair:
+                # Anchor alone (or a pair whose record half is
+                # the standing chain itself).
+                if candidate_anchor_path.read_bytes() == current_bytes:
+                    report = _report("no_change", None, current, delivered,
+                                     None, snapshot_status)
+                    self.last_anchor_delivery = report
+                    return report
+                reason = (_succession_or_regression_reason()
+                          or _signature_reason())
+                if reason is not None:
+                    report = _report("delivery_refused", reason, current,
+                                     delivered, None, snapshot_status)
+                    self.last_anchor_delivery = report
+                    return report
+                # Pairing: experiment 012's check of the snapshot
+                # file this process stands on against the
+                # candidate anchor - the anchor must pair with
+                # the record already held.
+                if self.anchor_signer is not None:
+                    check = anchor_mod.check_registry_against_anchor(
+                        self.snapshot_path, candidate_anchor_path,
+                        signer=self.anchor_signer,
+                        secret_hex=self.anchor_secret_hex)
+                else:
+                    check = anchor_mod.check_registry_against_anchor(
+                        self.snapshot_path, candidate_anchor_path)
+                if not check.ok:
+                    reason = ("anchor_unpaired"
+                              if check.status == "anchor_mismatch"
+                              else check.status)
+                    report = _report("delivery_refused", reason, current,
+                                     delivered, None, snapshot_status)
+                    self.last_anchor_delivery = report
+                    return report
+                os.replace(candidate_anchor_path, self.anchor_path)
+                self.policy_node.reload_snapshot()
+                report = _report("delivered", None, current, delivered,
+                                 None, snapshot_status)
+                self.last_anchor_delivery = report
+                return report
+
+            # The pair, judged together (case 17).
+            reason = (_succession_or_regression_reason()
+                      or _signature_reason())
+            if reason is not None:
+                report = _report("delivery_refused", reason, current,
+                                 delivered, None, None)
+                self.last_anchor_delivery = report
+                return report
+            candidate_record_path.write_bytes(
+                "".join(json.dumps(entry, sort_keys=True) + "\n"
+                        for entry in entries).encode("utf-8"))
+            try:
+                # The pair judges itself: a full PolicyNode
+                # construction over the candidate record with
+                # the candidate anchor as its anchor and this
+                # process's signing configuration - experiment
+                # 015/019's consultation - before anything
+                # changes.
+                PolicyNode(
+                    node_id=self.node_id,
+                    registry_snapshot_path=candidate_record_path,
+                    payloads={},
+                    serve_policies=False,
+                    anchor_path=candidate_anchor_path,
+                    anchor_signer=self.anchor_signer,
+                    anchor_secret_hex=self.anchor_secret_hex,
+                )
+            except Exception as exc:
+                report = _report("delivery_refused",
+                                 _reload_refusal_reason(exc),
+                                 current, delivered, None, None)
+                self.last_anchor_delivery = report
+                return report
+            # The pair stands together. Both files are replaced
+            # from the verified candidates and the running node
+            # reloads once from the replaced pair, so what a
+            # later restart or check sees is exactly what was
+            # delivered and verified, under the anchor that was
+            # delivered and verified.
+            before = self._loaded_snapshot_facts
+            os.replace(candidate_record_path, self.snapshot_path)
+            os.replace(candidate_anchor_path, self.anchor_path)
+            loaded = self.policy_node.reload_snapshot()
+            presented = snapshot_facts(self.snapshot_path)
+            self._loaded_snapshot_facts = presented
+            self.last_snapshot_delivery = {
+                "node_id": self.node_id,
+                "status": "delivered",
+                "reason": None,
+                "before_head": before.head,
+                "after_head": presented.head,
+                "before_count": before.count,
+                "after_count": presented.count,
+                "loaded_entries": loaded,
+                "anchor_status": self.anchor_status,
+            }
+            report = _report("delivered", None, current, delivered,
+                             loaded, "delivered")
+            self.last_anchor_delivery = report
+            return report
+        finally:
+            for candidate in (candidate_anchor_path,
+                              candidate_record_path):
+                if candidate.exists():
+                    candidate.unlink()
+
 
 # -- HTTP client helpers (used by /sync, the tests, and the demo) ------------
 #
@@ -1026,6 +1541,27 @@ def deliver_snapshot(base_url: str, entries: list[dict]) -> dict:
     return body
 
 
+def deliver_anchor(base_url: str, anchor: dict,
+                   entries: list[dict] | None = None) -> dict:
+    """Push one registry anchor delivery to the RUNNING server
+    at base_url (experiment 028): `anchor` is the anchor object's
+    own JSON - the content of an experiment 012/019 anchor file,
+    as data, never a path. `entries`, when given, are the
+    snapshot's Gate 1 log entries for the record the anchor
+    blesses: the pair is judged together by the receiving
+    server and neither half is applied unless both stand (see
+    NetworkNode.deliver_anchor). Returns the delivery's report
+    dict: status "delivered", "delivery_refused" (with the
+    refusal's own name as "reason"), "no_change", "no_anchor",
+    or "no_snapshot"."""
+    payload: dict = {"anchor": anchor}
+    if entries is not None:
+        payload["entries"] = entries
+    status, body = post_json(base_url, "/deliver-anchor", payload)
+    assert status == 200, f"anchor delivery failed: {status} {body}"
+    return body
+
+
 def push_snapshot(base_url: str, peer_url: str) -> tuple[int, dict]:
     """Ask the node at base_url to push its standing registry
     snapshot to the peer process at peer_url (server-to-server,
@@ -1175,6 +1711,11 @@ def make_handler(node: NetworkNode):
                         # push is driven), beside the last
                         # delivery's.
                         "last_snapshot_push": node.last_snapshot_push,
+                        # Experiment 028: the last anchor
+                        # delivery's report (None until the first
+                        # anchor delivery arrives), beside the
+                        # last snapshot delivery's.
+                        "last_anchor_delivery": node.last_anchor_delivery,
                     })
                 return
             if self.path == "/state":
@@ -1325,6 +1866,34 @@ def make_handler(node: NetworkNode):
                         "error": "push-snapshot needs a peer base URL"})
                     return
                 self._push_snapshot_to_peer(peer)
+                return
+            if self.path == "/deliver-anchor":
+                # Experiment 028: one registry anchor delivery
+                # received over the wire (see NetworkNode.
+                # deliver_anchor). The payload carries the
+                # anchor object itself and, for the paired
+                # delivery, the snapshot entries it blesses; the
+                # report is the response, refusals included: a
+                # refused anchor delivery is a delivery outcome,
+                # not a transport error, exactly as above.
+                raw_anchor = payload.get("anchor")
+                if not isinstance(raw_anchor, dict):
+                    self._send_json(400, {
+                        "error": "deliver-anchor needs an anchor "
+                                 "object"})
+                    return
+                raw_entries = payload.get("entries")
+                if (raw_entries is not None
+                        and (not isinstance(raw_entries, list)
+                             or not all(isinstance(e, dict)
+                                        for e in raw_entries))):
+                    self._send_json(400, {
+                        "error": "deliver-anchor entries must be "
+                                 "a list of snapshot entry objects"})
+                    return
+                with node.lock:
+                    report = node.deliver_anchor(raw_anchor, raw_entries)
+                self._send_json(200, report)
                 return
             self._send_json(404, {"error": f"unknown path: {self.path}"})
 
