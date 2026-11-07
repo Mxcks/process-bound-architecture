@@ -25,7 +25,10 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      last_snapshot_delivery, last_snapshot_push,
                      last_anchor_delivery, last_anchor_push,
                      last_mesh_anchor_delivery,
-                     last_mesh_anchor_push}
+                     last_mesh_anchor_push,
+                     peers_configured, peers, last_sync_all,
+                     auto_cycle_configured, auto_cycle_interval,
+                     auto_cycle_cycles, last_auto_cycle}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -71,6 +74,36 @@ POST /sync-all   -> {} (no payload): drive one sweep over
                     body as last_sync_all, and reports the
                     configured list itself as peers beside
                     peers_configured.
+AUTO CYCLE       -> started with --auto-cycle-interval
+                    <seconds> (experiment 037, sync-mesh
+                    case 25), the process runs its own
+                    maintenance cycle on that interval with
+                    no driver calls: each cycle runs, in the
+                    stated order AUTO_CYCLE_ORDER, the
+                    snapshot check above (NetworkNode.
+                    check_snapshot, the identical function),
+                    a peer liveness stage over the configured
+                    peer list (experiment 016's vocabulary
+                    and threshold; healing is null at this
+                    surface, stated in case 25), the paired
+                    registry push to each configured peer
+                    (NetworkNode.push_anchor_round, the
+                    identical round POST /push-anchor
+                    performs), and the peer-list sweep above
+                    (NetworkNode.sync_all_peers, the identical
+                    sweep). A refused stage is recorded in the
+                    cycle report under its own name and the
+                    later stages still run, in experiment
+                    023's refusal composition; the cycle
+                    thread is a daemon thread that waits on a
+                    stop event between cycles and is stopped
+                    and joined when the process stops.
+                    /health reports the standing as
+                    auto_cycle_configured, auto_cycle_interval,
+                    auto_cycle_cycles, and last_auto_cycle.
+                    Without the flag no thread runs and the
+                    standing reports off, exactly as
+                    experiments 007-036 left every surface.
 POST /check-snapshot
                  -> drive one snapshot check on this RUNNING
                     process (experiment 024): compare this
@@ -774,7 +807,39 @@ HONEST LIMITS (prototype, NOT production)
   there by experiment 031's judgement unmodified - but
   the push is still driven by a client call on the
   sender, and nothing solicits, schedules, or retries
-  one.)
+                    one.)
+- Unattended operation exists only where the operator
+  turns it on (experiment 037): started with
+  --auto-cycle-interval, the process runs the maintenance
+  cycle described above on that interval. This supersedes,
+  for such a process only, the driven-only statements
+  above (no timer or thread fires any surface; a server
+  nobody drives stays stale; sweeps happen when a client
+  drives them): with the flag, the process drives ITSELF,
+  through the identical internal rounds the driven
+  endpoints call, so an unattended cycle can refuse or
+  converge under exactly the names a driven call produces.
+  Without the flag every one of those statements stands
+  exactly as written. The cycle's own limits are stated
+  as plainly: the interval is operator-chosen and read
+  once at startup (changing it is a restart act); the
+  cycle is one thread inside this process, so a process
+  that is down runs no cycles and a crash between cycles
+  loses nothing the driven surfaces would have kept - the
+  state the next start stands on is the state the mesh
+  and snapshot disciplines already made durable, and
+  convergence resumes on the next cycle after restart,
+  not during the outage; a cycle is sequential (snapshot
+  check, liveness probes, one push round per peer, one
+  sweep), so a slow or unreachable peer delays that
+  cycle's later peers within the one cycle, and cycles
+  never overlap; the liveness stage observes the
+  configured peers' health surfaces only - it recruits
+  nothing, replaces nothing, and a peer it names lost is
+  still attempted by the same cycle's later stages; and
+  the registry push stage pushes this process's standing
+  to its configured peers only, so a set whose lists do
+  not connect it does not converge unattended either.
 """
 
 from __future__ import annotations
@@ -787,6 +852,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -915,6 +981,42 @@ def _registry_anchor():
     return _REGISTRY_ANCHOR
 
 
+# -- unattended operation (experiment 037) ----------------------------------
+# The automatic cycle's stated order (sync-mesh case 25): the
+# first two stages preserve experiment 023's coordinator order
+# (delivery before liveness) at the server surface, and the two
+# spread stages follow - the registry push carries the record
+# the snapshot check just settled, and the mesh sweep carries
+# the mesh state. Named once, here, and carried on every cycle
+# report.
+AUTO_CYCLE_ORDER = ("snapshot_check", "liveness", "registry_push",
+                    "sync_all")
+# The sane minimum interval, in seconds (case 25): below it
+# the start refuses naming auto_cycle_interval_invalid, in the
+# refused-start family of peers_unreadable / crl_unreadable -
+# a busy-loop schedule is refused at the door.
+AUTO_CYCLE_MIN_INTERVAL = 0.2
+
+_LOST_AFTER_MISSED = None
+
+
+def _lost_after_missed_beats() -> int:
+    """Experiment 016's lost threshold (LOST_AFTER_MISSED_BEATS),
+    imported lazily on first use, like the anchor modules
+    above: node_server is imported by consumers whose sys.path
+    order is theirs, and liveness.py pulls the policy-library
+    package with it. Only a liveness stage ever needs the
+    constant, so only a process that runs one pays the import.
+    In the server process itself, this file's package setup
+    has already put the policy-library directory on sys.path.
+    """
+    global _LOST_AFTER_MISSED
+    if _LOST_AFTER_MISSED is None:
+        from liveness import LOST_AFTER_MISSED_BEATS
+        _LOST_AFTER_MISSED = LOST_AFTER_MISSED_BEATS
+    return _LOST_AFTER_MISSED
+
+
 # -- entry serialization ---------------------------------------------------
 # Entries cross the wire as plain JSON dicts of their dataclass
 # fields. Deserialization constructs the StateEntry as-is, stored
@@ -1000,6 +1102,7 @@ class NetworkNode:
         mesh_anchor_witness_secret_hex: str | None = None,
         mesh_state_path: str | Path | None = None,
         peers: list[str] | None = None,
+        auto_cycle_interval: float | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -1179,6 +1282,21 @@ class NetworkNode:
         # beside the last pushes'. None until the first sweep
         # is driven.
         self.last_sync_all: dict | None = None
+        # Experiment 037: the automatic cycle's standing
+        # (sync-mesh case 25) - the operator-chosen interval
+        # (None, the default, is off: no thread, no cycles,
+        # every earlier behavior unchanged), the completed
+        # cycle count, the last cycle's full report, the
+        # per-peer missed-cycle record the liveness stage
+        # advances, and the thread's stop event and handle.
+        # main() validates the minimum before construction,
+        # as it validates the peer list.
+        self.auto_cycle_interval = auto_cycle_interval
+        self.auto_cycle_cycles: int = 0
+        self.last_auto_cycle: dict | None = None
+        self._peer_missed_cycles: dict[str, int] = {}
+        self._auto_cycle_stop = threading.Event()
+        self._auto_cycle_thread: threading.Thread | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -1521,6 +1639,487 @@ class NetworkNode:
         }
         self.last_snapshot_check = report
         return report
+
+# Methods inserted into NetworkNode (experiment 037). The sync
+# round, its classification, the sweep, and the paired-push
+# round live here - extracted unchanged from the handler in
+# experiments 035/030 - so the driven endpoints and the
+# automatic cycle are two callers of one code path.
+    def sync_once(self, peer: str) -> tuple[int, dict]:
+        """One peer sync round (experiments 007/017): the
+        initiating-side identity check where binding is on,
+        the verified pull, merge, and push-back - returning
+        (status, body) exactly as POST /sync answers them.
+        Experiment 035 extracted this round from the handler
+        so /sync and the peer-list sweep share it; experiment
+        037 moves it onto the node, unchanged, so the
+        automatic cycle's sweep is the same third caller.
+        Callers do NOT hold self.lock: the round acquires it
+        for the merge, exactly as the handler did."""
+        if self.bind_identity:
+            try:
+                verify_peer_identity(peer)
+            except protected_link.IdentityMismatch as exc:
+                print(
+                    f"identity_mismatch refused sync with {peer}: "
+                    f"claimed={exc.claimed} certified={exc.certified}",
+                    flush=True,
+                )
+                return 502, {
+                    "error": "identity_mismatch",
+                    "claimed": exc.claimed,
+                    "certified": exc.certified,
+                    "detail": str(exc),
+                }
+            except (AssertionError, urllib.error.URLError, OSError) as exc:
+                return 502, {"error": f"peer unreachable: {exc}"}
+        try:
+            their_entries = fetch_entries(peer)
+        except (AssertionError, urllib.error.URLError, OSError) as exc:
+            return 502, {"error": f"peer unreachable: {exc}"}
+        with self.lock:
+            result_self = self.receive_mesh_entries(their_entries)
+            merged = self.sync_node.entries()
+        try:
+            result_peer = push_entries(peer, merged)
+        except (AssertionError, urllib.error.URLError, OSError) as exc:
+            return 502, {
+                "error": f"peer push failed: {exc}",
+                "self": result_self.to_dict(),
+            }
+        with self.lock:
+            state_hash = self.sync_node.state_hash()
+        return 200, {
+            "self": result_self.to_dict(),
+            "peer": result_peer,
+            "state_hash": state_hash,
+        }
+
+    @staticmethod
+    def classify_sync_outcome(peer: str, status: int,
+                              body: dict) -> dict:
+        """Classify one sync_once round into the sweep's
+        per-peer result vocabulary (experiment 035, sync-mesh
+        case 24), carrying the round's own evidence beside
+        the classification. Nothing is renamed: a divergence
+        keeps the SyncResult's reason, an identity refusal
+        keeps "identity_mismatch". Moved onto the node with
+        the round in experiment 037, unchanged."""
+        result = {
+            "peer": peer,
+            "outcome": None,
+            "reason": None,
+            "detail": None,
+            "self": None,
+            "peer_result": None,
+            "state_hash": None,
+        }
+        if status == 200:
+            result["self"] = body["self"]
+            result["peer_result"] = body["peer"]
+            result["state_hash"] = body["state_hash"]
+            for side in (body["self"], body["peer"]):
+                if side["divergence_detected"]:
+                    result["outcome"] = "refused"
+                    result["reason"] = side["reason"]
+                    return result
+            result["outcome"] = "converged"
+            return result
+        error = str(body.get("error", ""))
+        result["detail"] = error
+        if error == "identity_mismatch":
+            result["outcome"] = "refused"
+            result["reason"] = "identity_mismatch"
+            result["detail"] = body.get("detail")
+            result["claimed"] = body.get("claimed")
+            result["certified"] = body.get("certified")
+        elif error.startswith("peer unreachable"):
+            result["outcome"] = "unreachable"
+        else:
+            result["outcome"] = "transport_failed"
+            result["self"] = body.get("self")
+        return result
+
+    def sync_all_peers(self) -> dict:
+        """One sweep over this process's configured peer list
+        (experiment 035, sync-mesh case 24): each configured
+        peer, in list order, gets exactly the sync_once round
+        /sync performs; each outcome is classified and
+        collected, and NO outcome stops the sweep. An entry
+        naming this process's own bound address is skipped
+        and reported as "self". The report is recorded as
+        this node's last_sync_all (what /health carries) and
+        returned. Experiment 037 moves the sweep onto the
+        node, unchanged, so POST /sync-all and the automatic
+        cycle are two callers of it. Callers do NOT hold
+        self.lock."""
+        peers = self.peers
+        with self.lock:
+            state_hash = self.sync_node.state_hash()
+        if not peers:
+            body = {
+                "node_id": self.node_id,
+                "status": "no_peers",
+                "results": [],
+                "state_hash": state_hash,
+            }
+            with self.lock:
+                self.last_sync_all = body
+            return body
+        results = []
+        for peer in peers:
+            if (self.own_base_url is not None
+                    and peer == self.own_base_url):
+                results.append({
+                    "peer": peer,
+                    "outcome": "self",
+                    "reason": None,
+                    "detail": None,
+                    "self": None,
+                    "peer_result": None,
+                    "state_hash": None,
+                })
+                continue
+            status, round_body = self.sync_once(peer)
+            results.append(
+                self.classify_sync_outcome(peer, status, round_body))
+        attempted = [r for r in results if r["outcome"] != "self"]
+        if not attempted:
+            sweep_status = "no_peers"
+        elif all(r["outcome"] == "converged" for r in attempted):
+            sweep_status = "converged"
+        else:
+            sweep_status = "partial"
+        with self.lock:
+            state_hash = self.sync_node.state_hash()
+            body = {
+                "node_id": self.node_id,
+                "status": sweep_status,
+                "results": results,
+                "state_hash": state_hash,
+            }
+            self.last_sync_all = body
+        return body
+
+    def push_anchor_round(self, peer: str) -> tuple[int, dict]:
+        """One paired push round (experiment 030, sync-mesh
+        case 19): this process pushes the record its
+        PolicyNode stands on AND the anchor object its own
+        anchor file holds to the peer's POST /deliver-anchor
+        in its paired form (or, with no anchor configured,
+        the record alone to POST /deliver-snapshot, case 16
+        exactly), returning (status, body) exactly as
+        POST /push-anchor answers them, and recording the
+        body as this node's last_anchor_push. The peer judges
+        the pair under case 17's rules, unmodified - the
+        receiving side is experiment 028's surface. Moved
+        onto the node in experiment 037, unchanged, so the
+        driven endpoint and the automatic cycle's registry
+        stage are two callers of it. Callers do NOT hold
+        self.lock."""
+        def _record(status: int, body: dict) -> tuple[int, dict]:
+            with self.lock:
+                self.last_anchor_push = body
+            return status, body
+
+        if self.bind_identity:
+            try:
+                verify_peer_identity(peer)
+            except protected_link.IdentityMismatch as exc:
+                print(
+                    f"identity_mismatch refused paired push to {peer}: "
+                    f"claimed={exc.claimed} certified={exc.certified}",
+                    flush=True,
+                )
+                return _record(502, {
+                    "error": "identity_mismatch",
+                    "claimed": exc.claimed,
+                    "certified": exc.certified,
+                    "detail": str(exc),
+                })
+            except (AssertionError, urllib.error.URLError, OSError) as exc:
+                return _record(502,
+                               {"error": f"peer unreachable: {exc}"})
+        with self.lock:
+            entries = (
+                [dict(e) for e in self.policy_node._entries]
+                if self.policy_node is not None else None
+            )
+            anchor = None
+            anchor_error: Exception | None = None
+            if self.anchor_path is not None:
+                try:
+                    anchor = json.loads(
+                        self.anchor_path.read_text(encoding="utf-8"))
+                    if not isinstance(anchor, dict):
+                        raise ValueError(
+                            "anchor file does not hold an "
+                            "anchor object")
+                except (OSError, ValueError) as exc:
+                    anchor = None
+                    anchor_error = exc
+        if entries is None:
+            return _record(200, {
+                "node_id": self.node_id,
+                "peer": peer,
+                "status": "no_snapshot",
+                "delivery": None,
+            })
+        if anchor_error is not None:
+            return _record(502, {
+                "error": f"own anchor unreadable: {anchor_error}"})
+        if anchor is None:
+            path = "/deliver-snapshot"
+            payload = {"entries": entries}
+        else:
+            path = "/deliver-anchor"
+            payload = {"anchor": anchor, "entries": entries}
+        try:
+            status, delivery = post_json(peer, path, payload)
+        except (urllib.error.URLError, OSError) as exc:
+            return _record(502,
+                           {"error": f"peer push failed: {exc}"})
+        if status != 200:
+            body = {"error": delivery.get(
+                "error", f"peer refused the push: HTTP {status}")}
+            for key in ("claimed", "certified", "detail"):
+                if key in delivery:
+                    body[key] = delivery[key]
+            return _record(502, body)
+        return _record(200, {
+            "node_id": self.node_id,
+            "peer": peer,
+            "status": delivery.get("status"),
+            "delivery": delivery,
+        })
+
+    # -- the automatic cycle (experiment 037) --------------------
+
+    @property
+    def auto_cycle_configured(self) -> bool:
+        """Whether this process was started with an automatic
+        cycle interval (experiment 037): operator
+        configuration only, set at construction."""
+        return self.auto_cycle_interval is not None
+
+    def _liveness_stage(self) -> dict:
+        """The cycle's liveness stage (experiment 037,
+        sync-mesh case 25): one health probe per configured
+        peer, classified in experiment 016's vocabulary under
+        its threshold - alive at 0 missed cycles, silent_short
+        at 1-2, lost at LOST_AFTER_MISSED_BEATS or more
+        consecutive missed cycles. The missed counts are this
+        node's own record, advanced only here, one count per
+        cycle per peer that does not answer. `healing` is
+        null, stated plainly in case 25: a server holds no
+        placed policy and no holder floor, so a lost peer is
+        named here and still attempted by the later stages -
+        it is not recruited over. Probing is network I/O and
+        runs without self.lock; the counts move under it."""
+        peers = list(self.peers) if self.peers else []
+        if not peers:
+            return {"status": "no_peers", "peers": [],
+                    "healing": None}
+        threshold = _lost_after_missed_beats()
+        reports = []
+        any_lost = False
+        any_silent = False
+        for peer in peers:
+            try:
+                fetch_health(peer)
+                missed = 0
+            except (AssertionError, urllib.error.URLError,
+                    OSError):
+                missed = self._peer_missed_cycles.get(peer, 0) + 1
+            if missed == 0:
+                state = "alive"
+            elif missed >= threshold:
+                state = "lost"
+                any_lost = True
+            else:
+                state = "silent_short"
+                any_silent = True
+            reports.append({"peer": peer, "state": state,
+                            "missed_cycles": missed})
+            with self.lock:
+                if missed == 0:
+                    self._peer_missed_cycles.pop(peer, None)
+                else:
+                    self._peer_missed_cycles[peer] = missed
+        status = ("lost" if any_lost else
+                  "silent_short" if any_silent else "alive")
+        return {"status": status, "peers": reports,
+                "healing": None}
+
+    def _registry_push_stage(self) -> dict:
+        """The cycle's registry stage (experiment 037): one
+        paired push round per configured peer, in list order,
+        through push_anchor_round - the identical round
+        POST /push-anchor performs. Each peer's outcome is
+        reported separately and one outcome never stops the
+        stage. A process with no PolicyNode has no record to
+        push: status no_snapshot, as case 19's sender shape
+        states. This stage pushes the standing the PolicyNode
+        LOADED (push_anchor_round reads the loaded view,
+        never the snapshot file), which is experiment 023's
+        last-good principle at this surface: a cycle whose
+        snapshot check was refused pushes the last good
+        record, never the refused file."""
+        if self.policy_node is None:
+            return {"status": "no_snapshot", "results": []}
+        peers = list(self.peers) if self.peers else []
+        if not peers:
+            return {"status": "no_peers", "results": []}
+        results = []
+        for peer in peers:
+            if (self.own_base_url is not None
+                    and peer == self.own_base_url):
+                results.append({"peer": peer, "outcome": "self",
+                                "status": None, "reason": None,
+                                "push": None})
+                continue
+            status, body = self.push_anchor_round(peer)
+            if status == 200:
+                outcome = body.get("status")
+                reason = None
+                if isinstance(body.get("delivery"), dict):
+                    reason = body["delivery"].get("reason")
+            else:
+                outcome = "refused"
+                reason = body.get("error")
+            results.append({"peer": peer, "outcome": outcome,
+                            "status": status, "reason": reason,
+                            "push": body})
+        attempted = [r for r in results if r["outcome"] != "self"]
+        if not attempted:
+            stage_status = "no_peers"
+        elif all(r["outcome"] in ("delivered", "no_change")
+                 for r in attempted):
+            stage_status = "delivered"
+        else:
+            stage_status = "partial"
+        return {"status": stage_status, "results": results}
+
+    def run_auto_cycle_once(self) -> dict:
+        """One automatic maintenance cycle (experiment 037,
+        sync-mesh case 25), in AUTO_CYCLE_ORDER: the snapshot
+        check (this node's own check_snapshot, under the node
+        lock as its driven caller holds it), the liveness
+        stage, the registry push stage, and the sync-all
+        sweep (this node's own sync_all_peers). Every stage
+        runs even when an earlier stage was refused or raised
+        - a refusal is recorded in that stage's report under
+        its own name and the cycle completes - which is
+        experiment 023's refusal composition at the server
+        surface and case 13's re-reporting discipline
+        together: the last-loaded facts never move on a
+        refusal, so the next cycle re-attempts it. The cycle
+        report is recorded as last_auto_cycle, the completed
+        counter advances by one, and the report is returned.
+        Callers do NOT hold self.lock."""
+        with self.lock:
+            cycle_number = self.auto_cycle_cycles + 1
+        try:
+            with self.lock:
+                snapshot_report = self.check_snapshot()
+        except Exception as exc:  # a stage never kills the cycle
+            snapshot_report = {
+                "node_id": self.node_id,
+                "status": "reload_refused",
+                "reason": _reload_refusal_reason(exc),
+            }
+        try:
+            liveness_report = self._liveness_stage()
+        except Exception as exc:
+            liveness_report = {"status": "error",
+                               "detail": str(exc), "peers": [],
+                               "healing": None}
+        try:
+            registry_report = self._registry_push_stage()
+        except Exception as exc:
+            registry_report = {"status": "error",
+                               "detail": str(exc), "results": []}
+        try:
+            sweep_report = self.sync_all_peers()
+        except Exception as exc:
+            sweep_report = {"node_id": self.node_id,
+                            "status": "error", "detail": str(exc),
+                            "results": []}
+        with self.lock:
+            state_hash = self.sync_node.state_hash()
+            report = {
+                "node_id": self.node_id,
+                "cycle": cycle_number,
+                "order": list(AUTO_CYCLE_ORDER),
+                "snapshot_check": snapshot_report,
+                "liveness": liveness_report,
+                "registry_push": registry_report,
+                "sync_all": sweep_report,
+                "state_hash": state_hash,
+            }
+            self.last_auto_cycle = report
+            self.auto_cycle_cycles = cycle_number
+        return report
+
+    def _auto_cycle_loop(self) -> None:
+        """The cycle thread's loop: wait one interval on the
+        stop event, run one cycle, repeat. Waiting FIRST
+        means a freshly started process serves its startup
+        standing for one interval before its first cycle,
+        and stopping is responsive within one wait. An
+        exception out of a cycle is recorded as a failed
+        cycle report rather than killing the thread - the
+        loop's survival is the point of the surface - though
+        run_auto_cycle_once already confines stage failures
+        to their stage reports, so this is the last fence,
+        not the expected path."""
+        while not self._auto_cycle_stop.wait(
+                self.auto_cycle_interval):
+            try:
+                self.run_auto_cycle_once()
+            except Exception as exc:
+                with self.lock:
+                    self.auto_cycle_cycles += 1
+                    self.last_auto_cycle = {
+                        "node_id": self.node_id,
+                        "cycle": self.auto_cycle_cycles,
+                        "order": list(AUTO_CYCLE_ORDER),
+                        "status": "error",
+                        "detail": str(exc),
+                    }
+
+    def start_auto_cycle(self) -> bool:
+        """Start this process's automatic cycle thread
+        (experiment 037). Returns False and starts nothing
+        when no interval is configured (the default: every
+        earlier behavior unchanged) or when the thread is
+        already running. The thread is a daemon thread: it
+        can never keep a stopping process alive, and
+        stop_auto_cycle joins it for an orderly stop."""
+        if self.auto_cycle_interval is None:
+            return False
+        if (self._auto_cycle_thread is not None
+                and self._auto_cycle_thread.is_alive()):
+            return False
+        self._auto_cycle_stop.clear()
+        self._auto_cycle_thread = threading.Thread(
+            target=self._auto_cycle_loop,
+            name=f"pba-auto-cycle-{self.node_id}",
+            daemon=True,
+        )
+        self._auto_cycle_thread.start()
+        return True
+
+    def stop_auto_cycle(self) -> None:
+        """Stop the automatic cycle thread, if running, and
+        join it: after this returns the thread is not alive
+        and the completed-cycle count is stable. Safe to
+        call when no thread was ever started."""
+        self._auto_cycle_stop.set()
+        thread = self._auto_cycle_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=10)
+
 
     def deliver_snapshot(self, entries: list[dict]) -> dict:
         """One registry snapshot delivery received over the wire
@@ -2938,6 +3537,21 @@ def make_handler(node: NetworkNode):
                         # body; None until the first sweep is
                         # driven), beside the last pushes'.
                         "last_sync_all": node.last_sync_all,
+                        # Experiment 037: the automatic
+                        # cycle's standing (sync-mesh case
+                        # 25) - whether an interval was
+                        # configured at startup, the interval
+                        # itself, the cycles this process has
+                        # completed unattended, and the most
+                        # recent cycle's full per-stage
+                        # report (None until the first cycle
+                        # completes; the off standing forever
+                        # on a process started without the
+                        # flag).
+                        "auto_cycle_configured": node.auto_cycle_configured,
+                        "auto_cycle_interval": node.auto_cycle_interval,
+                        "auto_cycle_cycles": node.auto_cycle_cycles,
+                        "last_auto_cycle": node.last_auto_cycle,
                     })
                 return
             if self.path == "/state":
@@ -3272,143 +3886,16 @@ def make_handler(node: NetworkNode):
                 "delivery": delivery,
             }))
 
-        def _record_anchor_push(self, body: dict) -> dict:
-            """Record a PAIRED push's outcome as this process's
-            last anchor push (experiment 030) and return the
-            body for sending: /health carries the response
-            body of the last paired push driven on this
-            process, a 200 report or a 502 refusal alike,
-            beside the last snapshot push."""
-            with node.lock:
-                node.last_anchor_push = body
-            return body
-
         def _push_anchor_to_peer(self, peer: str) -> None:
-            # Initiating-side identity check (experiment 017),
-            # exactly as _push_snapshot_to_peer: with binding
-            # on, the peer server's certificate id is checked
-            # against the node id the peer claims in its health
-            # response BEFORE anything is pushed. A mismatch
-            # refuses the push outright; neither half moves.
-            if node.bind_identity:
-                try:
-                    verify_peer_identity(peer)
-                except protected_link.IdentityMismatch as exc:
-                    print(
-                        f"identity_mismatch refused paired push to {peer}: "
-                        f"claimed={exc.claimed} certified={exc.certified}",
-                        flush=True,
-                    )
-                    self._send_json(502, self._record_anchor_push({
-                        "error": "identity_mismatch",
-                        "claimed": exc.claimed,
-                        "certified": exc.certified,
-                        "detail": str(exc),
-                    }))
-                    return
-                except (AssertionError, urllib.error.URLError, OSError) as exc:
-                    self._send_json(502, self._record_anchor_push(
-                        {"error": f"peer unreachable: {exc}"}))
-                    return
-            # What this process stands on, both halves (case
-            # 19): the record is the PolicyNode's loaded,
-            # verified entries - what it serves from, exactly
-            # as _push_snapshot_to_peer reads them; the anchor
-            # is the object this process's own anchor file
-            # holds, read from that file under the same lock.
-            # For the anchor the file IS the standing (the
-            # PolicyNode consults that very file at startup
-            # and on every reload), so the file and the
-            # standing agree by construction. A process with
-            # no PolicyNode holds neither half to push.
-            with node.lock:
-                entries = (
-                    [dict(e) for e in node.policy_node._entries]
-                    if node.policy_node is not None else None
-                )
-                anchor = None
-                anchor_error: Exception | None = None
-                if node.anchor_path is not None:
-                    try:
-                        anchor = json.loads(
-                            node.anchor_path.read_text(encoding="utf-8"))
-                        if not isinstance(anchor, dict):
-                            raise ValueError(
-                                "anchor file does not hold an "
-                                "anchor object")
-                    except (OSError, ValueError) as exc:
-                        anchor = None
-                        anchor_error = exc
-            if entries is None:
-                self._send_json(200, self._record_anchor_push({
-                    "node_id": node.node_id,
-                    "peer": peer,
-                    "status": "no_snapshot",
-                    "delivery": None,
-                }))
-                return
-            if anchor_error is not None:
-                # This process's own anchor cannot be read: it
-                # has nothing honest to send, and no contact
-                # with the peer is made. A sender-side refusal,
-                # reported on 502 in /sync's family rather than
-                # as a push of nothing.
-                self._send_json(502, self._record_anchor_push(
-                    {"error": f"own anchor unreadable: {anchor_error}"}))
-                return
-            if anchor is None:
-                # No anchor configured on this process: the
-                # record alone, to the peer's /deliver-snapshot
-                # - case 16's push exactly, its outcome
-                # recorded here as this process's last anchor
-                # push. The new surface adds nothing when there
-                # is no anchor to carry.
-                path = "/deliver-snapshot"
-                payload = {"entries": entries}
-            else:
-                # The peer judges the pair together: its
-                # /deliver-anchor in the paired form
-                # (experiment 028) runs case 17's whole
-                # judgement - succession, the backward fence,
-                # signature and history, the witness judgement
-                # where the peer is witness-configured, and
-                # pairing - before anything changes.
-                path = "/deliver-anchor"
-                payload = {"anchor": anchor, "entries": entries}
-            # post_json is used directly rather than the
-            # deliver helpers (which assert a 200) because a
-            # refusal can arrive as a non-200 and its body is
-            # the outcome, exactly as in _push_snapshot_to_peer.
-            try:
-                status, delivery = post_json(peer, path, payload)
-            except (urllib.error.URLError, OSError) as exc:
-                self._send_json(502, self._record_anchor_push(
-                    {"error": f"peer push failed: {exc}"}))
-                return
-            if status != 200:
-                # The peer refused before its delivery endpoint
-                # ran - over a binding transport, experiment
-                # 017's accepting-side identity_mismatch (403
-                # naming claimed and certified ids). The refusal
-                # is the push's outcome and is reported in the
-                # same shape /sync reports its refusals.
-                body = {"error": delivery.get(
-                    "error", f"peer refused the push: HTTP {status}")}
-                for key in ("claimed", "certified", "detail"):
-                    if key in delivery:
-                        body[key] = delivery[key]
-                self._send_json(502, self._record_anchor_push(body))
-                return
-            # The peer's paired delivery report IS the push's
-            # result, refusals included: the peer judged the
-            # pair as one thing, and its verdict is reported,
-            # not re-derived here.
-            self._send_json(200, self._record_anchor_push({
-                "node_id": node.node_id,
-                "peer": peer,
-                "status": delivery.get("status"),
-                "delivery": delivery,
-            }))
+            # Experiment 037: the paired push round lives on
+            # the node (NetworkNode.push_anchor_round, moved
+            # unchanged from this handler), so the driven
+            # endpoint and the automatic cycle's registry
+            # stage are two callers of one code path. The round
+            # records its own outcome as the node's last anchor
+            # push; this surface only sends its result.
+            status, body = node.push_anchor_round(peer)
+            self._send_json(status, body)
 
         def _record_mesh_anchor_push(self, body: dict) -> dict:
             """Record a MESH anchor push's outcome as this
@@ -3546,188 +4033,28 @@ def make_handler(node: NetworkNode):
             }))
 
         def _sync_once(self, peer: str) -> tuple[int, dict]:
-            # One peer sync round (experiments 007/017): the
-            # initiating-side identity check where binding is on,
-            # the verified pull, merge, and push-back - returning
-            # (status, body) exactly as POST /sync answers them.
-            # Experiment 035 extracted this from _sync_with_peer
-            # unchanged so the peer-list sweep runs the identical
-            # round per peer: one code path, two callers, and the
-            # surfaces can never disagree about what one peer
-            # sync does.
-            #
-            # Initiating-side identity check (experiment 017): with
-            # binding on, the peer server's certificate id is
-            # checked against the node id the peer claims in its
-            # health response BEFORE any entries are pulled. A
-            # mismatch refuses the sync outright; no state moves.
-            if node.bind_identity:
-                try:
-                    verify_peer_identity(peer)
-                except protected_link.IdentityMismatch as exc:
-                    print(
-                        f"identity_mismatch refused sync with {peer}: "
-                        f"claimed={exc.claimed} certified={exc.certified}",
-                        flush=True,
-                    )
-                    return 502, {
-                        "error": "identity_mismatch",
-                        "claimed": exc.claimed,
-                        "certified": exc.certified,
-                        "detail": str(exc),
-                    }
-                except (AssertionError, urllib.error.URLError, OSError) as exc:
-                    return 502, {"error": f"peer unreachable: {exc}"}
-            # Pull: the peer's entries are untrusted data until this
-            # node's receive_entries verifies them in the merge.
-            try:
-                their_entries = fetch_entries(peer)
-            except (AssertionError, urllib.error.URLError, OSError) as exc:
-                return 502, {"error": f"peer unreachable: {exc}"}
-            with node.lock:
-                result_self = node.receive_mesh_entries(their_entries)
-                merged = node.sync_node.entries()
-            # Push: the peer verifies the merged set again on its side.
-            try:
-                result_peer = push_entries(peer, merged)
-            except (AssertionError, urllib.error.URLError, OSError) as exc:
-                return 502, {
-                    "error": f"peer push failed: {exc}",
-                    "self": result_self.to_dict(),
-                }
-            with node.lock:
-                state_hash = node.sync_node.state_hash()
-            return 200, {
-                "self": result_self.to_dict(),
-                "peer": result_peer,
-                "state_hash": state_hash,
-            }
+            # Experiment 037: the sync round lives on the node
+            # (NetworkNode.sync_once, experiment 035's
+            # extraction moved unchanged), so /sync, the
+            # driven sweep, and the automatic cycle all run
+            # the identical round.
+            return node.sync_once(peer)
 
         def _sync_with_peer(self, peer: str) -> None:
             # POST /sync: one round, exactly experiments
-            # 007-034's surface; the round itself is _sync_once.
+            # 007-034's surface; the round itself is the
+            # node's sync_once.
             status, body = self._sync_once(peer)
             self._send_json(status, body)
 
-        def _record_sync_all(self, body: dict) -> dict:
-            # Experiment 035: the sweep's response body is what
-            # /health carries as last_sync_all, beside the last
-            # pushes' - recorded under the node lock, as every
-            # last report is.
-            with node.lock:
-                node.last_sync_all = body
-            return body
-
-        @staticmethod
-        def _classify_sync_outcome(peer: str, status: int,
-                                   body: dict) -> dict:
-            # Experiment 035: classify one _sync_once round into
-            # the sweep's per-peer result vocabulary (sync-mesh
-            # case 24), carrying the round's own evidence beside
-            # the classification - both SyncResults on a completed
-            # round, the refusal's own name on a refused one, the
-            # transport error's own text on a failed one. Nothing
-            # is renamed: a divergence keeps the SyncResult's
-            # reason, an identity refusal keeps
-            # "identity_mismatch".
-            result = {
-                "peer": peer,
-                "outcome": None,
-                "reason": None,
-                "detail": None,
-                "self": None,
-                "peer_result": None,
-                "state_hash": None,
-            }
-            if status == 200:
-                result["self"] = body["self"]
-                result["peer_result"] = body["peer"]
-                result["state_hash"] = body["state_hash"]
-                for side in (body["self"], body["peer"]):
-                    if side["divergence_detected"]:
-                        result["outcome"] = "refused"
-                        result["reason"] = side["reason"]
-                        return result
-                result["outcome"] = "converged"
-                return result
-            error = str(body.get("error", ""))
-            result["detail"] = error
-            if error == "identity_mismatch":
-                result["outcome"] = "refused"
-                result["reason"] = "identity_mismatch"
-                result["detail"] = body.get("detail")
-                result["claimed"] = body.get("claimed")
-                result["certified"] = body.get("certified")
-            elif error.startswith("peer unreachable"):
-                result["outcome"] = "unreachable"
-            else:
-                # "peer push failed: ...": the round began - the
-                # pull stood, so the self SyncResult rides the
-                # result - and the push-back could not be
-                # delivered. A partial round, reported as one.
-                result["outcome"] = "transport_failed"
-                result["self"] = body.get("self")
-            return result
-
         def _sync_all_peers(self) -> dict:
-            # Experiment 035 (sync-mesh case 24): one driven
-            # sweep over this process's configured peer list.
-            # Each configured peer, in list order, gets exactly
-            # the _sync_once round /sync performs; each outcome
-            # is classified and collected, and NO outcome stops
-            # the sweep - an unreachable or refusing peer is one
-            # result among the rest, which is the entire point
-            # of holding the list on the node. An entry naming
-            # this process's own bound address is skipped and
-            # reported as "self", with no contact made. The
-            # response is the report: status "no_peers" when
-            # the sweep has no peers to attempt (unconfigured,
-            # an empty list, or a list naming only this
-            # process), "converged" when every attempted peer
-            # converged, "partial" otherwise, plus this
-            # process's state hash after the whole sweep.
-            peers = node.peers
-            with node.lock:
-                state_hash = node.sync_node.state_hash()
-            if not peers:
-                return self._record_sync_all({
-                    "node_id": node.node_id,
-                    "status": "no_peers",
-                    "results": [],
-                    "state_hash": state_hash,
-                })
-            results = []
-            for peer in peers:
-                if (node.own_base_url is not None
-                        and peer == node.own_base_url):
-                    results.append({
-                        "peer": peer,
-                        "outcome": "self",
-                        "reason": None,
-                        "detail": None,
-                        "self": None,
-                        "peer_result": None,
-                        "state_hash": None,
-                    })
-                    continue
-                status, body = self._sync_once(peer)
-                results.append(
-                    self._classify_sync_outcome(peer, status, body))
-            attempted = [r for r in results if r["outcome"] != "self"]
-            if not attempted:
-                sweep_status = "no_peers"
-            elif all(r["outcome"] == "converged" for r in attempted):
-                sweep_status = "converged"
-            else:
-                sweep_status = "partial"
-            with node.lock:
-                state_hash = node.sync_node.state_hash()
-            return self._record_sync_all({
-                "node_id": node.node_id,
-                "status": sweep_status,
-                "results": results,
-                "state_hash": state_hash,
-            })
+            # Experiment 037: the sweep lives on the node
+            # (NetworkNode.sync_all_peers, experiment 035's
+            # sweep moved unchanged); POST /sync-all and the
+            # automatic cycle are its two callers, and it
+            # records its own report as the node's
+            # last_sync_all for /health.
+            return node.sync_all_peers()
 
     return Handler
 
@@ -3901,6 +4228,24 @@ def main(argv: list[str] | None = None) -> int:
                              "refuses the start as peers_unreadable. "
                              "Without it the process knows no peers, "
                              "exactly as experiments 007-034 left it")
+    parser.add_argument("--auto-cycle-interval", type=float,
+                        default=None,
+                        help="run this process's maintenance "
+                             "cycle unattended on this interval "
+                             "in seconds (experiment 037): each "
+                             "cycle runs the snapshot check, the "
+                             "peer liveness stage, the paired "
+                             "registry push to each configured "
+                             "peer, and the peer-list sweep, in "
+                             "that order, with no driver calls. "
+                             "The minimum interval is 0.2 seconds; "
+                             "a smaller value refuses the start "
+                             "as auto_cycle_interval_invalid. The "
+                             "interval is read once at startup; "
+                             "changing it is a restart act. "
+                             "Without it no cycle runs and no "
+                             "thread is started, exactly as "
+                             "experiments 007-036 left it")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -4017,6 +4362,18 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
 
+    # Experiment 037: the automatic cycle interval is
+    # validated here, before the process serves anything; an
+    # interval below the stated minimum refuses the start
+    # naming auto_cycle_interval_invalid, as a bad peer list
+    # refuses it naming peers_unreadable.
+    if (args.auto_cycle_interval is not None
+            and args.auto_cycle_interval < AUTO_CYCLE_MIN_INTERVAL):
+        parser.error(
+            f"auto_cycle_interval_invalid: --auto-cycle-interval "
+            f"{args.auto_cycle_interval} is below the minimum "
+            f"{AUTO_CYCLE_MIN_INTERVAL} seconds")
+
     payloads: dict[str, bytes] = {}
     if args.payloads:
         raw = json.loads(Path(args.payloads).read_text(encoding="utf-8"))
@@ -4045,6 +4402,7 @@ def main(argv: list[str] | None = None) -> int:
         mesh_anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
         mesh_state_path=args.mesh_state,
         peers=peer_list,
+        auto_cycle_interval=args.auto_cycle_interval,
     )
     tls_context = None
     if all(tls_values):
@@ -4084,10 +4442,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.port_file:
         Path(args.port_file).write_text(str(bound_port), encoding="utf-8")
     print(f"LISTENING {bound_port}", flush=True)
+    # Experiment 037: with an interval configured, the
+    # process's own maintenance cycle starts here - one
+    # daemon thread, stopped and joined in the finally below
+    # so a stopping process never leaves it running. Without
+    # the flag start_auto_cycle starts nothing.
+    if node.start_auto_cycle():
+        print(f"AUTO_CYCLE interval={args.auto_cycle_interval}s",
+              flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        node.stop_auto_cycle()
     return 0
 
 
