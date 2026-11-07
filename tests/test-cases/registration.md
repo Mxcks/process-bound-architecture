@@ -264,3 +264,117 @@
    signed anchors keep the verdict passing, a tampered
    signature on either chain fails the verdict on that chain's
    anchor check alone, named anchor_signature_invalid).
+11. Witnessed anchors: a second identity countersigns the
+   anchor (added 2026-11-06, experiment 029; gap proven in
+   experiment 028's finding on case 10's model: under the
+   symmetric HMAC signing of case 10, what stops a rewritten
+   record from being blessed by a new anchor is the custody
+   of the signer's secret, and nothing else - every verifier
+   configured with the signer's identity holds that secret
+   and could sign a genuine anchor over a rewrite, and
+   experiment 028's third leg accepted exactly that pair over
+   the wire. The finding named its closure: a witnessed
+   anchor or an asymmetric signature. This case builds the
+   witnessed half with the machinery that exists): a signed
+   anchor (case 10) can be COUNTERSIGNED at write time by a
+   second enrolled identity, the witness, distinct from the
+   signer. The countersignature reuses Gate 1's signing
+   machinery exactly - the witness's enrollment secret, the
+   same HMAC-SHA256 scheme - over a domain-separated
+   canonical encoding of its own (a witness prefix, distinct
+   from the anchor-signing prefix, so neither signature can
+   be replayed as the other), and it countersigns THIS
+   signed anchor: the encoding covers the signer's identity
+   and signature together with the anchored head, the count,
+   the history sequence, and the previous history entry's
+   hash. The witness and the witness's secret are given
+   together or neither, in case 10's opt-in style; a witness
+   equal to the signer is refused at write time, because a
+   countersignature by the signer's own identity is not a
+   second custody. The countersignature is part of the kept
+   history entry for that write - the entry records its
+   witness and the countersignature inside the entry's
+   hashed body, so editing either breaks the entry hash the
+   way editing the signer's fields does - and the anchor's
+   top level mirrors the last entry's witness fields,
+   exactly as it mirrors the signer's. A write that presents
+   no witness produces an anchor indistinguishable from a
+   case 10 anchor. Expected at every consultation point that
+   verifies the signature today (the Gate 2 PolicyNode of
+   case 8, the server startup and Gate 5 verdict of case 9,
+   the wire judgements of sync-mesh cases 17/18, and the mesh
+   half in sync-mesh case 18): a consultation configured
+   with a witness identity (the witness's identity plus the
+   verification secret for that identity, both or neither)
+   REQUIRES a valid countersignature by that witness. An
+   anchor signed by the signer alone - no countersignature -
+   is refused under its own new name, anchor_witness_invalid;
+   an anchor countersigned by a different identity than the
+   configured witness, or whose top-level countersignature
+   was tampered with, is refused under the same name (a
+   countersignature edited INSIDE a history entry breaks
+   that entry's hash and is caught as
+   anchor_signature_invalid, exactly as case 10's history
+   tampering is); and the
+   refusal leaves the consulted record, the serving view,
+   and the current anchor exactly as they were. Judgement
+   order, stated before the build: the signature judgement
+   of case 10 precedes the witness judgement - an anchor
+   whose signature does not verify is
+   anchor_signature_invalid even when its countersignature
+   is also wrong - and the witness judgement precedes the
+   head judgement, as the signature judgement does. A
+   correctly countersigned anchor whose head matches is
+   anchored exactly as in case 10, with the check recording
+   that the witness was checked and verified. Succession,
+   stated plainly: the countersignature is not a succession
+   instrument. Case 10's same-identity rule still fires
+   first, in the order cases 10 and 17 set - a re-anchor or
+   a delivered anchor signed by a different signer is
+   refused as different_signer however genuinely the
+   configured witness countersigned it - and who the witness
+   IS is an operator configuration act (a constructor
+   argument, a startup flag), never part of any anchor,
+   delivery, or record: no delivered object can install,
+   replace, or widen the configured witness. Backward
+   compatibility, stated plainly: with no witness configured
+   at a consultation point, its judgement is exactly case
+   10's - a countersigned anchor is judged by signer and
+   head, an uncountersigned one exactly as before - and all
+   earlier suites pass unmodified in the same run. Stated
+   limit, not hidden: the witness requirement binds the
+   anchor's CURRENT write (the top-level countersignature,
+   tied to the last history entry). Countersignatures on
+   older history entries are part of those entries' hashed
+   bodies - tamper-evident record - and are not individually
+   re-verified by a witness-configured check; a history that
+   predates the witness configuration carries unwitnessed
+   entries, and the fence the configuration adds is over the
+   write it is asked to accept now. The model stays
+   symmetric: the fence moves from one secret's custody to
+   two, and two colluding custodians (or one party holding
+   both secrets) are exactly as able to bless a rewrite as
+   one was in case 10; nothing here is or claims to be an
+   asymmetric signature or an external witness service.
+   Secrets are generated inside the tests at runtime
+   (enrollment), never written to this repository. Status:
+   IMPLEMENTED at prototype scale (2026-11-06, experiment
+   `experiments/029-witnessed-anchors/`); the case was
+   written before the build, and the tests-first failure and
+   the passing results are recorded in that experiment's
+   `test-output.txt`. Tests:
+   `packages/registration/test_witnessed_anchor.py` (a
+   countersigned anchor records its witness and verifies
+   with the witness checked; a signer-alone anchor, a
+   wrong-witness countersignature, and a tampered
+   countersignature are each anchor_witness_invalid; a
+   witness equal to the signer is refused at write;
+   same-signer re-anchor countersigned appends history and
+   a different signer countersigned by the witness is still
+   refused as different_signer; no witness configured judges
+   exactly as case 10), and
+   `packages/policy-library/test_witnessed_anchor_consultation.py`
+   (Gate 2 serves a countersigned anchor with a witness
+   configured, refuses a signer-alone anchor and a
+   wrong-witness anchor at load as anchor_witness_invalid,
+   judges exactly as case 10 without one).
