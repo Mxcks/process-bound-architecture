@@ -253,6 +253,31 @@ was modified to make any of this pass.
   the lifecycle is an out-of-band act no push performs.
   Anchor distribution and a witnessed anchor remain the
   open problem they were in 012-026.
+  [Superseded in part by experiment 028 (sync-mesh case
+  17): the registry anchor now travels over the wire -
+  `POST /deliver-anchor` carries the anchor object's own
+  JSON, alone or paired with the record it blesses in one
+  call, judged before acceptance (succession
+  `different_signer` audit-logged, the backward fence
+  `anchor_regression`, signature and kept history
+  `anchor_signature_invalid`, pairing `anchor_unpaired`)
+  and judged TOGETHER with the record when paired, so the
+  per-server lifecycle step row 4 waited on - a hand
+  advancing the peer's anchor file out of band - can now
+  be completed by delivering the pair to that peer, in
+  which a revocation takes effect with neither half
+  applied unless both stand. What this experiment's own
+  statement above still carries untouched: the PUSH still
+  transports the record only - there is no `/push-anchor`,
+  `POST /push-snapshot` sends the record alone and a push
+  to a peer whose anchor has not advanced still refuses
+  `anchor_stale` exactly as row 4 recorded, because the
+  push carries no anchor to advance it with - and the
+  WITNESS problem (an anchor file anyone holding the
+  signer's secret can re-sign over a rewrite: experiment
+  019's symmetric-model limit, which case 17's finding
+  shows the wire neither adds to nor closes) remains
+  open.]
 - The push surface inherits the transport's authorization,
   no more: over plaintext (experiment 007 mode) anyone who
   can reach the sender's port can drive a push, as they
