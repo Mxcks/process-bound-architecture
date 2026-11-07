@@ -233,6 +233,14 @@ pass.
   carries the mesh anchor even now; experiment 031's mesh
   delivery is client-driven, as case 17's was before this
   experiment built its sender.)
+  (Superseded in part by experiment 032: a push surface
+  now carries the mesh anchor - `POST /push-mesh-anchor`
+  under sync-mesh case 21 sends the anchor object the
+  sender's own mesh anchor file holds to a peer's
+  `POST /deliver-mesh-anchor`, judged there by experiment
+  031's judgement unmodified. What stands of this bullet:
+  the PAIRED PUSH still transports the registry anchor
+  only.)
 - There is still no anchor-ALONE server push: a server
   sends its anchor paired with the record it blesses, or
   (with no anchor configured) sends the record alone exactly
@@ -308,7 +316,10 @@ transport and unattended drivers as the named open wire
 work. (The mesh anchor's transport has since landed as
 experiment 031's client-driven receiving surface; the
 unattended drivers remain open, and no server push
-carries the mesh anchor.) What would differ next time: keep run captures under
+carries the mesh anchor.) (Experiment 032 has since built
+the mesh anchor's sender - `POST /push-mesh-anchor` under
+sync-mesh case 21; the unattended drivers remain open.)
+What would differ next time: keep run captures under
 the workspace, not /tmp - this session lost its tests-first
 and baseline captures to a /tmp clear and had to reproduce
 the tests-first evidence against the pushed pre-build code,
@@ -326,6 +337,9 @@ experiment 031's `POST /deliver-mesh-anchor` under
 sync-mesh case 20 - client-driven, judged against the
 state the receiving server holds; a server-driven mesh
 anchor push and the unattended drivers remain open.)
+(The server-driven mesh anchor push has since landed as
+experiment 032's `POST /push-mesh-anchor` under sync-mesh
+case 21; the unattended drivers remain open.)
 The build order otherwise continues to the items the
 earlier experiments recorded: real multi-machine
 deployment, certificate revocation and lifecycle, node
