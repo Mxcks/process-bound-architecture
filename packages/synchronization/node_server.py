@@ -22,7 +22,8 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      mesh_anchor_configured, mesh_anchor_status,
                      snapshot_entries, last_snapshot_check,
                      last_snapshot_delivery, last_snapshot_push,
-                     last_anchor_delivery, last_anchor_push}
+                     last_anchor_delivery, last_anchor_push,
+                     last_mesh_anchor_delivery}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -179,7 +180,66 @@ POST /deliver-anchor
                     last_anchor_delivery, beside
                     last_snapshot_delivery. The REGISTRY anchor
                     only: the mesh anchor of experiment 026
-                    still arrives out of band.
+                    still arrives out of band. (Superseded in
+                    part by experiment 031: the mesh anchor now
+                    has its own delivery surface, POST
+                    /deliver-mesh-anchor below.)
+POST /deliver-mesh-anchor
+                 -> {anchor: {...}}: receive one MESH anchor
+                    delivery over the wire (experiment 031): the
+                    mesh anchor object's own JSON - the content
+                    of an experiment 012/019 mesh anchor file,
+                    as data, never a file path - ALONE. There is
+                    no paired form and no entries field, by
+                    sync-mesh case 20's stated decision: mesh
+                    entries keep their own consulted receive
+                    path (experiment 026), so the anchor is
+                    judged against the mesh state this process
+                    HOLDS at delivery time. The anchor is
+                    judged BEFORE anything changes, in case
+                    20's order: configuration (no mesh anchor
+                    configured -> "no_mesh_anchor"), it must
+                    read as a mesh anchor, the current anchor
+                    must read (anchor_unreadable), byte-
+                    identical is no_change, succession judged
+                    anchor to anchor (experiment 019's
+                    same-identity rule, for this chain:
+                    different_signer, audit-logged, the
+                    current anchor untouched), the backward
+                    fence (anchor_regression: an earlier
+                    version of this anchor file, or an anchor
+                    pinning an earlier prefix of the chain the
+                    current anchor pins, proved against the
+                    held entries), signature and kept history
+                    under this process's configured mesh
+                    identity (anchor_signature_invalid), the
+                    witness countersignature where a mesh
+                    witness is configured
+                    (anchor_witness_invalid), and the head
+                    judgement against the held mesh state with
+                    experiment 026's check: exactly the held
+                    state, or the current anchor's successor
+                    in its own kept lineage, is accepted
+                    ("delivered"); honest growth held past the
+                    delivered anchor is anchor_stale; a chain
+                    the held state is not and does not extend
+                    is anchor_mismatch. A stood anchor replaces
+                    the mesh anchor file and nothing else - the
+                    mesh state itself is process memory and is
+                    not the delivery's to change. The response
+                    is the delivery's report: status
+                    "delivered", "delivery_refused" (with the
+                    refusal's own name as "reason"),
+                    "no_change", or "no_mesh_anchor", plus the
+                    anchor's before/after state hashes, entry
+                    counts, and history sequences, the
+                    delivered signer, and the mesh anchor
+                    status after the delivery. /health carries
+                    the last mesh anchor delivery's report as
+                    last_mesh_anchor_delivery, beside
+                    mesh_anchor_status. The MESH anchor only:
+                    the registry anchor surfaces above are
+                    untouched by it.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -366,6 +426,53 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   it, the wire delivery judgement included, in sync-mesh
   case 18's re-run of this finding. The fence moves from
   one secret's custody to two; the model stays symmetric.)
+- A MESH anchor delivered over the wire (POST
+  /deliver-mesh-anchor, experiment 031) is judged by the
+  mesh side's own machinery, reusing experiment 012's
+  reader, experiment 019's verification, experiment 029's
+  witness verification, and experiment 026's check - loaded
+  from this package's anchor module, never copied: the
+  delivered anchor is serialized to a candidate file and
+  read with experiment 012's mesh reader, an unreadable
+  CURRENT anchor is anchor_unreadable, a byte-identical
+  delivery is no_change, succession is judged anchor to
+  anchor under experiment 019's same-identity rule for
+  this chain (a different signer's anchor, or an unsigned
+  one over a signed anchor, is refused as different_signer
+  and the refusal is appended to the anchor audit log
+  beside the current mesh anchor, which is left byte-for-
+  byte unchanged), a backward anchor is refused as
+  anchor_regression under case 20's fence (an earlier
+  version of this very anchor file, or an anchor pinning
+  an earlier prefix of the chain the current anchor pins,
+  proved against the held entries - never a foreign chain,
+  which falls through to the head judgement), its
+  signature and kept history are verified with experiment
+  019's own verification where a mesh signing identity is
+  configured (anchor_signature_invalid, before any head
+  judgement), and its countersignature against the
+  configured mesh witness where one is set
+  (anchor_witness_invalid, next in the order). The head
+  judgement itself is experiment 026's check against the
+  mesh state this process HOLDS - case 20's stated
+  pairing decision: there is no paired form and no entries
+  field, because mesh entries keep their own consulted
+  receive path. Exactly the held state, or the current
+  anchor's successor in its own kept lineage, is accepted
+  and replaces the mesh anchor file (os.replace, from the
+  verified candidate); honest growth held past the
+  delivered anchor is anchor_stale, and a chain the held
+  state is not and does not extend is anchor_mismatch.
+  What this verification does NOT do is stated as plainly
+  as case 17's twin: an anchor over a REWRITTEN mesh
+  chain, written from the current anchor file with the
+  current signer's secret and its history honestly
+  extended, passes succession, the backward fence, and
+  the signature alike and is delivered (case 20's
+  finding) - the wire adds no weakness, since a
+  hand-placed successor meets the same consultation, and
+  the fence is the custody of the signer's secret, and at
+  a witness-configured process the witness's too.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -471,7 +578,16 @@ HONEST LIMITS (prototype, NOT production)
   one consults no mesh anchor, exactly as experiments
   007-025 left it - and the MESH anchor still arrives out
   of band even now: experiment 028 delivers the registry
-  anchor only.
+  anchor only. (Superseded in part by experiment 031: the
+  mesh anchor now also arrives over the wire -
+  POST /deliver-mesh-anchor, judged in sync-mesh case 20's
+  order against the mesh state the server holds, before
+  acceptance, so the 026 scenario can be driven forward
+  by a delivery instead of a hand placing the file - but
+  a server still cannot SEND its mesh anchor onward to a
+  peer, and nothing solicits or schedules a mesh anchor
+  delivery: it is driven by the pushing client, exactly
+  as every delivery surface here is.)
 """
 
 from __future__ import annotations
@@ -546,6 +662,36 @@ def _anchored_mesh():
 
         _ANCHORED_MESH = (AnchoredSyncNode, MeshAnchorError)
     return _ANCHORED_MESH
+
+
+_MESH_ANCHOR_MODULE = None
+
+
+def _mesh_anchor_module():
+    """Experiment 012/019's MESH anchor module (this package's
+    own anchor.py), imported lazily on first use (experiment
+    031).
+
+    The same resolution _anchored_mesh relies on: in the
+    server process this file's own directory heads sys.path,
+    so a plain `import anchor` here is this package's module,
+    exactly as it is inside anchored_sync.py; importing
+    lazily, only when a process actually receives a mesh
+    anchor delivery, leaves every existing consumer's
+    resolution exactly as it was. _anchored_mesh needs only
+    the node class and the error; a mesh anchor DELIVERY
+    (NetworkNode.deliver_mesh_anchor) needs the module's
+    whole surface - its reader, its signature and witness
+    verification, its audit log, its origin heads and its
+    check - because the delivery is judged by that machinery
+    reused, never by a copy of it.
+    """
+    global _MESH_ANCHOR_MODULE
+    if _MESH_ANCHOR_MODULE is None:
+        import anchor as mesh_anchor_module
+
+        _MESH_ANCHOR_MODULE = mesh_anchor_module
+    return _MESH_ANCHOR_MODULE
 
 
 _REGISTRY_ANCHOR = None
@@ -661,6 +807,19 @@ class NetworkNode:
         self.mesh_anchor_path = (
             Path(mesh_anchor_path) if mesh_anchor_path else None
         )
+        # Experiment 031: the mesh anchor's signing and
+        # witness configuration, kept beside the path (the
+        # AnchoredSyncNode below holds its own copies for the
+        # consultation): a mesh anchor DELIVERY is judged
+        # under the same configured identities, read from
+        # here. Operator configuration only, in the registry
+        # half's style - no delivery method reads a delivered
+        # anchor's fields into these attributes.
+        self.mesh_anchor_signer = mesh_anchor_signer
+        self.mesh_anchor_secret_hex = mesh_anchor_secret_hex
+        self.mesh_anchor_witness = mesh_anchor_witness
+        self.mesh_anchor_witness_secret_hex = (
+            mesh_anchor_witness_secret_hex)
         if self.mesh_anchor_path is not None:
             anchored_sync_node, _mesh_anchor_error = _anchored_mesh()
             self.sync_node = anchored_sync_node(
@@ -749,6 +908,10 @@ class NetworkNode:
         # - the push's response body, a 200 report or a 502
         # refusal alike - beside the last snapshot push's.
         self.last_anchor_push: dict | None = None
+        # Experiment 031: the most recent MESH anchor
+        # delivery's report, in the same field style as the
+        # last anchor delivery's.
+        self.last_mesh_anchor_delivery: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -1090,6 +1253,10 @@ class NetworkNode:
         is judged TOGETHER and neither half is applied unless
         both stand. The REGISTRY anchor only; the mesh anchor
         of experiment 026 still arrives out of band.
+        (Superseded in part by experiment 031, after this method
+        was written: the mesh anchor now has its own delivery
+        surface, deliver_mesh_anchor / POST /deliver-mesh-anchor
+        below; this method remains the REGISTRY anchor's only.)
 
         The anchor is judged BEFORE anything changes, in case
         17's stated order, reusing experiment 019's verification
@@ -1477,6 +1644,368 @@ class NetworkNode:
                 if candidate.exists():
                     candidate.unlink()
 
+    def _mesh_anchor_subset_view(self, mesh_mod, record) -> SyncNode | None:
+        """The held entries at or below a mesh anchor record's
+        per-origin heads, as a throwaway view, when they are
+        EXACTLY the record's entry set (experiment 031): the
+        subset's count is the record's count, the subset's own
+        per-origin heads are the record's heads, and the
+        subset's recomputed state hash is the record's state
+        hash. None when the held entries do not prove that
+        exact subset. This is the proof the backward fence's
+        second shape and the anchor_stale classification both
+        stand on, judged with Gate 3's own restore primitive
+        and state hash - in the style of
+        AnchoredSyncNode._is_honest_extension, but against an
+        arbitrary anchor record rather than this node's
+        configured one, and exact where that check is
+        existential."""
+        held = self.sync_node.entries()
+        subset = [
+            entry for entry in held
+            if entry.origin in record.origin_heads
+            and entry.seq <= record.origin_heads[entry.origin]["seq"]
+        ]
+        if len(subset) != record.entry_count:
+            return None
+        view = SyncNode("mesh-anchor-delivery-view")
+        if view.restore_to_entries(subset).divergence_detected:
+            return None
+        if view.state_hash() != record.state_hash:
+            return None
+        if mesh_mod.origin_heads(view) != record.origin_heads:
+            return None
+        return view
+
+    def deliver_mesh_anchor(self, anchor_data: dict) -> dict:
+        """One MESH anchor delivery received over the wire
+        (experiment 031, sync-mesh case 20).
+
+        `anchor_data` is the mesh anchor object's own JSON -
+        the content of an experiment 012/019 mesh anchor
+        file, handed over as data, never a path. There is NO
+        paired form and no entries field, by case 20's stated
+        decision: the anchor is judged against the mesh state
+        this process HOLDS at delivery time and the anchor it
+        already stands under, never against entries delivered
+        in the same call, because mesh entries already have
+        their own receive path with its own consultation
+        (experiment 026). The registry surfaces
+        (deliver_anchor above, experiments 028/030) are a
+        different anchor and are untouched by this method.
+
+        The anchor is judged BEFORE anything changes, in
+        case 20's stated order, reusing experiment
+        012/015/019/029's mesh anchor code (loaded by
+        _mesh_anchor_module(), never copied):
+
+        - Configuration: no mesh anchor path configured on
+          this process: "no_mesh_anchor" - configuration is
+          a startup choice and a delivery never turns
+          consultation on.
+        - The delivered bytes are serialized to a candidate
+          file beside the mesh anchor (the mesh anchor
+          file's own format) and read with experiment 012's
+          mesh reader; a body that is not a mesh anchor is
+          refused under the mesh anchor module's own error
+          name (experiment 022's naming, as deliver_anchor
+          uses it). A configured mesh anchor that cannot be
+          read NOW is refused as "anchor_unreadable" (case
+          15's name for the same condition): the current
+          anchor is the ground every judgement below stands
+          on, and an unreadable one is a refusal, never a
+          silent pass.
+        - A delivery byte-for-byte identical to the current
+          mesh anchor file is "no_change" - nothing written,
+          nothing re-judged.
+        - Succession, judged anchor to anchor (case 11's
+          same-identity rule): a signed current anchor may
+          be succeeded only by a delivered anchor signed by
+          the SAME identity; a different identity - or an
+          unsigned anchor over a signed one - is refused as
+          "different_signer", the refusal appended to the
+          anchor audit log beside the current mesh anchor in
+          case 11's event shape, the current anchor file
+          untouched. A signed delivery over an UNSIGNED
+          current anchor establishes the signer (case 11's
+          stated exception).
+        - The backward fence, fenced as case 17 fences its
+          own and under the same name: a delivered anchor
+          that is an earlier state - its kept history a
+          proper prefix of the current anchor's kept history
+          (an earlier version of this very anchor file), or
+          its heads pinning an earlier prefix of the chain
+          the current anchor pins, proved against the held
+          entries by _mesh_anchor_subset_view - is refused
+          as "anchor_regression", audit-logged in the same
+          shape. The second shape fires only on what the
+          held entries can prove; a foreign chain's head is
+          an earlier state of neither and falls through to
+          the head judgement, so the backward name cannot
+          launder a rewrite.
+        - Signature and history: with a mesh signing
+          identity configured on this process, experiment
+          019's own verification of the delivered record
+          must pass, or the refusal is
+          "anchor_signature_invalid" - before any head
+          judgement, as in every consultation since
+          experiment 019. With no identity configured, a
+          signed delivered anchor's kept history must still
+          verify as a chain; an unsigned one is judged by
+          its heads.
+        - Witness (experiment 029, case 18): with a mesh
+          witness identity configured on this process, the
+          delivered anchor's countersignature must verify
+          for that witness, judged in the same step right
+          after the signature's, or the refusal is
+          "anchor_witness_invalid" - before the head
+          judgement, as the signature's refusal is. The
+          witness is operator configuration (constructor /
+          CLI flags): no field of a delivery can install or
+          change it.
+        - The head judgement, against the mesh state this
+          process HOLDS, with case 8's check (its signature
+          and witness steps already judged above, not
+          repeated). Accepted, in exactly two standings: the
+          delivered anchor pins exactly the held state (the
+          check is ok - the catch-up delivery), or it is
+          the current anchor's SUCCESSOR IN ITS OWN KEPT
+          LINEAGE (the delivered kept history has the
+          current anchor's as a proper prefix - the anchor
+          file case 11's write path produces when the
+          current anchor is re-anchored forward) and the
+          held state does not already stand honestly past
+          it. A successor may pin a state this process does
+          not hold yet: that is the re-anchor lifecycle
+          arriving by wire, and every later receive is
+          judged against the new anchor by case 8's
+          consultation, exactly as against a hand-placed
+          re-anchor. The lineage requirement is the proof
+          an unsigned anchor cannot give, so an unsigned
+          delivered anchor is accepted only in the first
+          standing. Refused: "anchor_stale" when the held
+          state grew honestly past the delivered anchor
+          (the held entries contain everything it pins,
+          exactly, plus more - _mesh_anchor_subset_view
+          proves the pinned part), and "anchor_mismatch"
+          when it pins a chain the held state is not and
+          does not extend and it is not the lineage
+          successor - a foreign chain's anchor in
+          particular.
+
+        Application is the one file replacement: the mesh
+        anchor file is replaced from the verified candidate
+        (os.replace). Nothing else moves - the mesh state
+        is process memory and is not the delivery's to
+        change; the standing /health reports afterward is
+        the new anchor's verdict on the held state, read
+        fresh by the AnchoredSyncNode's own consultation,
+        not a cached one. A refused delivery at any
+        judgement leaves the current mesh anchor file
+        byte-for-byte unchanged, the held state untouched,
+        and sync behavior exactly as it was. What acceptance
+        does NOT fence is stated in case 20's finding, not
+        hidden here: a successor anchor over a REWRITTEN
+        chain, written from the current anchor file with
+        the current signer's secret (which every verifier
+        of a signed anchor holds, in experiment 019's
+        symmetric model), passes succession, the backward
+        fence, and the signature alike, and is accepted -
+        the wire adds no weakness, since a hand-placed
+        successor is accepted by the same consultation, and
+        the fence is the custody of the signer's secret
+        (and, at a witness-configured process, the
+        witness's too).
+
+        The delivery is driven by the pushing client (POST
+        /deliver-mesh-anchor); no timer or thread in this
+        process solicits one, and no server pushes its own
+        mesh anchor onward in this experiment. Callers hold
+        self.lock, as for every other node access from the
+        handler.
+        """
+        mesh_mod = _mesh_anchor_module()
+
+        def _report(status, reason, before, delivered):
+            return {
+                "node_id": self.node_id,
+                "status": status,
+                "reason": reason,
+                "before_state_hash": (
+                    before.state_hash if before else None),
+                "after_state_hash": (
+                    delivered.state_hash if delivered else None),
+                "before_count": (
+                    before.entry_count if before else None),
+                "after_count": (
+                    delivered.entry_count if delivered else None),
+                "before_seq": before.anchor_seq if before else None,
+                "after_seq": (
+                    delivered.anchor_seq if delivered else None),
+                "signer": delivered.signer if delivered else None,
+                "mesh_anchor_status": self.mesh_anchor_status,
+            }
+
+        # Configuration first (case 20).
+        if self.mesh_anchor_path is None:
+            report = _report("no_mesh_anchor", None, None, None)
+            self.last_mesh_anchor_delivery = report
+            return report
+
+        candidate_path = self.mesh_anchor_path.with_name(
+            self.mesh_anchor_path.name + ".wire-candidate")
+        try:
+            candidate_path.write_bytes(
+                (json.dumps(anchor_data, sort_keys=True, indent=2) + "\n"
+                 ).encode("utf-8"))
+            try:
+                delivered = mesh_mod.read_mesh_anchor(candidate_path)
+            except Exception as exc:
+                report = _report("delivery_refused",
+                                 _reload_refusal_reason(exc),
+                                 None, None)
+                self.last_mesh_anchor_delivery = report
+                return report
+            try:
+                current = mesh_mod.read_mesh_anchor(
+                    self.mesh_anchor_path)
+                current_bytes = self.mesh_anchor_path.read_bytes()
+            except Exception:
+                report = _report("delivery_refused",
+                                 "anchor_unreadable",
+                                 None, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+
+            # Byte-identical is no_change (case 20): nothing
+            # written, nothing re-judged.
+            if candidate_path.read_bytes() == current_bytes:
+                report = _report("no_change", None, current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+
+            def _audit(reason: str) -> None:
+                """Append a refusal to the anchor audit log
+                beside the current mesh anchor, in the event
+                shape experiment 019's own write path uses for
+                this chain (chain "sync-mesh")."""
+                mesh_mod._append_anchor_audit(
+                    self.mesh_anchor_path,
+                    {
+                        "event": "reanchor_rejected",
+                        "reason": reason,
+                        "attempted_signer": delivered.signer,
+                        "current_signer": current.signer,
+                        "chain": "sync-mesh",
+                        "state_hash": delivered.state_hash,
+                        "entry_count": delivered.entry_count,
+                    },
+                )
+
+            # Succession, judged anchor to anchor (case 20).
+            if (current.signer is not None
+                    and delivered.signer != current.signer):
+                _audit("different_signer")
+                report = _report("delivery_refused", "different_signer",
+                                 current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+
+            # The backward fence (case 20), both shapes:
+            # (i) an earlier version of this very anchor file;
+            # (ii) an anchor pinning an earlier prefix of the
+            # chain the current anchor pins, proved against
+            # the held entries.
+            earlier_version = (
+                bool(delivered.history) and bool(current.history)
+                and len(delivered.history) < len(current.history)
+                and [dict(e) for e in delivered.history]
+                == [dict(e) for e in
+                    current.history[:len(delivered.history)]]
+            )
+            pins_earlier_prefix = (
+                delivered.entry_count < current.entry_count
+                and self._mesh_anchor_subset_view(mesh_mod, delivered)
+                is not None
+            )
+            if earlier_version or pins_earlier_prefix:
+                _audit("anchor_regression")
+                report = _report("delivery_refused",
+                                 "anchor_regression",
+                                 current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+
+            # Signature and history (case 20), before any
+            # head judgement.
+            if self.mesh_anchor_signer is not None:
+                if not mesh_mod._signature_verifies(
+                        delivered, self.mesh_anchor_signer,
+                        self.mesh_anchor_secret_hex):
+                    report = _report("delivery_refused",
+                                     "anchor_signature_invalid",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
+            elif delivered.signer is not None:
+                if not mesh_mod.verify_mesh_anchor_history(
+                        candidate_path, signer=delivered.signer):
+                    report = _report("delivery_refused",
+                                     "anchor_signature_invalid",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
+
+            # Witness (case 20 / case 18), in the same step,
+            # right after the signature's.
+            if self.mesh_anchor_witness is not None:
+                if not mesh_mod._witness_verifies(
+                        delivered, self.mesh_anchor_witness,
+                        self.mesh_anchor_witness_secret_hex):
+                    report = _report("delivery_refused",
+                                     "anchor_witness_invalid",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
+
+            # The head judgement (case 20), against the mesh
+            # state this process holds, with case 8's check.
+            check = mesh_mod.check_node_against_anchor(
+                self.sync_node, candidate_path)
+            if check.ok:
+                os.replace(candidate_path, self.mesh_anchor_path)
+                report = _report("delivered", None, current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+            if self._mesh_anchor_subset_view(
+                    mesh_mod, delivered) is not None:
+                # The held entries contain everything the
+                # delivered anchor pins, exactly, plus more:
+                # the state grew honestly past it.
+                report = _report("delivery_refused", "anchor_stale",
+                                 current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+            successor_in_lineage = (
+                bool(current.history)
+                and len(delivered.history) > len(current.history)
+                and [dict(e) for e in
+                     delivered.history[:len(current.history)]]
+                == [dict(e) for e in current.history]
+            )
+            if successor_in_lineage:
+                os.replace(candidate_path, self.mesh_anchor_path)
+                report = _report("delivered", None, current, delivered)
+                self.last_mesh_anchor_delivery = report
+                return report
+            report = _report("delivery_refused", "anchor_mismatch",
+                             current, delivered)
+            self.last_mesh_anchor_delivery = report
+            return report
+        finally:
+            if candidate_path.exists():
+                candidate_path.unlink()
+
 
 # -- HTTP client helpers (used by /sync, the tests, and the demo) ------------
 #
@@ -1683,6 +2212,25 @@ def deliver_anchor(base_url: str, anchor: dict,
     return body
 
 
+def deliver_mesh_anchor(base_url: str, anchor: dict) -> dict:
+    """Push one MESH anchor delivery to the RUNNING server at
+    base_url (experiment 031): `anchor` is the mesh anchor
+    object's own JSON - the content of an experiment 012/019
+    mesh anchor file, as data, never a path. There is no
+    paired form (sync-mesh case 20's stated decision): the
+    receiving server judges the anchor against the mesh
+    state it holds and the anchor it already stands under,
+    before anything changes, and answers with the delivery's
+    own report dict: status "delivered" (with the report of
+    what the anchor advanced from and to), "delivery_refused"
+    (with the refusal's own name as "reason"), "no_change",
+    or "no_mesh_anchor"."""
+    status, body = post_json(
+        base_url, "/deliver-mesh-anchor", {"anchor": anchor})
+    assert status == 200, f"mesh anchor delivery failed: {status} {body}"
+    return body
+
+
 def push_snapshot(base_url: str, peer_url: str) -> tuple[int, dict]:
     """Ask the node at base_url to push its standing registry
     snapshot to the peer process at peer_url (server-to-server,
@@ -1873,6 +2421,11 @@ def make_handler(node: NetworkNode):
                         # first paired push is driven), beside
                         # the last snapshot push's.
                         "last_anchor_push": node.last_anchor_push,
+                        # Experiment 031: the last MESH anchor
+                        # delivery's report (None until the
+                        # first mesh anchor delivery arrives),
+                        # beside the mesh standing above.
+                        "last_mesh_anchor_delivery": node.last_mesh_anchor_delivery,
                     })
                 return
             if self.path == "/state":
@@ -2064,6 +2617,27 @@ def make_handler(node: NetworkNode):
                     return
                 with node.lock:
                     report = node.deliver_anchor(raw_anchor, raw_entries)
+                self._send_json(200, report)
+                return
+            if self.path == "/deliver-mesh-anchor":
+                # Experiment 031: one MESH anchor delivery
+                # received over the wire (see NetworkNode.
+                # deliver_mesh_anchor / sync-mesh case 20).
+                # The payload carries the mesh anchor object
+                # itself, ALONE - no entries field, by case
+                # 20's stated pairing decision, because mesh
+                # entries keep their own consulted receive
+                # path (case 15). The delivery's report is
+                # the response, refusals included, exactly as
+                # the anchor delivery above is answered.
+                raw_anchor = payload.get("anchor")
+                if not isinstance(raw_anchor, dict):
+                    self._send_json(400, {
+                        "error": "deliver-mesh-anchor needs an "
+                                 "anchor object"})
+                    return
+                with node.lock:
+                    report = node.deliver_mesh_anchor(raw_anchor)
                 self._send_json(200, report)
                 return
             self._send_json(404, {"error": f"unknown path: {self.path}"})
