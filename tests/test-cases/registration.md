@@ -378,3 +378,199 @@
    configured, refuses a signer-alone anchor and a
    wrong-witness anchor at load as anchor_witness_invalid,
    judges exactly as case 10 without one).
+12. Anchor signer rotation: the anchor's signing identity can be
+   handed over to a successor, by a record both signers sign
+   (added 2026-11-06, experiment 038; gaps recorded in
+   experiments 019 and 029: case 10's same-identity rule governs
+   re-anchoring, not succession - there is no signer rotation, no
+   transfer of anchor authority, and no recovery when a signer's
+   secret is lost - and experiment 028 proved what that costs:
+   under the symmetric model every verifier holding the current
+   signer's secret can bless a rewrite, and the signer's secret
+   is effectively forever, because there is no legitimate way to
+   move trust to a new signer and retire the old one): a signed
+   anchor (case 10) can be ROTATED from its current signer to a
+   successor signer by a rotation record, and the rotation -
+   not a new same-identity rule exception - is what then makes
+   the successor's anchors legitimate at a verifier that holds
+   the rotation.
+   The rotation record, stated before the build: a record in
+   the signed-record style of cases 10 and 11, format
+   PBA-ANCHOR-ROTATION-v1, naming the chain, a rotation
+   sequence number (0 for the first rotation of an anchor,
+   increasing by one per rotation), the current signer
+   (from_signer), the successor signer (to_signer, a different
+   enrolled identity), the point the rotation takes effect at -
+   the anchor history sequence of the first entry the successor
+   will sign (effective_anchor_seq), together with the chain
+   head and entry count that entry anchors
+   (effective_chain_head, effective_entry_count) - and TWO
+   signatures over domain-separated canonical encodings in
+   case 10/11's prefix discipline (PBA-ANCHOR-ROTATE-v1 for
+   the current signer's statement, PBA-ANCHOR-ROTATE-ACCEPT-v1
+   for the successor's countersignature, which covers the
+   current signer's signature, so neither can be replayed as
+   an anchor signature, a witness countersignature, or the
+   other half of this record): the CURRENT signer signs the
+   statement, and the SUCCESSOR countersigns the same
+   statement accepting it. Both signatures are required for
+   the rotation to stand; a rotation with only one is not a
+   rotation. Rotation records are kept in the anchor file
+   itself, in a top-level rotations list beside the kept
+   history - the anchor material they govern is where they
+   live - and they travel with that material wherever it
+   travels (the wire surfaces of sync-mesh case 26 included),
+   never as an unauthenticated side channel: a rotation record
+   no anchor carries, and no verifier holds, changes nothing.
+   The write path: the successor's first signed write over an
+   anchor signed by the current signer presents the rotation
+   record (and, in this symmetric model, the outgoing signer's
+   secret, so the write can verify the statement it acts on -
+   the rotation is a joint act and both parties' secrets are
+   present at the handover, exactly as a verifier's are). The
+   write is refused, the anchor left byte-for-byte unchanged,
+   and the refusal appended to the anchor audit log (event
+   rotation_rejected, case 10's log) under its own name when:
+   the rotation's from_signer is not the anchor's current
+   signer, or its to_signer is not the presenting writer -
+   anchor_rotation_signer_invalid; the rotation's sequence is
+   not the next one, its signatures do not verify, or its
+   countersignature is missing - anchor_rotation_invalid; or
+   its effective point is not the write being made (the
+   effective history sequence is not the sequence this write
+   takes, or the stated head or count is not the head or count
+   this write anchors) - anchor_rotation_mismatch. An accepted
+   rotation appends the record to the anchor's rotations and
+   the successor's entry to the kept history in the same
+   write; the successor's later writes are ordinary
+   same-identity writes under case 10. A second rotation
+   (successor to a third signer) chains identically: its
+   from_signer is the signer current at its point. Writing
+   over an anchor that already carries rotations requires the
+   lineage secrets (a map of enrolled identity to secret for
+   every signer in the anchor's lineage) so the segmented
+   history can be verified; without them the write is refused
+   as anchor_rotation_invalid rather than judged partially.
+   The check path: a check configured with the lineage
+   secrets (signer_secrets, in case 10's opt-in style, beside
+   the existing signer and witness configuration) judges an
+   anchor carrying rotations rotation-first among the
+   identity judgements - after the chain's own internal
+   verification, before the signature judgement of case 10,
+   the witness judgement of case 11, and the head judgement -
+   and AnchorCheck records rotation_checked, rotation_valid,
+   the specific rotation refusal name when one fires, and the
+   signer current at the anchor's tip. A verifier may also
+   HOLD rotation records (a rotations argument, from a
+   delivery it accepted): the held records and the anchor's
+   own records must agree exactly, or the judgement is
+   anchor_rotation_invalid. The rotation chain is judged in
+   full: sequence order; each rotation's from_signer is the
+   signer current just before its effective point and its
+   to_signer is a different identity; effective points
+   strictly increase and fall inside the anchor's history (a
+   point at the history's end is a pending rotation, judged
+   for its signatures and its signer chain, its head judged
+   when the successor's first entry lands); each signature
+   and countersignature verifies under the lineage secrets
+   (a lineage identity with no secret in the map is
+   anchor_rotation_invalid: in this model an unverifiable
+   rotation is not a rotation); and the history entry at each
+   effective point carries exactly the stated head and count.
+   Expected outcomes at such a verifier: an anchor whose
+   history crosses a valid rotation - earlier entries by the
+   old signer, the entry at the effective point and later
+   entries by the successor - verifies, with the signature
+   judgement run segment by segment (each entry under its own
+   signer's secret) and the anchor accepted as anchored when
+   its head matches; the old signer's entries BEFORE the
+   rotation point stay valid, so an anchor whose tip is still
+   before the point (or a registry still at a pre-rotation
+   head) is judged exactly as case 10 judges it; an anchor
+   carrying entries at or after the rotation point signed by
+   the RETIRED signer is refused as anchor_signer_retired -
+   under that name, ahead of the signature judgement, because
+   retired is the fact about it - and the same name refuses
+   an anchor whose tip signer is a retired signer however its
+   history is arranged; a rotation signed by a signer who is
+   not current at its point is refused as
+   anchor_rotation_signer_invalid; a rotation missing its
+   countersignature, or with a signature that does not
+   verify, is refused as anchor_rotation_invalid; and a
+   rotation whose stated head or count does not match the
+   history entry at its effective point is refused as
+   anchor_rotation_mismatch. None of these is ever a valid
+   anchor, and none is reported as anchor_signature_invalid,
+   anchor_witness_invalid, anchor_mismatch, or anchor_stale.
+   Witness interplay, stated plainly: rotation changes WHO
+   signs, never the witness rule. Where a witness is
+   configured (case 11), the successor's entries require the
+   configured witness's countersignature exactly as the old
+   signer's did, judged after the rotation and signature
+   judgements in case 11's order; a rotated anchor whose
+   current write the witness did not countersign is
+   anchor_witness_invalid. WITNESS ROTATION IS OUT OF THIS
+   MECHANISM'S SCOPE, a scope chosen in this case before any
+   code: the witness is operator configuration (case 11: a
+   constructor argument or startup flag, never part of any
+   anchor, delivery, or record), so no record inside an
+   anchor can rotate the witness a consultation point
+   requires - a delivered rotation naming a new witness would
+   be a delivered object installing configuration, which case
+   11 forbids. Rotating a witness is a separate record type
+   and a configuration act at each consultation point,
+   recorded here as its own open item, not built.
+   Competing rotations, stated rather than hidden: a
+   compromised old signer can sign a competing rotation to an
+   identity it controls, and under this symmetric model no
+   check in this case distinguishes that record from an
+   honest one before it is applied - the two are the same
+   object, as experiment 028 said of its pair. What the
+   design answers is narrower and is the honest answer:
+   rotation is judged against the anchor's own kept history
+   and the verifier's held records, so a competing rotation
+   can only stand where it is DELIVERED and accepted, a
+   verifier that already holds the honest rotation refuses a
+   disagreeing one as anchor_rotation_invalid, and the first
+   rotation applied at the write path consumes the sequence -
+   a second record claiming the same rotation sequence from
+   the same signer is refused once the first stands in the
+   anchor. A verifier that never receives any rotation record
+   keeps judging the old signer exactly as case 10 does:
+   rotation cannot rescue a verifier it never reaches, and
+   this case claims nothing else for it. Lost-secret recovery
+   is NOT built: rotation requires the current signer's
+   signature, so a signer whose secret is lost cannot rotate,
+   exactly as it cannot re-anchor (case 10's stated limit
+   stands); recovery remains an operator-level replacement,
+   indistinguishable from attack by this prototype, as before.
+   Backward compatibility, stated plainly: with no lineage
+   secrets configured and no rotations in play, every
+   judgement is exactly cases 10/11's - an unrotated anchor is
+   indistinguishable from a case 10/11 anchor (a write with no
+   rotation produces no rotations list), experiment 019's
+   different-signer write refusal and experiment 028's
+   different_signer wire refusal stand for any delivery not
+   carrying a valid rotation - and all earlier suites pass
+   unmodified in the same run. Secrets are generated inside
+   the tests at runtime (enrollment), never written to this
+   repository. Status: IMPLEMENTED at prototype scale
+   (2026-11-06, experiment
+   `experiments/038-signer-rotation/`); the case was written
+   before the build, and the tests-first failure and the
+   passing results are recorded in that experiment's
+   `test-output.txt`. Tests:
+   `packages/registration/test_signer_rotation.py` (the
+   rotation record's two signatures and its refusal shapes at
+   the write path - non-current signer, missing
+   countersignature, wrong effective head - the segmented
+   history verifying after rotation, the pre-rotation anchor
+   still accepted, the retired signer refused as
+   anchor_signer_retired, the chained second rotation, and
+   the witness requirement unchanged across the rotation),
+   `packages/policy-library/test_signer_rotation_consultation.py`
+   (Gate 2 serves a rotated anchor under a lineage
+   configuration, refuses a retired signer's anchor at load
+   as anchor_signer_retired, judges exactly as case 10
+   without a lineage configuration), and the mesh and wire
+   halves in sync-mesh case 26.
