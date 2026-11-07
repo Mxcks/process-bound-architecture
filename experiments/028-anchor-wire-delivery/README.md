@@ -270,6 +270,20 @@ everything about a point with NO witness configured,
 including this experiment's own suite, which passes
 unmodified in the same run.)
 
+(Superseded in part again by experiment 038, which re-ran
+this finding pair under signer rotation at a
+lineage-and-witness server: signed by the OLD signer after
+rotation, the pair is REFUSED as anchor_signer_retired -
+the retired secret no longer opens the fence at all;
+signed by the NEW signer without the witness it is refused
+as anchor_witness_invalid, and with the configured
+witness's countersignature it is ACCEPTED under the
+standing rules. What stands of this finding: at a point
+with no rotation in play, the CURRENT signer's secret
+still blesses a rewrite exactly as recorded here; rotation
+moves who is current, it does not change the symmetric
+model.)
+
 ## What failed
 
 The tests-first run failed as designed: before the
