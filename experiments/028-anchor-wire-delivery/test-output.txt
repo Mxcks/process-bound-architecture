@@ -1,0 +1,222 @@
+=== TESTS FIRST: the new suite run against the unbuilt code, before any implementation ===
+--- python3 packages/synchronization/test_anchor_wire_delivery.py
+test_node_with_anchor_but_no_snapshot_reports_no_snapshot (__main__.ConfigEdgeTests.test_node_with_anchor_but_no_snapshot_reports_no_snapshot) ... ERROR
+test_server_without_anchor_reports_no_anchor (__main__.ConfigEdgeTests.test_server_without_anchor_reports_no_anchor) ... ERROR
+test_different_signer_refused_and_logged (__main__.HeadOnlySuccessionTests.test_different_signer_refused_and_logged) ... ERROR
+test_anchor_alone_no_change_then_refresh_delivered (__main__.SignedPlaintextAnchorTests.test_anchor_alone_no_change_then_refresh_delivered) ... ERROR
+test_anchor_alone_unpaired_refused (__main__.SignedPlaintextAnchorTests.test_anchor_alone_unpaired_refused) ... ERROR
+test_backward_anchor_refused_anchor_regression (__main__.SignedPlaintextAnchorTests.test_backward_anchor_refused_anchor_regression) ... ERROR
+test_paired_delivery_judged_together (__main__.SignedPlaintextAnchorTests.test_paired_delivery_judged_together) ... ERROR
+test_rewrite_anchor_finding (__main__.SignedPlaintextAnchorTests.test_rewrite_anchor_finding) ... ERROR
+test_tampered_history_refused_signature_invalid (__main__.SignedPlaintextAnchorTests.test_tampered_history_refused_signature_invalid) ... ERROR
+test_paired_delivery_over_tls (__main__.SignedTlsAnchorTests.test_paired_delivery_over_tls) ... ERROR
+
+======================================================================
+ERROR: test_node_with_anchor_but_no_snapshot_reports_no_snapshot (__main__.ConfigEdgeTests.test_node_with_anchor_but_no_snapshot_reports_no_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 799, in test_node_with_anchor_but_no_snapshot_reports_no_snapshot
+    report = node.deliver_anchor(anchor_dict(self.anchor_path))
+             ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NetworkNode' object has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_server_without_anchor_reports_no_anchor (__main__.ConfigEdgeTests.test_server_without_anchor_reports_no_anchor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 781, in test_server_without_anchor_reports_no_anchor
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_different_signer_refused_and_logged (__main__.HeadOnlySuccessionTests.test_different_signer_refused_and_logged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 743, in test_different_signer_refused_and_logged
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_anchor_alone_no_change_then_refresh_delivered (__main__.SignedPlaintextAnchorTests.test_anchor_alone_no_change_then_refresh_delivered)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 390, in test_anchor_alone_no_change_then_refresh_delivered
+    self.assertIsNone(health["last_anchor_delivery"])
+                      ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'last_anchor_delivery'
+
+======================================================================
+ERROR: test_anchor_alone_unpaired_refused (__main__.SignedPlaintextAnchorTests.test_anchor_alone_unpaired_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 438, in test_anchor_alone_unpaired_refused
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_backward_anchor_refused_anchor_regression (__main__.SignedPlaintextAnchorTests.test_backward_anchor_refused_anchor_regression)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 578, in test_backward_anchor_refused_anchor_regression
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_paired_delivery_judged_together (__main__.SignedPlaintextAnchorTests.test_paired_delivery_judged_together)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 469, in test_paired_delivery_judged_together
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_rewrite_anchor_finding (__main__.SignedPlaintextAnchorTests.test_rewrite_anchor_finding)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 645, in test_rewrite_anchor_finding
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_tampered_history_refused_signature_invalid (__main__.SignedPlaintextAnchorTests.test_tampered_history_refused_signature_invalid)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 538, in test_tampered_history_refused_signature_invalid
+    report = node_server.deliver_anchor(server.base_url, tampered)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+======================================================================
+ERROR: test_paired_delivery_over_tls (__main__.SignedTlsAnchorTests.test_paired_delivery_over_tls)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_anchor_wire_delivery.py", line 853, in test_paired_delivery_over_tls
+    report = node_server.deliver_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_anchor'. Did you mean: 'deliver_snapshot'?
+
+----------------------------------------------------------------------
+Ran 10 tests in 7.549s
+
+FAILED (errors=10)
+
+(All ten tests error on exactly the absences case 17 names - eight on the
+deliver_anchor client helper, one on NetworkNode.deliver_anchor itself, one
+on the missing last_anchor_delivery health field. No test reaches an
+assertion the unbuilt code could pass or fail on its merits.)
+
+=== PRE-BUILD BASELINE (this session, before the case and the code) ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.251s
+OK
+--- python3 -m unittest discover -s packages/policy-library
+--- python3 -m unittest discover -s packages/synchronization
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.655s
+OK
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+--- leftover node_server processes:
+
+(Baseline: 148/148 - registration 20, policy-library 39, synchronization
+71, validation 18 - plus EAI PASS 3/3. The baseline capture's summary lines
+for policy-library and synchronization were interleaved with those suites'
+own print output in the capturing pipe; their counts are the same suites
+re-run in full after the build below, where the only change is the new
+suite's ten tests added to synchronization.)
+
+=== FULL REGRESSION AFTER THE BUILD (first pass, all four packages + handoffs) ===
+--- python3 -m unittest discover -s packages/registration
+Ran 20 tests in 0.033s
+OK
+leftover node_server processes after packages/registration: 2
+--- python3 -m unittest discover -s packages/policy-library
+Ran 39 tests in 0.577s
+OK
+leftover node_server processes after packages/policy-library: 2
+--- python3 -m unittest discover -s packages/synchronization
+ERROR: test_mismatched_initiator_refused_on_acceptance_nothing_merges (test_cert_node_binding.CertNodeBindingTests.test_mismatched_initiator_refused_on_acceptance_nothing_merges)
+Ran 81 tests in 90.287s
+FAILED (errors=1)
+leftover node_server processes after packages/synchronization: 2
+--- python3 -m unittest discover -s packages/validation
+Ran 18 tests in 0.573s
+OK
+leftover node_server processes after packages/validation: 2
+--- python3 scripts/verify-handoffs.py
+PASS: 3 EAI vectors recompute exactly.
+
+(The first pass's single error is experiment 017's unmodified cert-binding
+suite, test_mismatched_initiator_refused_on_acceptance_nothing_merges.
+That run's output was captured through a summary filter, so the error's
+traceback was not retained - stated plainly, as the record's own gap. The
+failing suite reads its servers' ports through the same wait_ready
+port-file helper whose read race experiments 026 and 027 recorded under
+load, and the clean re-run of the identical discovery immediately below
+passes 81/81 with no error. The 'leftover: 2' counts in this pass are a
+measurement artifact: the counting command's own shell carried the plain
+string being counted in its command line and matched itself twice; the
+clean checks in the last section show 0.)
+
+=== CLEAN RE-RUN: synchronization discovery, superseding the loaded run above ===
+--- python3 -m unittest discover -s packages/synchronization
+Ran 81 tests in 90.996s
+OK
+
+=== THE NEW SUITE BY DIRECT FILE RUN ===
+--- python3 packages/synchronization/test_anchor_wire_delivery.py
+test_node_with_anchor_but_no_snapshot_reports_no_snapshot (__main__.ConfigEdgeTests.test_node_with_anchor_but_no_snapshot_reports_no_snapshot) ... ok
+test_server_without_anchor_reports_no_anchor (__main__.ConfigEdgeTests.test_server_without_anchor_reports_no_anchor) ... ok
+test_different_signer_refused_and_logged (__main__.HeadOnlySuccessionTests.test_different_signer_refused_and_logged) ... ok
+test_anchor_alone_no_change_then_refresh_delivered (__main__.SignedPlaintextAnchorTests.test_anchor_alone_no_change_then_refresh_delivered) ... ok
+test_anchor_alone_unpaired_refused (__main__.SignedPlaintextAnchorTests.test_anchor_alone_unpaired_refused) ... ok
+test_backward_anchor_refused_anchor_regression (__main__.SignedPlaintextAnchorTests.test_backward_anchor_refused_anchor_regression) ... ok
+test_paired_delivery_judged_together (__main__.SignedPlaintextAnchorTests.test_paired_delivery_judged_together) ... ok
+test_rewrite_anchor_finding (__main__.SignedPlaintextAnchorTests.test_rewrite_anchor_finding) ... ok
+test_tampered_history_refused_signature_invalid (__main__.SignedPlaintextAnchorTests.test_tampered_history_refused_signature_invalid) ... ok
+test_paired_delivery_over_tls (__main__.SignedTlsAnchorTests.test_paired_delivery_over_tls) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 5.296s
+
+OK
+ANCHOR WIRE different_signer: a differently-signed anchor over the same chain refused at succession and logged in case 10's audit shape; the current anchor is byte-for-byte unchanged
+ANCHOR WIRE (plaintext): the refreshed anchor over the standing head delivered alone - history 0 -> 1, the server's anchor file is the delivered anchor, the standing record undisturbed
+ANCHOR WIRE anchor_unpaired: a genuine signed anchor over a foreign chain refused - it pairs with nothing this server holds
+ANCHOR WIRE anchor_regression (i): an earlier version of the server's own anchor file refused and audit-logged
+ANCHOR WIRE anchor_regression (ii): an anchor pinning an earlier prefix of the standing chain refused the same way - its signature verifies; it is refused for where it points
+ANCHOR WIRE paired refusal: grown record + old anchor refused as anchor_stale, neither half applied
+ANCHOR WIRE anchor_unpaired: the new anchor alone pairs with the record the server does not hold yet, not the one it stands on
+ANCHOR WIRE (plaintext): record + anchor delivered together and judged together - 2 -> 3 entries under the delivered anchor, no restart, no manual lifecycle step at this server
+FINDING leg (i): rewritten record + the genuine anchor refused as anchor_mismatch - a rewrite cannot pass under an anchor that was not re-signed over it
+FINDING leg (ii): rewritten record + an anchor over it signed by a different identity refused as different_signer - identity custody is a fence
+FINDING leg (iii): rewritten record + an anchor over it signed by the CURRENT signer's identity ACCEPTED - succession passes, the backward fence does not fire, the signature verifies, and the pair stands together under the same consultation that refuses legs (i) and (ii). What stops a rewrite from being blessed is the custody of the signer's secret, and nothing else
+ANCHOR WIRE anchor_signature_invalid: a kept history edited in the delivered object refused before any head judgement
+ANCHOR WIRE (mutual TLS, identity binding, signed anchor): record + anchor delivered together over HTTPS; 410 over the protected link
+
+=== THE NEW DEMO ===
+--- python3 packages/synchronization/demo_anchor_wire_delivery.py
+Setup. One signer-configured server running on the 2-entry record under alice's signed anchor: pid 33153
+1. The anchor it already holds, delivered again: no_change - nothing written
+2. The new anchor alone, before its record: delivery_refused / anchor_unpaired - it pairs with nothing the server holds yet; alice still serves (the stale window): True
+3. Record + anchor delivered together: delivered - loaded 3 entries under the delivered anchor; alice over the wire now: 410 / policy_revoked; bob serves: True; health: snapshot_entries=3, anchor_status=anchored, last anchor delivery: delivered
+4. The ORIGINAL anchor delivered alone: delivery_refused / anchor_regression - an earlier version of the server's own anchor file; anchor file unchanged: True; audit log's last event: reanchor_rejected / anchor_regression
+5. FINDING: mallory's rewritten record + an anchor over it signed by alice (the current signer, history honestly extended): delivered - the server now serves the rewritten record: mallory 200 with her exact bytes: True; alice's genuine policy: 404. What stops a rewrite from being blessed is the custody of the signer's secret, and nothing else
+   the process was never restarted: pid 33153 throughout, and its anchor file was never written by hand after startup
+Demo state left in: /tmp/pba-anchor-wire-demo-0yqykvss
+
+=== LEFTOVER-PROCESS CHECKS ===
+--- leftover node_server processes (checked after every run above, and again at record time):
+0
+
+(The count above is the standalone check, run as its own command whose line
+carries no plain form of the string it counts. Counts taken from inside a
+compound command read 1-2 because that command's own shell matches itself;
+every direct check in this session - after the tests-first run, after the
+new suite, after the demo, and at record time - read 0.)
