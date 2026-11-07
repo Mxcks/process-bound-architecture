@@ -99,6 +99,17 @@ question in process form, not a new guarantee.
 - No discovery: peer addresses are configured by whoever starts the
   processes and whoever calls `/sync`. No peer list, no gossip
   schedule, no automatic re-sync or retry; sync happens when asked.
+  [Superseded in part by experiment 035 (sync-mesh case
+  24): a server started with `--peers <path>` holds a
+  standing peer list from startup (read once; editing the
+  file is a restart act), and a driven `POST /sync-all`
+  sweeps it in order, each peer through the identical
+  per-peer round `/sync` runs, each outcome reported
+  separately. Discovery itself, membership, gossip, and
+  unattended sync remain unbuilt: the list is configuration
+  the node holds, not a protocol for finding peers, and
+  `/sync` still names its address at call time exactly as
+  this experiment left it.]
 - No persistence: mesh state is in each process's memory. Killing a
   process loses exactly its unreplicated entries, and a restarted
   node starts empty and must re-sync. (The registry snapshot and
