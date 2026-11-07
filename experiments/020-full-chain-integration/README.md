@@ -221,6 +221,27 @@ modified.
   in-process, and stage 5's network sync is Gate 3 verification
   only. The two mesh halves of the chain have still never run
   in the same process.
+
+  [Superseded in part, 2026-11-06, experiment 026: the limit
+  above was closed in experiment 026
+  (`experiments/026-mesh-anchor-wire/`), under sync-mesh
+  case 15. A server started with `--mesh-anchor` (plus
+  `--mesh-anchor-signer` and `--mesh-anchor-secret-file`
+  where the mesh anchor is signed) now holds experiment
+  015's AnchoredSyncNode for its mesh side, so the receives
+  a running server process already performs - POST
+  /entries and both sides of POST /sync - consult the mesh
+  anchor over the wire: a rewritten peer process is flagged
+  divergent as `anchor_mismatch`, honest growth is refused
+  as `anchor_stale` until re-anchored, and a mesh anchor
+  whose signature does not verify refuses as
+  `anchor_signature_invalid`, with the standing reported on
+  /health as `mesh_anchor_status`. Stage 6's consultation
+  is therefore no longer in-process only. What this note
+  does NOT supersede: a server started WITHOUT
+  `--mesh-anchor` still holds a plain SyncNode and consults
+  no mesh anchor, exactly as this section states, and no
+  stage of this experiment is re-run or re-claimed.]
 - Anchor consultation makes honest growth a manual lifecycle
   step everywhere it is on, and the chain inherits that in
   full: the revocation entry itself is honest growth, so
