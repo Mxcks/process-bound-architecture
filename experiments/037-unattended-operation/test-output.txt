@@ -1,0 +1,81 @@
+Experiment 037 - unattended operation
+Test output: real runs, in the order they happened.
+
+=== TESTS FIRST: the new suite against the UNBUILT code ===
+Command: python3 -m unittest discover -s packages/synchronization -p "test_unattended_operation.py"
+Written after case 25 (tests/test-cases/sync-mesh.md) and before any
+implementation. It fails as designed: the servers exit on the unknown
+flag (4 occurrences of the unrecognized-arguments line in the full
+capture), the /health fields do not exist, and the in-process leg
+errors on the missing constructor argument and methods.
+
+Ran 7 tests in 5.812s
+FAILED (failures=4, errors=3)
+node_server.py: error: unrecognized arguments: --auto-cycle-interval 0.5
+KeyError: 'auto_cycle_configured'
+
+=== THE NEW SUITE against the built code ===
+Command: python3 -m unittest discover -s packages/synchronization -p "test_unattended_operation.py"
+
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 25.960s
+
+OK
+AUTO CYCLE control: with the cycle off, B still lacks A's entry after 3s and A reports 0 cycles - the cycle did the story's work
+AUTO CYCLE convergence: B and C converged to A with no driver calls after the mutate; wall 0.6s (poll-observed), A at cycle 2, B at cycle 3 when observed
+AUTO CYCLE health: on-server completed 2 cycles unattended in 1.2s of polling; order and stage reports carried on /health; off-server at 0
+AUTO CYCLE shutdown: in-process thread ran 2 cycles, stopped on request, and is not alive; the count is stable after stop
+AUTO CYCLE refused start: an interval below the 0.2s minimum exits nonzero naming auto_cycle_interval_invalid, serving nothing
+AUTO CYCLE refusal: snapshot stage refused anchor_stale across 2 cycles while the same cycles' sweeps carried the peer's mesh entry in; previous view serving
+AUTO CYCLE refusal recovery: after the same-signer re-anchor, a later automatic cycle reloaded unattended and the policy now refuses 410; cycles now 3
+AUTO CYCLE revocation: B flipped to 410 with no driver calls after the single paired delivery to A; wall 0.6s (poll-observed), A at cycle 1, B at cycle 2
+
+=== DEMO ===
+Command: python3 packages/synchronization/demo_unattended_operation.py
+
+1. A started with --auto-cycle-interval: /health reports auto_cycle_configured=True, interval=0.5, cycles completed with no driver calls: 1; last cycle order: ['snapshot_check', 'liveness', 'registry_push', 'sync_all']
+2. entries at A only, no driver calls after the mutates: all three converged in 0.6s (poll-observed); A at cycle 2, B at cycle 4, C state: {'greeting': 'hello', 'mode': 'member'}
+3. D's own cycles named the dead peer ['lost', 'alive'] (missed cycles [3, 0]) after 2.1s, and its sweep still carried D's entry to B: cycle
+DEMO OK: servers kept themselves current unattended - cycles on an interval, one implementation per stage, refusals and losses named on /health.
+
+=== FULL REGRESSION ===
+Pre-build baseline (experiment 036's record): registration 25,
+policy-library 42, synchronization 146, validation 22 = 235, EAI PASS 3/3.
+
+--- registration ---
+Ran 25 tests in 0.036s
+OK
+--- policy-library ---
+Ran 42 tests in 0.511s
+OK
+--- validation ---
+Ran 22 tests in 0.573s
+OK
+--- synchronization, clean run of record ---
+Ran 153 tests in 177.030s
+OK
+--- EAI handoff ---
+PASS: 3 EAI vectors recompute exactly.
+Total: 242/242 (235 baseline + 7 new).
+
+Full-run history, recorded honestly (see README 'What failed'):
+run 1: Ran 153, FAILED (errors=1) - test_cert_node_binding wait_ready
+  read an empty port file (ValueError: invalid literal for int(): '');
+  that suite re-run standalone: Ran 4 tests, OK.
+run 2: Ran 153, FAILED (failures=1) - the NEW suite's refusal-recovery
+  leg asserted the cycle counter had advanced in the same poll that
+  first saw the 410 flip, which is visible mid-cycle; the counter
+  advances at cycle completion. Test fixed to wait for completion;
+  the new suite then passed standalone (Ran 7, OK) and in run 4.
+run 3: Ran 153, FAILED (errors=1) - test_server_to_server_delivery
+  wait_ready, the same empty-port-file race; that suite re-run
+  standalone: Ran 7 tests, OK.
+run 4: Ran 153 tests, OK - the clean run of record above.
+The port-file race is the suites' own wait_ready helpers reading the
+port file between its creation and its content landing, under load
+(load average ~4-5); no assertion failed in any full run.
+
+=== LEFTOVER PROCESSES ===
+Direct /proc scan for python processes running node_server.py
+after the recorded runs: 0 found.
