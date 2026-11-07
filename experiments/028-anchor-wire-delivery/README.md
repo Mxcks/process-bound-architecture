@@ -332,6 +332,29 @@ this pass.
   own anchor onward, and a record push to a peer whose
   anchor has not advanced still refuses `anchor_stale` at
   that peer exactly as experiment 027 recorded.
+  (Superseded in part by experiment 030, which built the
+  sending half this bullet names: `POST /push-anchor`
+  now exists - a driven endpoint on the sending server,
+  in `/push-snapshot`'s style, carrying the entries the
+  sender's PolicyNode stands on and the anchor object its
+  own anchor file holds to the peer's paired surface
+  above, unmodified, the peer's paired report returned as
+  the push's result and recorded on the sender's
+  `/health` as `last_anchor_push`. Sync-mesh case 19's
+  story is this bullet's gap closed: the record-only push
+  still refuses `anchor_stale` at the peer as the
+  control, and ONE paired push then brings the peer fully
+  current - both its files byte-for-byte the pair the
+  sender sent, the revocation live at 410 - with case
+  17's refusals (`different_signer`, `anchor_regression`,
+  and case 18's `anchor_witness_invalid` at a
+  witness-configured peer) surfacing in the push result
+  exactly as the peer judged them. What stands of this
+  bullet: `/push-snapshot` still transports the record
+  only, the paired push is driven and never solicited or
+  scheduled, and there is still no anchor-ALONE server
+  push - a server sends its anchor paired with the record
+  it blesses, or not at all.)
 - The mesh anchor does not travel: case 15's mesh anchor
   (experiment 026) still arrives out of band. This
   experiment delivers the REGISTRY anchor only; the mesh
