@@ -258,3 +258,19 @@ counter reading and what it actually counted).
   it: no Byzantine consensus or quorum, local-only
   rollback, HMAC prototype signing, no production
   deployment of any of this.
+
+
+[Superseded in part, 2026-11-06, experiment 037: the limit
+above - "The sweep is driven, like every surface in this
+stack: no gossip schedule, no timer, no automatic re-sync
+or retry" - was built in experiment 037
+(`experiments/037-unattended-operation/`), under sync-mesh
+case 25, written tests-first. A server started with
+`--auto-cycle-interval` now runs the sweep unattended as
+the last stage of its own maintenance cycle (with the
+snapshot check, a peer liveness stage, and the paired
+registry push before it, in case 25's stated order),
+through this experiment's sweep moved onto the node
+unchanged. What still stands: without the flag the sweep
+is driven exactly as this experiment left it, the list is
+still a startup fact, and this is still not discovery.]
