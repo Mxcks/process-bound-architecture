@@ -154,6 +154,32 @@ the same consultation, before the head judgement:
   signed; its stated limits (a local file, symmetric HMAC
   signing where the verifier holds the secret, deletion and
   rollback to an older signed state not prevented) stand.
+
+WITNESSED ANCHOR CONSULTATION (test case 11, experiment 029)
+--------------------------------------------------------------
+Experiment 029 lets the anchor be countersigned by a second
+identity, a witness (see packages/registration/anchor.py). A
+node constructed with anchor_witness +
+anchor_witness_secret_hex (the witness's enrolled identity
+and its verification secret - both or neither), in the
+signer's opt-in style, verifies the anchor's countersignature
+as part of the same consultation, after the signature
+judgement and before the head judgement:
+
+- anchor_witness_invalid: the anchor is not countersigned,
+  was countersigned by a different identity, or its
+  countersignature was tampered with. Construction (or a
+  reload) raises AnchorWitnessInvalid and the snapshot is
+  never served.
+- A correctly countersigned anchor over the genuine snapshot
+  is anchored and serves exactly as before, with the check's
+  witness fields recording that the countersignature was
+  verified.
+- No witness identity: the consultation is exactly experiment
+  019's. The countersignature inherits the symmetric HMAC
+  limit in full: what it changes is custody (two enrolled
+  secrets must now collude to bless a rewritten record), not
+  the model.
 """
 
 from __future__ import annotations
@@ -322,6 +348,24 @@ class AnchorSignatureInvalid(AnchorRefused):
     status = "anchor_signature_invalid"
 
 
+class AnchorWitnessInvalid(AnchorRefused):
+    """The anchor's witness countersignature does not verify
+    (case 11, experiment 029).
+
+    Raised only on a node configured with a witness identity
+    (anchor_witness + anchor_witness_secret_hex): the anchor is
+    not countersigned, was countersigned by a different
+    identity, or its countersignature was tampered with.
+    Distinct from AnchorSignatureInvalid and the head findings
+    by construction: the witness judgement runs after the
+    signature judgement (an anchor whose signature fails is a
+    signature failure, countersigned or not) and before the
+    head judgement.
+    """
+
+    status = "anchor_witness_invalid"
+
+
 @dataclass(frozen=True)
 class ServedPolicy:
     policy_hash: str
@@ -376,11 +420,19 @@ class PolicyNode:
         anchor_path: str | Path | None = None,
         anchor_signer: str | None = None,
         anchor_secret_hex: str | None = None,
+        anchor_witness: str | None = None,
+        anchor_witness_secret_hex: str | None = None,
     ):
         if (anchor_signer is None) != (anchor_secret_hex is None):
             raise ValueError(
                 "anchor_signer and anchor_secret_hex must be given "
                 "together (a signing identity is an id plus its "
+                "verification secret)"
+            )
+        if (anchor_witness is None) != (anchor_witness_secret_hex is None):
+            raise ValueError(
+                "anchor_witness and anchor_witness_secret_hex must be "
+                "given together (a witness identity is an id plus its "
                 "verification secret)"
             )
         self.node_id = node_id
@@ -393,6 +445,13 @@ class PolicyNode:
         # (the default) is experiment 015's head-only judgement.
         self.anchor_signer = anchor_signer
         self.anchor_secret_hex = anchor_secret_hex
+        # Experiment 029: the witness identity this node verifies
+        # its anchor's countersignature with, when configured, in
+        # the signer's opt-in style. Both None (the default) is
+        # experiment 019's judgement: no countersignature is
+        # required.
+        self.anchor_witness = anchor_witness
+        self.anchor_witness_secret_hex = anchor_witness_secret_hex
         self.anchor_check = None
         self.anchor_status: str = "no_anchor"
         # Raises TamperedRecord if the copied chain does not verify.
@@ -420,15 +479,16 @@ class PolicyNode:
         check is expected True; it is still honored if it is not.
         """
         anchor_mod = _load_registry_anchor_module()
+        kwargs = {}
         if self.anchor_signer is not None:
-            check = anchor_mod.check_registry_against_anchor(
-                snapshot_path, self.anchor_path,
-                signer=self.anchor_signer, secret_hex=self.anchor_secret_hex,
-            )
-        else:
-            check = anchor_mod.check_registry_against_anchor(
-                snapshot_path, self.anchor_path
-            )
+            kwargs["signer"] = self.anchor_signer
+            kwargs["secret_hex"] = self.anchor_secret_hex
+        if self.anchor_witness is not None:
+            kwargs["witness"] = self.anchor_witness
+            kwargs["witness_secret_hex"] = self.anchor_witness_secret_hex
+        check = anchor_mod.check_registry_against_anchor(
+            snapshot_path, self.anchor_path, **kwargs
+        )
         if check.ok:
             return check, "anchored"
         if check.signature_checked and not check.signature_valid:
@@ -441,6 +501,18 @@ class PolicyNode:
                 f"registry snapshot's anchor signature does not "
                 f"verify for signer {self.anchor_signer}: refusing "
                 f"as anchor_signature_invalid",
+                check,
+            )
+        if check.witness_checked and not check.witness_valid:
+            # Experiment 029: the witness judgement follows the
+            # signature's and precedes the head judgement. A
+            # missing, wrong-identity, or tampered
+            # countersignature is refused under its own name and
+            # never reaches the mismatch / stale classification.
+            raise AnchorWitnessInvalid(
+                f"registry snapshot's anchor is not countersigned "
+                f"by witness {self.anchor_witness}: refusing as "
+                f"anchor_witness_invalid",
                 check,
             )
         if not check.internal_verifies:
@@ -531,6 +603,8 @@ class PolicyNode:
         anchor_path: str | Path | None = None,
         anchor_signer: str | None = None,
         anchor_secret_hex: str | None = None,
+        anchor_witness: str | None = None,
+        anchor_witness_secret_hex: str | None = None,
     ) -> "PolicyNode":
         """Build a node from the operator's own JSON config file.
 
@@ -552,6 +626,8 @@ class PolicyNode:
             anchor_path=anchor_path,
             anchor_signer=anchor_signer,
             anchor_secret_hex=anchor_secret_hex,
+            anchor_witness=anchor_witness,
+            anchor_witness_secret_hex=anchor_witness_secret_hex,
         )
 
     # -- introspection (holding is not serving) ---------------------------
