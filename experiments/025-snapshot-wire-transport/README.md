@@ -258,6 +258,31 @@ startup gates), and the other three packages.
   delivery is consulted against whatever anchor the server
   already holds; a deployment that cannot move anchors
   cannot complete the lifecycle this case assumes.
+  [Superseded in part by experiment 028 (sync-mesh case
+  17): the registry anchor now travels over the wire -
+  `POST /deliver-anchor` carries the anchor object's own
+  JSON, alone or paired with the record it blesses in one
+  call, judged before acceptance (succession
+  `different_signer` audit-logged, the backward fence
+  `anchor_regression`, signature and kept history
+  `anchor_signature_invalid`, pairing `anchor_unpaired`)
+  and judged TOGETHER with the record when paired, under
+  case 14's own discipline with the delivered anchor - so
+  the anchor lifecycle this case assumed a hand performs
+  at the server (write the advanced anchor over the
+  server's file, as this experiment's tests did) can now
+  be completed by one paired delivery, in which a
+  revocation takes effect over the wire with neither half
+  applied unless both stand. What this experiment's own
+  statement above still carries untouched: `POST
+  /deliver-snapshot` itself still transports the record
+  only, no server pushes its anchor (there is no
+  `/push-anchor`, and case 16's `POST /push-snapshot`
+  still transports the record only), and the WITNESS
+  problem - an anchor file anyone holding the secret can
+  re-sign over a rewrite, experiment 019's recorded
+  symmetric-model limit, which case 17's finding shows
+  the wire neither adds to nor closes - remains open.]
 - The push surface is unauthenticated wherever the server's
   transport is: over plaintext (experiment 007 mode) anyone
   who can reach the port can push a delivery, as they
