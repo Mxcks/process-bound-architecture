@@ -19,6 +19,7 @@ ENDPOINTS
 GET  /health     -> {node_id, ok, entries, state_hash,
                      serve_policies, policy_configured,
                      anchor_configured, anchor_status,
+                     mesh_anchor_configured, mesh_anchor_status,
                      snapshot_entries, last_snapshot_check,
                      last_snapshot_delivery}
 POST /mutate     -> {key, value}: mutate this process's own
@@ -108,6 +109,11 @@ GET  /policy/<policy_hash>
                     not caught here and the request dropped the
                     connection with no response - finding F2 of
                     experiment 020).
+Started with --mesh-anchor (experiment 026), the process's
+mesh side is experiment 015's AnchoredSyncNode instead of a
+plain SyncNode, and /health also reports that side's standing
+(mesh_anchor_configured, mesh_anchor_status); see the
+VERIFICATION section below.
 
 VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
 ------------------------------------------------
@@ -126,10 +132,31 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   anchor refuses to start as anchor_stale, until the new head is
   re-anchored. Without --anchor no consultation happens and
   startup behavior is exactly experiments 007/014's. The anchor
-  consulted here is the REGISTRY snapshot's; this process's mesh
-  entries are still held by a plain SyncNode and networked sync
-  does not consult a mesh anchor (the in-process AnchoredSyncNode
-  of experiment 015 does, in-process).
+  consulted here is the REGISTRY snapshot's.
+- Started with --mesh-anchor (experiment 026), this process's
+  mesh side is experiment 015's AnchoredSyncNode, and every
+  mesh receive (POST /entries, and both sides of POST /sync,
+  which already call receive_entries) consults experiment
+  012's mesh anchor on the merged state before accepting a
+  peer's entries as converged: a peer whose origin chain was
+  rewritten from genesis is flagged divergent over the wire
+  as anchor_mismatch, honest growth past the anchor as
+  anchor_stale until the grown state is re-anchored, and -
+  with --mesh-anchor-signer plus --mesh-anchor-secret-file -
+  a mesh anchor whose signature does not verify as
+  anchor_signature_invalid (experiment 019). /health reports
+  the mesh side's standing as mesh_anchor_status (experiment
+  015's classification of the state the process currently
+  holds) beside the registry anchor_status. Without
+  --mesh-anchor the mesh side is a plain SyncNode and
+  consults nothing, exactly as experiments 007-025 left it.
+  One wire adaptation, stated in sync-mesh case 15: where
+  the in-process consultation raises on a configured anchor
+  that cannot be read (after rolling the merge back), the
+  wire receive returns that refusal in the SyncResult shape
+  under reason anchor_unreadable, and /health reports the
+  same name - a refusal is a sync outcome, never a dropped
+  connection.
 - A fetched snapshot is verified by the receiver with Gate 2's
   verifier before any PolicyNode is built over it.
 - A running server's live reload (POST /check-snapshot,
@@ -230,7 +257,11 @@ HONEST LIMITS (prototype, NOT production)
   experiment 024 the same consultation also runs on every
   live reload, and since experiment 025 on every wire
   delivery, not only at startup. The mesh chain in this
-  process consults no anchor.
+  process consults an anchor only when the process is
+  started with --mesh-anchor (experiment 026, in the
+  VERIFICATION section below); a process started without
+  one consults no mesh anchor, exactly as experiments
+  007-025 left it.
 """
 
 from __future__ import annotations
@@ -271,7 +302,39 @@ from policy_node import (  # noqa: E402
 from snapshot_delivery import _refusal_reason as _reload_refusal_reason  # noqa: E402
 from snapshot_delivery import snapshot_facts  # noqa: E402
 import protected_link  # noqa: E402
-from sync_mesh import StateEntry, SyncNode  # noqa: E402
+from sync_mesh import StateEntry, SyncNode, SyncResult  # noqa: E402
+
+
+_ANCHORED_MESH = None
+
+
+def _anchored_mesh():
+    """Experiment 015's AnchoredSyncNode and experiment 012's
+    MeshAnchorError, imported lazily on first use (experiment
+    026).
+
+    Two packages ship an anchor.py (registration,
+    synchronization), so a plain `import anchor` resolves by
+    sys.path order - the collision policy_node.py's docstring
+    describes - and this module is imported by consumers whose
+    path order is theirs, not this module's. A top-level import
+    here could bind the wrong anchor module in a shared
+    process, or freeze the right one where a consumer expects
+    the other package's. Importing lazily, only when a process
+    actually configures a mesh anchor, leaves every existing
+    consumer's resolution exactly as it was. In the server
+    process itself, this file's own directory heads sys.path,
+    so the plain intra-package imports below resolve to this
+    package's modules, exactly as they do inside
+    anchored_sync.py.
+    """
+    global _ANCHORED_MESH
+    if _ANCHORED_MESH is None:
+        from anchor import MeshAnchorError
+        from anchored_sync import AnchoredSyncNode
+
+        _ANCHORED_MESH = (AnchoredSyncNode, MeshAnchorError)
+    return _ANCHORED_MESH
 
 
 # -- entry serialization ---------------------------------------------------
@@ -305,10 +368,12 @@ def entry_from_dict(data: dict) -> StateEntry:
 class NetworkNode:
     """One node's worth of state for one server process.
 
-    A SyncNode always; a PolicyNode only when the process was started
-    with a registry snapshot (its own copy). All access is serialized
-    with one lock because the HTTP server is threaded while the Gate
-    3/2 prototypes are single-threaded objects.
+    A SyncNode always (experiment 015's AnchoredSyncNode when the
+    process was started with a mesh anchor, experiment 026); a
+    PolicyNode only when the process was started with a registry
+    snapshot (its own copy). All access is serialized with one lock
+    because the HTTP server is threaded while the Gate 3/2
+    prototypes are single-threaded objects.
     """
 
     def __init__(
@@ -322,6 +387,9 @@ class NetworkNode:
         anchor_path: str | Path | None = None,
         anchor_signer: str | None = None,
         anchor_secret_hex: str | None = None,
+        mesh_anchor_path: str | Path | None = None,
+        mesh_anchor_signer: str | None = None,
+        mesh_anchor_secret_hex: str | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -330,7 +398,30 @@ class NetworkNode:
         # node's own /sync checks a peer server's certificate id
         # against its claim before pulling entries.
         self.bind_identity = bool(bind_identity)
-        self.sync_node = SyncNode(node_id)
+        # Experiment 026: an optional experiment 012 MESH anchor
+        # for this process's sync chain. With one configured the
+        # mesh side is experiment 015's AnchoredSyncNode, which
+        # consults the anchor on the merged state before
+        # accepting a peer's entries (the signer pair is passed
+        # straight through, both or neither, as AnchoredSyncNode
+        # requires); without one it is the plain SyncNode of
+        # experiments 007-025 and no mesh consultation happens.
+        # The mesh anchor is independent of the registry anchor
+        # below and of any snapshot: the mesh side exists on
+        # mesh-only processes too.
+        self.mesh_anchor_path = (
+            Path(mesh_anchor_path) if mesh_anchor_path else None
+        )
+        if self.mesh_anchor_path is not None:
+            anchored_sync_node, _mesh_anchor_error = _anchored_mesh()
+            self.sync_node = anchored_sync_node(
+                node_id,
+                self.mesh_anchor_path,
+                anchor_signer=mesh_anchor_signer,
+                anchor_secret_hex=mesh_anchor_secret_hex,
+            )
+        else:
+            self.sync_node = SyncNode(node_id)
         self.snapshot_path = (
             Path(registry_snapshot_path) if registry_snapshot_path else None
         )
@@ -391,6 +482,63 @@ class NetworkNode:
         if self.policy_node is not None:
             return self.policy_node.anchor_status
         return "no_anchor"
+
+    @property
+    def mesh_anchor_status(self) -> str:
+        """This process's MESH anchor standing, for /health
+        (experiment 026): experiment 015's own classification of
+        the mesh state this process currently holds ("anchored",
+        "anchor_stale", "anchor_mismatch", or, with a signing
+        identity configured, "anchor_signature_invalid") when a
+        mesh anchor is configured, otherwise "no_anchor" (no
+        mesh anchor configured, so nothing to consult). A
+        configured anchor that cannot be read reports
+        "anchor_unreadable" - experiment 015's divergence reason
+        for the same condition - instead of raising out of
+        /health: health is where an operator looks when sync is
+        already refusing."""
+        if self.mesh_anchor_path is None:
+            return "no_anchor"
+        _anchored_sync_node, mesh_anchor_error = _anchored_mesh()
+        try:
+            return self.sync_node.anchor_status()
+        except mesh_anchor_error:
+            return "anchor_unreadable"
+
+    def receive_mesh_entries(self, entries: list[StateEntry]) -> SyncResult:
+        """Merge a batch of mesh entries into this process's sync
+        node: the one receive every mesh surface uses (POST
+        /entries and this node's side of POST /sync).
+
+        With no mesh anchor configured this is exactly
+        SyncNode.receive_entries (experiments 007-025). With one
+        configured it is AnchoredSyncNode's consultation
+        (experiment 015), which returns its refusals in the
+        SyncResult shape - except for a configured anchor that
+        cannot be read, where the in-process node rolls the
+        merge back, logs the divergence, and RAISES
+        MeshAnchorError. Over the wire that raise is translated
+        here into the same shape - accepted 0,
+        divergence_detected True, rolled_back True, reason
+        "anchor_unreadable" (sync-mesh case 15's stated
+        adaptation) - so a refused receive is a sync outcome in
+        the response, never a dropped connection (the lesson of
+        experiment 020's finding F2). Callers hold self.lock, as
+        for every other node access from the handler.
+        """
+        if self.mesh_anchor_path is None:
+            return self.sync_node.receive_entries(entries)
+        _anchored_sync_node, mesh_anchor_error = _anchored_mesh()
+        try:
+            return self.sync_node.receive_entries(entries)
+        except mesh_anchor_error:
+            return SyncResult(
+                accepted=0,
+                divergence_detected=True,
+                rolled_back=True,
+                reason="anchor_unreadable",
+                state_hash=self.sync_node.state_hash(),
+            )
 
     @property
     def snapshot_loaded_count(self) -> int | None:
@@ -936,6 +1084,15 @@ def make_handler(node: NetworkNode):
                         "policy_configured": node.policy_node is not None,
                         "anchor_configured": node.anchor_path is not None,
                         "anchor_status": node.anchor_status,
+                        # Experiment 026: the mesh side's anchor
+                        # standing, beside the registry half's
+                        # fields above - whether a mesh anchor
+                        # is configured for this process's sync
+                        # chain, and experiment 015's
+                        # classification of the mesh state it
+                        # currently holds.
+                        "mesh_anchor_configured": node.mesh_anchor_path is not None,
+                        "mesh_anchor_status": node.mesh_anchor_status,
                         # Experiment 024: the running process's
                         # current registry standing - how many
                         # entries its PolicyNode serves from, and
@@ -1040,8 +1197,11 @@ def make_handler(node: NetworkNode):
                     return
                 # Gate 3 verification runs here, inside receive_entries:
                 # hash recompute, fork detection, chain check, rollback.
+                # Since experiment 026 the receive is the node's one
+                # mesh receive, so a configured mesh anchor is also
+                # consulted on the merged state before acceptance.
                 with node.lock:
-                    result = node.sync_node.receive_entries(incoming)
+                    result = node.receive_mesh_entries(incoming)
                 self._send_json(200, result.to_dict())
                 return
             if self.path == "/sync":
@@ -1118,7 +1278,7 @@ def make_handler(node: NetworkNode):
                 self._send_json(502, {"error": f"peer unreachable: {exc}"})
                 return
             with node.lock:
-                result_self = node.sync_node.receive_entries(their_entries)
+                result_self = node.receive_mesh_entries(their_entries)
                 merged = node.sync_node.entries()
             # Push: the peer verifies the merged set again on its side.
             try:
@@ -1185,6 +1345,30 @@ def main(argv: list[str] | None = None) -> int:
                              "requires --anchor-signer. A file, not a "
                              "value argument, so the secret does not ride "
                              "in the process command line")
+    parser.add_argument("--mesh-anchor", default=None,
+                        help="path to an experiment 012 mesh anchor for "
+                             "this process's sync chain (experiment 026); "
+                             "independent of --snapshot. The mesh side "
+                             "then runs as experiment 015's "
+                             "AnchoredSyncNode and consults the anchor on "
+                             "every mesh receive, flagging a rewritten "
+                             "peer anchor_mismatch and honest growth "
+                             "anchor_stale. Without it the mesh side is "
+                             "a plain SyncNode and consults nothing")
+    parser.add_argument("--mesh-anchor-signer", default=None,
+                        help="signing identity for a signed mesh anchor "
+                             "(experiment 019); requires --mesh-anchor "
+                             "and --mesh-anchor-secret-file. With it, "
+                             "every mesh consultation also verifies the "
+                             "anchor's signature, refusing as "
+                             "anchor_signature_invalid")
+    parser.add_argument("--mesh-anchor-secret-file", default=None,
+                        help="file holding the mesh anchor signer's "
+                             "enrollment secret (hex), read once at "
+                             "startup; requires --mesh-anchor-signer. "
+                             "A file, not a value argument, so the "
+                             "secret does not ride in the process "
+                             "command line")
     parser.add_argument("--port-file", default=None,
                         help="write the bound port to this file once listening")
     parser.add_argument("--tls-cert", default=None,
@@ -1213,6 +1397,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.anchor_secret_file:
         anchor_secret_hex = Path(
             args.anchor_secret_file).read_text(encoding="utf-8").strip()
+
+    mesh_anchor_identity = (args.mesh_anchor_signer,
+                            args.mesh_anchor_secret_file)
+    if any(mesh_anchor_identity) and not all(mesh_anchor_identity):
+        parser.error("--mesh-anchor-signer and --mesh-anchor-secret-file "
+                     "must be given together")
+    if args.mesh_anchor_signer and not args.mesh_anchor:
+        parser.error("--mesh-anchor-signer requires --mesh-anchor (the "
+                     "signing identity is for that anchor)")
+    mesh_anchor_secret_hex = None
+    if args.mesh_anchor_secret_file:
+        mesh_anchor_secret_hex = Path(
+            args.mesh_anchor_secret_file).read_text(encoding="utf-8").strip()
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
@@ -1250,6 +1447,9 @@ def main(argv: list[str] | None = None) -> int:
         anchor_path=args.anchor,
         anchor_signer=args.anchor_signer,
         anchor_secret_hex=anchor_secret_hex,
+        mesh_anchor_path=args.mesh_anchor,
+        mesh_anchor_signer=args.mesh_anchor_signer,
+        mesh_anchor_secret_hex=mesh_anchor_secret_hex,
     )
     tls_context = None
     if all(tls_values):
