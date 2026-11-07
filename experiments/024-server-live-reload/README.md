@@ -240,6 +240,24 @@ this experiment depends on it.
   server processes (016's watcher over a server's holders)
   remains unbuilt, as do discovery, persistence, and restart
   recovery for a server's mesh state.
+
+  [Superseded in part, 2026-11-06, experiment 026: the
+  first sentence above no longer holds where a mesh anchor
+  is configured. In experiment 026
+  (`experiments/026-mesh-anchor-wire/`), under sync-mesh
+  case 15, a server started with `--mesh-anchor` holds
+  experiment 015's AnchoredSyncNode for its mesh side and
+  consults the mesh anchor on every mesh receive over the
+  wire (a rewritten peer flagged `anchor_mismatch`, honest
+  growth `anchor_stale`, a bad anchor signature
+  `anchor_signature_invalid`; /health reports
+  `mesh_anchor_status`). The rest of the limit stands
+  unchanged: a server started without `--mesh-anchor`
+  still holds a plain `SyncNode` and consults no mesh
+  anchor, the mesh side still learns of state only when a
+  client or `/sync` call asks, and liveness, discovery,
+  persistence, and restart recovery for a server's mesh
+  state remain unbuilt.]
 - Detection costs a full read of the snapshot file on every
   driven check, and delivery still costs the reload's full
   chain verification on every change; no performance, scale,
