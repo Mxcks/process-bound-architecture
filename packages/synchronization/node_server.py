@@ -335,6 +335,28 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   under reason anchor_unreadable, and /health reports the
   same name - a refusal is a sync outcome, never a dropped
   connection.
+- Started with --tls-crl (experiment 034), the protected
+  link ALSO enforces a certificate revocation list issued
+  by the --tls-ca authority: the CRL is loaded into the
+  TLS verify store at startup and the handshake itself
+  checks each peer's leaf certificate against it
+  (protected_link's crl support, the standard library's
+  VERIFY_CRL_CHECK_LEAF). A revoked client certificate
+  never completes the handshake - it is refused before
+  any endpoint runs, under the name certificate revoked,
+  a different door from experiment 014's rogue-CA refusal
+  (an unverifiable issuer) and from experiment 017's
+  identity_mismatch (an HTTP refusal after a completed
+  handshake). The same list is enforced in the other
+  direction by the client context this process initiates
+  with, against the server certificates it connects out
+  to. The list names serials, not node ids: a fresh
+  certificate for the same node id under a new serial is
+  not on it and still works. A --tls-crl path that cannot
+  be read or carries no parseable CRL refuses the start
+  as crl_unreadable. Without --tls-crl no revocation
+  checking happens and behavior is exactly experiments
+  014/017's.
 - A fetched snapshot is verified by the receiver with Gate 2's
   verifier before any PolicyNode is built over it.
 - A running server's live reload (POST /check-snapshot,
@@ -581,7 +603,12 @@ HONEST LIMITS (prototype, NOT production)
   experiment 014's. There is still no authorization beyond the
   identity check and opt-in policy serving, no certificate
   revocation or rotation, and no identity proofing of who SHOULD
-  hold a certificate. Plain HTTP is acceptable for a localhost
+  hold a certificate. (Superseded in part by experiment 034:
+  started with --tls-crl, the process enforces a CA-issued
+  revocation list at the handshake in both directions, loaded
+  once at startup - a new list takes effect on restart, and a
+  list that cannot be read refuses the start as crl_unreadable.
+  Rotation and identity proofing remain unbuilt.) Plain HTTP is acceptable for a localhost
   experiment and for nothing else; mutual TLS at this scale is a
   prototype, not production transport security.
 - No discovery: peer addresses are configured by whoever starts the
@@ -2354,7 +2381,8 @@ _CLIENT_NODE_ID = None
 CLAIM_HEADER = "X-PBA-Node-Id"
 
 
-def set_client_tls(cert, key, ca_cert, node_id: str | None = None) -> None:
+def set_client_tls(cert, key, ca_cert, node_id: str | None = None,
+                   crl=None) -> None:
     """Configure the credential these client helpers present on
     https:// connections, until clear_client_tls is called. The
     server process sets this from its own node certificate in main,
@@ -2362,9 +2390,12 @@ def set_client_tls(cert, key, ca_cert, node_id: str | None = None) -> None:
     same credential it requires from clients. `node_id` is the id
     these helpers CLAIM on each request (sent as the X-PBA-Node-Id
     header); a binding-enabled peer checks it against the
-    certificate's own id."""
+    certificate's own id. `crl` (experiment 034) is the revocation
+    list these helpers enforce against the SERVER certificates
+    they connect to - the initiating half of the same list the
+    server context enforces against clients."""
     global _CLIENT_CONTEXT, _CLIENT_NODE_ID
-    _CLIENT_CONTEXT = protected_link.client_context(cert, key, ca_cert)
+    _CLIENT_CONTEXT = protected_link.client_context(cert, key, ca_cert, crl=crl)
     _CLIENT_NODE_ID = node_id
 
 
@@ -3575,6 +3606,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tls-bind-identity", action="store_true",
                         help="bind certificates to claimed node ids "
                              "(experiment 017); requires the TLS arguments")
+    parser.add_argument("--tls-crl", default=None,
+                        help="path to a certificate revocation list "
+                             "(PEM, issued by the --tls-ca authority) "
+                             "to enforce at the TLS handshake "
+                             "(experiment 034); requires the TLS "
+                             "arguments. The list is loaded once at "
+                             "startup and enforced in both directions: "
+                             "against the client certificates this "
+                             "process accepts, and against the server "
+                             "certificates this process connects out "
+                             "to. A new list takes effect on restart. "
+                             "A path that cannot be read or carries "
+                             "no parseable CRL refuses the start as "
+                             "crl_unreadable")
     args = parser.parse_args(argv)
 
     if args.anchor and not args.snapshot:
@@ -3639,6 +3684,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--tls-cert, --tls-key, and --tls-ca must be given together")
     if args.tls_bind_identity and not all(tls_values):
         parser.error("--tls-bind-identity requires --tls-cert, --tls-key, and --tls-ca")
+    if args.tls_crl and not all(tls_values):
+        parser.error("--tls-crl requires --tls-cert, --tls-key, and --tls-ca "
+                     "(a revocation list is enforced by a protected link)")
     if args.tls_bind_identity:
         # Startup self-check: this process may not even claim a
         # node id its own certificate was not issued for. Refusing
@@ -3681,9 +3729,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     tls_context = None
     if all(tls_values):
-        tls_context = protected_link.server_context(
-            args.tls_cert, args.tls_key, args.tls_ca
-        )
+        # A configured CRL that cannot be read or parsed refuses
+        # the start here, naming crl_unreadable (experiment 034):
+        # the process must never serve believing it enforces a
+        # revocation list it does not hold.
+        try:
+            tls_context = protected_link.server_context(
+                args.tls_cert, args.tls_key, args.tls_ca, crl=args.tls_crl
+            )
+        except protected_link.RevocationError as exc:
+            parser.error(str(exc))
         # Outgoing connections from this process (server-to-server
         # /sync) present this node's own certificate, so the peer
         # authenticates this process exactly as it authenticates
@@ -3694,7 +3749,7 @@ def main(argv: list[str] | None = None) -> int:
         # lets a false-claiming 014-mode process be refused by a
         # binding node it initiates toward.
         set_client_tls(args.tls_cert, args.tls_key, args.tls_ca,
-                       node_id=args.node_id)
+                       node_id=args.node_id, crl=args.tls_crl)
     server = build_server(node, args.host, args.port, tls_context=tls_context)
     bound_port = server.server_address[1]
     if args.port_file:
