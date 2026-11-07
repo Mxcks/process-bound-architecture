@@ -546,6 +546,21 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   it, the wire delivery judgement included, in sync-mesh
   case 18's re-run of this finding. The fence moves from
   one secret's custody to two; the model stays symmetric.)
+  (Superseded in part again by experiment 038: started
+  with --anchor-signer-secrets-file (a JSON identity-to-
+  secret map for the signer's whole lineage, --anchor-
+  signer naming its root), the process judges ROTATED
+  anchors: a delivery whose rotations extend the current
+  anchor's, chaining from the current signer to the
+  delivered signer, succeeds the same-identity rule, the
+  rotation chain is judged before the signature's under
+  its own names, and the signature judgement runs segment
+  by segment. The same finding pair signed by a RETIRED
+  signer is then refused as anchor_signer_retired, in
+  registration case 12's re-run of this finding; signed
+  by the current (successor) signer it stands or falls
+  exactly as above. The mesh half has the same shape
+  under --mesh-anchor-signer-secrets-file.)
 - A MESH anchor delivered over the wire (POST
   /deliver-mesh-anchor, experiment 031) is judged by the
   mesh side's own machinery, reusing experiment 012's
@@ -1095,11 +1110,13 @@ class NetworkNode:
         anchor_secret_hex: str | None = None,
         anchor_witness: str | None = None,
         anchor_witness_secret_hex: str | None = None,
+        anchor_signer_secrets: dict | None = None,
         mesh_anchor_path: str | Path | None = None,
         mesh_anchor_signer: str | None = None,
         mesh_anchor_secret_hex: str | None = None,
         mesh_anchor_witness: str | None = None,
         mesh_anchor_witness_secret_hex: str | None = None,
+        mesh_anchor_signer_secrets: dict | None = None,
         mesh_state_path: str | Path | None = None,
         peers: list[str] | None = None,
         auto_cycle_interval: float | None = None,
@@ -1138,6 +1155,15 @@ class NetworkNode:
         self.mesh_anchor_witness = mesh_anchor_witness
         self.mesh_anchor_witness_secret_hex = (
             mesh_anchor_witness_secret_hex)
+        # Experiment 038: the mesh anchor's lineage secrets,
+        # kept beside the signer pair like the witness pair:
+        # a mesh anchor DELIVERY is judged under them, and the
+        # AnchoredSyncNode below holds its own copy for the
+        # consultation. Operator configuration only.
+        self.mesh_anchor_signer_secrets = (
+            dict(mesh_anchor_signer_secrets)
+            if mesh_anchor_signer_secrets is not None else None
+        )
         if self.mesh_anchor_path is not None:
             anchored_sync_node, _mesh_anchor_error = _anchored_mesh()
             self.sync_node = anchored_sync_node(
@@ -1151,6 +1177,11 @@ class NetworkNode:
                 # of the mesh anchor.
                 anchor_witness=mesh_anchor_witness,
                 anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
+                # Experiment 038: the mesh anchor's lineage
+                # secrets, passed straight through like the
+                # signer pair; None means a rotated mesh anchor
+                # is judged as experiment 019 judged it.
+                anchor_signer_secrets=mesh_anchor_signer_secrets,
             )
         else:
             self.sync_node = SyncNode(node_id)
@@ -1218,6 +1249,17 @@ class NetworkNode:
         # method reads or writes these attributes.
         self.anchor_witness = anchor_witness
         self.anchor_witness_secret_hex = anchor_witness_secret_hex
+        # Experiment 038: the registry anchor's lineage secrets
+        # (an identity-to-secret map; anchor_signer then names
+        # the lineage's root), passed straight to the PolicyNode
+        # alongside the signer pair, in the same opt-in style.
+        # None (the default) is experiment 019's judgement.
+        # Operator configuration only - no delivery method
+        # reads or writes this attribute.
+        self.anchor_signer_secrets = (
+            dict(anchor_signer_secrets)
+            if anchor_signer_secrets is not None else None
+        )
         self.policy_node: PolicyNode | None = None
         if self.snapshot_path is not None:
             # PolicyNode construction verifies the snapshot hash
@@ -1236,6 +1278,7 @@ class NetworkNode:
                 anchor_secret_hex=self.anchor_secret_hex,
                 anchor_witness=self.anchor_witness,
                 anchor_witness_secret_hex=self.anchor_witness_secret_hex,
+                anchor_signer_secrets=self.anchor_signer_secrets,
             )
         # Experiment 024: the presented facts of the snapshot this
         # process's PolicyNode last loaded (at startup, the
@@ -2244,6 +2287,7 @@ class NetworkNode:
                     anchor_secret_hex=self.anchor_secret_hex,
                     anchor_witness=self.anchor_witness,
                     anchor_witness_secret_hex=self.anchor_witness_secret_hex,
+                    anchor_signer_secrets=self.anchor_signer_secrets,
                 )
             except Exception as exc:
                 report = _report("delivery_refused",
@@ -2479,22 +2523,78 @@ class NetworkNode:
                 """The anchor-to-anchor judgements (case 17):
                 succession, then the backward fence - each
                 refusal audit-logged beside the current anchor
-                in registration case 10's event shape."""
+                in registration case 10's event shape.
+
+                Experiment 038 (registration case 12): with a
+                lineage configured and rotations in play, two
+                succession rules precede case 10's. A delivery
+                signed by a RETIRED lineage member - a signer
+                the current anchor's own history or rotation
+                chain names, who is not the current signer and
+                not a successor the delivered rotations name -
+                is refused as "anchor_signer_retired": this is
+                experiment 028's rewrite pair re-run under
+                rotation, refused before the different-signer
+                name can launder it. And a delivery whose
+                rotations EXTEND the current anchor's by whole
+                records chaining from the current signer to the
+                delivered signer is a legitimate rotation
+                succession: case 10's same-identity rule does
+                not fire, and the rotation chain itself is
+                judged in _signature_reason, before the
+                signature's judgement, in case 12's order."""
+                delivered_rots = [dict(r) for r in delivered.rotations]
+                current_rots = [dict(r) for r in current.rotations]
+                if (self.anchor_signer_secrets is not None
+                        and current_rots
+                        and delivered.signer is not None
+                        and delivered.signer != current.signer):
+                    members = (
+                        {e.get("signer") for e in current.history}
+                        | {r.get("from_signer") for r in current_rots}
+                        | {r.get("to_signer") for r in current_rots})
+                    successors = {r.get("to_signer")
+                                  for r in delivered_rots}
+                    if (delivered.signer in members
+                            and delivered.signer not in successors):
+                        anchor_mod._append_anchor_audit(
+                            self.anchor_path,
+                            {
+                                "event": "reanchor_rejected",
+                                "reason": "anchor_signer_retired",
+                                "attempted_signer": delivered.signer,
+                                "current_signer": current.signer,
+                                "chain": "registry",
+                                "chain_head": delivered.chain_head,
+                                "entry_count": delivered.entry_count,
+                            },
+                        )
+                        return "anchor_signer_retired"
                 if (current.signer is not None
                         and delivered.signer != current.signer):
-                    anchor_mod._append_anchor_audit(
-                        self.anchor_path,
-                        {
-                            "event": "reanchor_rejected",
-                            "reason": "different_signer",
-                            "attempted_signer": delivered.signer,
-                            "current_signer": current.signer,
-                            "chain": "registry",
-                            "chain_head": delivered.chain_head,
-                            "entry_count": delivered.entry_count,
-                        },
-                    )
-                    return "different_signer"
+                    rotation_succession = (
+                        self.anchor_signer_secrets is not None
+                        and len(delivered_rots) > len(current_rots)
+                        and delivered_rots[:len(current_rots)]
+                        == current_rots
+                        and delivered_rots[len(current_rots)].get(
+                            "from_signer") == current.signer
+                        and delivered.signer
+                        == delivered_rots[-1].get("to_signer"))
+                    if not rotation_succession:
+                        anchor_mod._append_anchor_audit(
+                            self.anchor_path,
+                            {
+                                "event": "reanchor_rejected",
+                                "reason": "different_signer",
+                                "attempted_signer": delivered.signer,
+                                "current_signer": current.signer,
+                                "chain": "registry",
+                                "chain_head": delivered.chain_head,
+                                "entry_count": delivered.entry_count,
+                            },
+                        )
+                        return "different_signer"
                 standing = self.policy_node._entries
                 pins_earlier_prefix = (
                     delivered.entry_count < len(standing)
@@ -2536,7 +2636,25 @@ class NetworkNode:
                 honestly extended anchor signed by the current
                 signer - is refused at a witness-configured
                 process unless the witness countersigned it."""
-                if self.anchor_signer is not None:
+                if (self.anchor_signer_secrets is not None
+                        and delivered.rotations):
+                    # Experiment 038 (registration case 12):
+                    # the rotation judgement runs here - after
+                    # the succession and backward fences above,
+                    # before the signature's - under its own
+                    # names, and the signature judgement then
+                    # runs segment by segment under the lineage.
+                    status = anchor_mod.rotation_refusal(
+                        delivered, self.anchor_signer_secrets,
+                        root_signer=self.anchor_signer)
+                    if status is not None:
+                        return status
+                    if not anchor_mod._signature_verifies(
+                            delivered, self.anchor_signer,
+                            self.anchor_secret_hex,
+                            signer_secrets=self.anchor_signer_secrets):
+                        return "anchor_signature_invalid"
+                elif self.anchor_signer is not None:
                     if not anchor_mod._signature_verifies(
                             delivered, self.anchor_signer,
                             self.anchor_secret_hex):
@@ -2585,6 +2703,12 @@ class NetworkNode:
                     check_kwargs["witness"] = self.anchor_witness
                     check_kwargs["witness_secret_hex"] = (
                         self.anchor_witness_secret_hex)
+                if self.anchor_signer_secrets is not None:
+                    # Experiment 038: the lineage rides along
+                    # like the signer pair: a rotated candidate
+                    # is judged segment by segment.
+                    check_kwargs["signer_secrets"] = (
+                        self.anchor_signer_secrets)
                 check = anchor_mod.check_registry_against_anchor(
                     self.snapshot_path, candidate_anchor_path,
                     **check_kwargs)
@@ -2631,6 +2755,7 @@ class NetworkNode:
                     anchor_secret_hex=self.anchor_secret_hex,
                     anchor_witness=self.anchor_witness,
                     anchor_witness_secret_hex=self.anchor_witness_secret_hex,
+                    anchor_signer_secrets=self.anchor_signer_secrets,
                 )
             except Exception as exc:
                 report = _report("delivery_refused",
@@ -2933,13 +3058,54 @@ class NetworkNode:
                 )
 
             # Succession, judged anchor to anchor (case 20).
+            # Experiment 038 (sync-mesh case 26): with a mesh
+            # lineage configured and rotations in play, the
+            # registry chain's two rotation succession rules
+            # precede case 11's - a retired signer's delivery
+            # is refused as "anchor_signer_retired", and a
+            # delivery whose rotations extend the current
+            # anchor's by whole records chaining from the
+            # current signer to the delivered signer is a
+            # legitimate rotation succession, judged in the
+            # signature step below.
+            delivered_rots = [dict(r) for r in delivered.rotations]
+            current_rots = [dict(r) for r in current.rotations]
+            if (self.mesh_anchor_signer_secrets is not None
+                    and current_rots
+                    and delivered.signer is not None
+                    and delivered.signer != current.signer):
+                members = (
+                    {e.get("signer") for e in current.history}
+                    | {r.get("from_signer") for r in current_rots}
+                    | {r.get("to_signer") for r in current_rots})
+                successors = {r.get("to_signer")
+                              for r in delivered_rots}
+                if (delivered.signer in members
+                        and delivered.signer not in successors):
+                    _audit("anchor_signer_retired")
+                    report = _report("delivery_refused",
+                                     "anchor_signer_retired",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
             if (current.signer is not None
                     and delivered.signer != current.signer):
-                _audit("different_signer")
-                report = _report("delivery_refused", "different_signer",
-                                 current, delivered)
-                self.last_mesh_anchor_delivery = report
-                return report
+                rotation_succession = (
+                    self.mesh_anchor_signer_secrets is not None
+                    and len(delivered_rots) > len(current_rots)
+                    and delivered_rots[:len(current_rots)]
+                    == current_rots
+                    and delivered_rots[len(current_rots)].get(
+                        "from_signer") == current.signer
+                    and delivered.signer
+                    == delivered_rots[-1].get("to_signer"))
+                if not rotation_succession:
+                    _audit("different_signer")
+                    report = _report("delivery_refused",
+                                     "different_signer",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
 
             # The backward fence (case 20), both shapes:
             # (i) an earlier version of this very anchor file;
@@ -2967,8 +3133,31 @@ class NetworkNode:
                 return report
 
             # Signature and history (case 20), before any
-            # head judgement.
-            if self.mesh_anchor_signer is not None:
+            # head judgement. Experiment 038: with a mesh
+            # lineage configured and rotations carried, the
+            # rotation judgement runs first under its own
+            # names and the signature judgement then runs
+            # segment by segment, as on the registry chain.
+            if (self.mesh_anchor_signer_secrets is not None
+                    and delivered.rotations):
+                status = mesh_mod.rotation_refusal(
+                    delivered, self.mesh_anchor_signer_secrets,
+                    root_signer=self.mesh_anchor_signer)
+                if status is not None:
+                    report = _report("delivery_refused", status,
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
+                if not mesh_mod._signature_verifies(
+                        delivered, self.mesh_anchor_signer,
+                        self.mesh_anchor_secret_hex,
+                        signer_secrets=self.mesh_anchor_signer_secrets):
+                    report = _report("delivery_refused",
+                                     "anchor_signature_invalid",
+                                     current, delivered)
+                    self.last_mesh_anchor_delivery = report
+                    return report
+            elif self.mesh_anchor_signer is not None:
                 if not mesh_mod._signature_verifies(
                         delivered, self.mesh_anchor_signer,
                         self.mesh_anchor_secret_hex):
@@ -3460,6 +3649,16 @@ def make_handler(node: NetworkNode):
                         # anchor (operator configuration only; a
                         # delivered anchor cannot change it).
                         "anchor_witness_configured": node.anchor_witness is not None,
+                        # Experiment 038: whether a signer
+                        # lineage is configured for this
+                        # process's registry anchor (operator
+                        # configuration only; the secrets
+                        # themselves are never reported).
+                        "anchor_signer_secrets_configured": node.anchor_signer_secrets is not None,
+                        # Experiment 038: the mesh half's
+                        # counterpart, beside the mesh anchor
+                        # fields below.
+                        "mesh_anchor_signer_secrets_configured": node.mesh_anchor_signer_secrets is not None,
                         # Experiment 026: the mesh side's anchor
                         # standing, beside the registry half's
                         # fields above - whether a mesh anchor
@@ -4156,6 +4355,22 @@ def main(argv: list[str] | None = None) -> int:
                              "startup; requires --anchor-witness. A "
                              "file, not a value argument, so the secret "
                              "does not ride in the process command line")
+    parser.add_argument("--anchor-signer-secrets-file", default=None,
+                        help="JSON file mapping signer identity to "
+                             "enrollment secret (hex) for the anchor "
+                             "signer's whole lineage (experiment "
+                             "038); requires --anchor-signer, which "
+                             "then names the lineage's root. With "
+                             "it, rotated anchors are judged "
+                             "segment by segment and a retired "
+                             "signer's anchors are refused as "
+                             "anchor_signer_retired. Read once at "
+                             "startup; a file, not a value argument, "
+                             "so no secret rides in the process "
+                             "command line. A file that is not a "
+                             "JSON object of identity to secret "
+                             "refuses the start as "
+                             "anchor_signer_secrets_unreadable")
     parser.add_argument("--mesh-anchor", default=None,
                         help="path to an experiment 012 mesh anchor for "
                              "this process's sync chain (experiment 026); "
@@ -4195,6 +4410,18 @@ def main(argv: list[str] | None = None) -> int:
                              "A file, not a value argument, so the "
                              "secret does not ride in the process "
                              "command line")
+    parser.add_argument("--mesh-anchor-signer-secrets-file",
+                        default=None,
+                        help="JSON file mapping signer identity to "
+                             "enrollment secret (hex) for the mesh "
+                             "anchor signer's whole lineage "
+                             "(experiment 038); requires "
+                             "--mesh-anchor-signer, which then names "
+                             "the lineage's root. The mesh half of "
+                             "--anchor-signer-secrets-file, under "
+                             "the same rules; a malformed file "
+                             "refuses the start as "
+                             "mesh_anchor_signer_secrets_unreadable")
     parser.add_argument("--mesh-state", default=None,
                         help="path to a file holding this process's "
                              "persisted mesh state (experiment 033); "
@@ -4302,6 +4529,31 @@ def main(argv: list[str] | None = None) -> int:
         anchor_witness_secret_hex = Path(
             args.anchor_witness_secret_file).read_text(encoding="utf-8").strip()
 
+    # Experiment 038: the anchor signer's lineage secrets are
+    # parsed and validated here, before the process serves
+    # anything; a malformed file refuses the start naming
+    # anchor_signer_secrets_unreadable, in the refused-start
+    # family of peers_unreadable / crl_unreadable.
+    anchor_signer_secrets = None
+    if args.anchor_signer_secrets_file:
+        if not args.anchor_signer:
+            parser.error("--anchor-signer-secrets-file requires "
+                         "--anchor-signer (the lineage's root "
+                         "signer)")
+        try:
+            raw_secrets = json.loads(Path(
+                args.anchor_signer_secrets_file
+            ).read_text(encoding="utf-8"))
+            if not isinstance(raw_secrets, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str)
+                    for k, v in raw_secrets.items()):
+                raise ValueError(
+                    "not a JSON object of identity to secret")
+            anchor_signer_secrets = raw_secrets
+        except (OSError, ValueError) as exc:
+            parser.error(
+                f"anchor_signer_secrets_unreadable: {exc}")
+
     mesh_anchor_identity = (args.mesh_anchor_signer,
                             args.mesh_anchor_secret_file)
     if any(mesh_anchor_identity) and not all(mesh_anchor_identity):
@@ -4330,6 +4582,29 @@ def main(argv: list[str] | None = None) -> int:
         mesh_anchor_witness_secret_hex = Path(
             args.mesh_anchor_witness_secret_file
         ).read_text(encoding="utf-8").strip()
+
+    # Experiment 038: the mesh anchor signer's lineage
+    # secrets, parsed and validated exactly as the registry
+    # half's are above.
+    mesh_anchor_signer_secrets = None
+    if args.mesh_anchor_signer_secrets_file:
+        if not args.mesh_anchor_signer:
+            parser.error("--mesh-anchor-signer-secrets-file "
+                         "requires --mesh-anchor-signer (the "
+                         "lineage's root signer)")
+        try:
+            raw_mesh_secrets = json.loads(Path(
+                args.mesh_anchor_signer_secrets_file
+            ).read_text(encoding="utf-8"))
+            if not isinstance(raw_mesh_secrets, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str)
+                    for k, v in raw_mesh_secrets.items()):
+                raise ValueError(
+                    "not a JSON object of identity to secret")
+            mesh_anchor_signer_secrets = raw_mesh_secrets
+        except (OSError, ValueError) as exc:
+            parser.error(
+                f"mesh_anchor_signer_secrets_unreadable: {exc}")
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
@@ -4395,11 +4670,13 @@ def main(argv: list[str] | None = None) -> int:
         anchor_secret_hex=anchor_secret_hex,
         anchor_witness=args.anchor_witness,
         anchor_witness_secret_hex=anchor_witness_secret_hex,
+        anchor_signer_secrets=anchor_signer_secrets,
         mesh_anchor_path=args.mesh_anchor,
         mesh_anchor_signer=args.mesh_anchor_signer,
         mesh_anchor_secret_hex=mesh_anchor_secret_hex,
         mesh_anchor_witness=args.mesh_anchor_witness,
         mesh_anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
+        mesh_anchor_signer_secrets=mesh_anchor_signer_secrets,
         mesh_state_path=args.mesh_state,
         peers=peer_list,
         auto_cycle_interval=args.auto_cycle_interval,
