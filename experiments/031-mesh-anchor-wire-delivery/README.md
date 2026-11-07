@@ -276,6 +276,15 @@ exactly as it judged everything before it.
   half's sender is the same shape of remaining work, not
   built here). The sending end of this surface is a
   client.
+  (Superseded in part by experiment 032: the mesh half's
+  sender is now built - `POST /push-mesh-anchor` under
+  sync-mesh case 21 sends the anchor object a server's
+  own mesh anchor file holds to a peer's surface built
+  here, judged by this experiment's judgement unmodified,
+  with `last_mesh_anchor_push` on the sender's /health.
+  What stands of this bullet: the push is still driven by
+  a client call on the sender; nothing solicits,
+  schedules, or retries one.)
 - No pairing, by the case's stated decision: the anchor
   is judged against the state the server holds, never
   against entries in the same call. A delivery for a
@@ -331,7 +340,10 @@ surface. Opportunity Stack entry: both anchors now travel
 to a running server; the wire lifecycle's remaining named
 gaps are the mesh anchor's server-driven push and
 unattended drivers for surfaces that are all still
-driven. What would differ next time: when a test fails on
+driven. (The mesh anchor's server-driven push has since
+landed as experiment 032's `POST /push-mesh-anchor` under
+sync-mesh case 21; unattended drivers remain open.) What
+would differ next time: when a test fails on
 first run, check whether the scenario the test BUILT is
 the scenario the case describes before touching the
 implementation - here the one failure was the test
@@ -344,7 +356,12 @@ The mesh anchor's server-driven push (a `POST
 /push-mesh-anchor` in case 19's shape, sending this
 process's own mesh anchor to a peer's surface built
 here), and unattended drivers for the surfaces that are
-all still driven. The build order otherwise continues to
+all still driven. (The push named first here has since
+landed as experiment 032 under sync-mesh case 21, in
+case 19's shape exactly as named: `POST
+/push-mesh-anchor`, the sender's own mesh anchor file's
+object, this experiment's receiving surface unmodified.)
+The build order otherwise continues to
 the items the earlier experiments recorded: real
 multi-machine deployment, certificate revocation and
 lifecycle, node discovery beyond set addresses, the
