@@ -183,7 +183,13 @@ no performance number is claimed for the binding check itself.
   else's node id passes binding completely - binding ties a
   claim to an issuance, it does not make the issuance honest.
 - No certificate lifecycle: no revocation (a compromised
-  certificate binds perfectly until expiry), no rotation, no
+  certificate binds perfectly until expiry) [superseded in
+  part by experiment 034: a CA-issued CRL selected by
+  --tls-crl now refuses a revoked certificate at the
+  handshake in both directions, before any endpoint runs,
+  so a revoked certificate no longer binds at all against a
+  CRL-enforcing server - rotation, live CRL reload, and
+  expiry handling remain unbuilt], no rotation, no
   expiry handling beyond the throwaway certificates' 3-day
   validity, and no protection of key files at rest.
 - The initiating-side check judges the peer once, at sync start,
@@ -239,9 +245,10 @@ protected networked processes. The honest distance to
 utilization is unchanged in kind and shorter by that item:
 deliberate-removal notification (availability case 3, blocked on
 Max's answers in experiment 011), identity proofing and a
-certificate lifecycle (issuance governance, revocation,
-rotation - binding without them is stated above for exactly
-what it is), anchor consultation and liveness wired into the
+certificate lifecycle (issuance governance, revocation
+[landed at prototype scale in experiment 034 as
+handshake-enforced CRL checking], rotation - binding without
+them is stated above for exactly what it is), anchor consultation and liveness wired into the
 networked server processes, a witnessed or signed anchor for
 production (plus a rule for who may re-anchor), discovery and
 automatic sync, persistence and restart recovery, production
