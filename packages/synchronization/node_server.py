@@ -314,7 +314,15 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   rewrite: anchor_mismatch; a different identity's:
   different_signer). The fence a blessed rewrite meets is
   the custody of the signer's secret, not the wire - as it
-  already was for an anchor placed by hand.
+  already was for an anchor placed by hand. (Superseded in
+  part by experiment 029: started with --anchor-witness
+  plus --anchor-witness-secret-file, the process REQUIRES
+  the anchor to be countersigned by that second enrolled
+  identity: the same finding pair is then refused as
+  anchor_witness_invalid unless the witness countersigned
+  it, the wire delivery judgement included, in sync-mesh
+  case 18's re-run of this finding. The fence moves from
+  one secret's custody to two; the model stays symmetric.)
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -575,9 +583,13 @@ class NetworkNode:
         anchor_path: str | Path | None = None,
         anchor_signer: str | None = None,
         anchor_secret_hex: str | None = None,
+        anchor_witness: str | None = None,
+        anchor_witness_secret_hex: str | None = None,
         mesh_anchor_path: str | Path | None = None,
         mesh_anchor_signer: str | None = None,
         mesh_anchor_secret_hex: str | None = None,
+        mesh_anchor_witness: str | None = None,
+        mesh_anchor_witness_secret_hex: str | None = None,
     ):
         self.node_id = node_id
         # Experiment 017: when True (and the process runs over
@@ -607,6 +619,12 @@ class NetworkNode:
                 self.mesh_anchor_path,
                 anchor_signer=mesh_anchor_signer,
                 anchor_secret_hex=mesh_anchor_secret_hex,
+                # Experiment 029: the mesh anchor's witness pair,
+                # passed straight through like the signer pair;
+                # both None means no countersignature is required
+                # of the mesh anchor.
+                anchor_witness=mesh_anchor_witness,
+                anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
             )
         else:
             self.sync_node = SyncNode(node_id)
@@ -625,6 +643,14 @@ class NetworkNode:
         # (the default) is experiment 018's head-only consultation.
         self.anchor_signer = anchor_signer
         self.anchor_secret_hex = anchor_secret_hex
+        # Experiment 029: the witness identity for the anchor,
+        # passed straight to the PolicyNode alongside the signer
+        # pair, in the same opt-in style. None (the default) is
+        # experiment 019's judgement: no countersignature is
+        # required. Operator configuration only - no delivery
+        # method reads or writes these attributes.
+        self.anchor_witness = anchor_witness
+        self.anchor_witness_secret_hex = anchor_witness_secret_hex
         self.policy_node: PolicyNode | None = None
         if self.snapshot_path is not None:
             # PolicyNode construction verifies the snapshot hash
@@ -641,6 +667,8 @@ class NetworkNode:
                 anchor_path=self.anchor_path,
                 anchor_signer=self.anchor_signer,
                 anchor_secret_hex=self.anchor_secret_hex,
+                anchor_witness=self.anchor_witness,
+                anchor_witness_secret_hex=self.anchor_witness_secret_hex,
             )
         # Experiment 024: the presented facts of the snapshot this
         # process's PolicyNode last loaded (at startup, the
@@ -970,6 +998,8 @@ class NetworkNode:
                     anchor_path=self.anchor_path,
                     anchor_signer=self.anchor_signer,
                     anchor_secret_hex=self.anchor_secret_hex,
+                    anchor_witness=self.anchor_witness,
+                    anchor_witness_secret_hex=self.anchor_witness_secret_hex,
                 )
             except Exception as exc:
                 report = _report("delivery_refused",
@@ -1072,6 +1102,20 @@ class NetworkNode:
           anchor's kept history must still verify as a chain
           (the part of the history verification that needs no
           secret); an unsigned one is judged by its head.
+        - Witness (experiment 029, sync-mesh case 18): with a
+          witness identity configured on this process, the
+          delivered anchor's countersignature must verify for
+          that witness, judged in the same step right after the
+          signature's, or the refusal is
+          "anchor_witness_invalid" - before pairing, as the
+          signature's refusal is. The pairing consultations
+          below run with the same witness configuration, so a
+          pair that stands here stands there. The witness is
+          operator configuration (constructor / CLI flags):
+          no field of a delivery can install or change it, and
+          a delivered anchor's witness field is data to be
+          verified against the configuration, never adopted
+          from it.
         - Pairing. Anchor alone: experiment 012's check of the
           server's snapshot file against the candidate anchor
           must be ok - the anchor pairs with the record this
@@ -1235,7 +1279,15 @@ class NetworkNode:
 
             def _signature_reason() -> str | None:
                 """Experiment 019's verification of the delivered
-                anchor, before any head judgement (case 17)."""
+                anchor, before any head judgement (case 17) - and,
+                with a witness configured, experiment 029's
+                countersignature judgement after it: an anchor the
+                configured witness did not countersign is refused
+                as "anchor_witness_invalid" here, so experiment
+                028's finding pair - a rewritten record with an
+                honestly extended anchor signed by the current
+                signer - is refused at a witness-configured
+                process unless the witness countersigned it."""
                 if self.anchor_signer is not None:
                     if not anchor_mod._signature_verifies(
                             delivered, self.anchor_signer,
@@ -1246,6 +1298,11 @@ class NetworkNode:
                             candidate_anchor_path,
                             signer=delivered.signer):
                         return "anchor_signature_invalid"
+                if self.anchor_witness is not None:
+                    if not anchor_mod._witness_verifies(
+                            delivered, self.anchor_witness,
+                            self.anchor_witness_secret_hex):
+                        return "anchor_witness_invalid"
                 return None
 
             if not judge_pair:
@@ -1266,15 +1323,23 @@ class NetworkNode:
                 # Pairing: experiment 012's check of the snapshot
                 # file this process stands on against the
                 # candidate anchor - the anchor must pair with
-                # the record already held.
+                # the record already held. The process's signing
+                # and witness identities ride along when
+                # configured (experiments 019/029): a witness
+                # failure names itself anchor_witness_invalid in
+                # the check's status and passes through under
+                # that name.
+                check_kwargs = {}
                 if self.anchor_signer is not None:
-                    check = anchor_mod.check_registry_against_anchor(
-                        self.snapshot_path, candidate_anchor_path,
-                        signer=self.anchor_signer,
-                        secret_hex=self.anchor_secret_hex)
-                else:
-                    check = anchor_mod.check_registry_against_anchor(
-                        self.snapshot_path, candidate_anchor_path)
+                    check_kwargs["signer"] = self.anchor_signer
+                    check_kwargs["secret_hex"] = self.anchor_secret_hex
+                if self.anchor_witness is not None:
+                    check_kwargs["witness"] = self.anchor_witness
+                    check_kwargs["witness_secret_hex"] = (
+                        self.anchor_witness_secret_hex)
+                check = anchor_mod.check_registry_against_anchor(
+                    self.snapshot_path, candidate_anchor_path,
+                    **check_kwargs)
                 if not check.ok:
                     reason = ("anchor_unpaired"
                               if check.status == "anchor_mismatch"
@@ -1316,6 +1381,8 @@ class NetworkNode:
                     anchor_path=candidate_anchor_path,
                     anchor_signer=self.anchor_signer,
                     anchor_secret_hex=self.anchor_secret_hex,
+                    anchor_witness=self.anchor_witness,
+                    anchor_witness_secret_hex=self.anchor_witness_secret_hex,
                 )
             except Exception as exc:
                 report = _report("delivery_refused",
@@ -1685,6 +1752,11 @@ def make_handler(node: NetworkNode):
                         "policy_configured": node.policy_node is not None,
                         "anchor_configured": node.anchor_path is not None,
                         "anchor_status": node.anchor_status,
+                        # Experiment 029: whether a witness is
+                        # configured for this process's registry
+                        # anchor (operator configuration only; a
+                        # delivered anchor cannot change it).
+                        "anchor_witness_configured": node.anchor_witness is not None,
                         # Experiment 026: the mesh side's anchor
                         # standing, beside the registry half's
                         # fields above - whether a mesh anchor
@@ -2092,6 +2164,21 @@ def main(argv: list[str] | None = None) -> int:
                              "requires --anchor-signer. A file, not a "
                              "value argument, so the secret does not ride "
                              "in the process command line")
+    parser.add_argument("--anchor-witness", default=None,
+                        help="witness identity for a witnessed anchor "
+                             "(experiment 029); requires --anchor and "
+                             "--anchor-witness-secret-file. With it, the "
+                             "PolicyNode also requires the anchor's "
+                             "witness countersignature at startup and "
+                             "the process refuses to start on "
+                             "anchor_witness_invalid; anchor deliveries "
+                             "are judged against the same witness")
+    parser.add_argument("--anchor-witness-secret-file", default=None,
+                        help="file holding the anchor witness's "
+                             "enrollment secret (hex), read once at "
+                             "startup; requires --anchor-witness. A "
+                             "file, not a value argument, so the secret "
+                             "does not ride in the process command line")
     parser.add_argument("--mesh-anchor", default=None,
                         help="path to an experiment 012 mesh anchor for "
                              "this process's sync chain (experiment 026); "
@@ -2113,6 +2200,21 @@ def main(argv: list[str] | None = None) -> int:
                         help="file holding the mesh anchor signer's "
                              "enrollment secret (hex), read once at "
                              "startup; requires --mesh-anchor-signer. "
+                             "A file, not a value argument, so the "
+                             "secret does not ride in the process "
+                             "command line")
+    parser.add_argument("--mesh-anchor-witness", default=None,
+                        help="witness identity for a witnessed mesh "
+                             "anchor (experiment 029); requires "
+                             "--mesh-anchor and "
+                             "--mesh-anchor-witness-secret-file. With "
+                             "it, every mesh consultation also requires "
+                             "the mesh anchor's witness countersignature, "
+                             "refusing as anchor_witness_invalid")
+    parser.add_argument("--mesh-anchor-witness-secret-file", default=None,
+                        help="file holding the mesh anchor witness's "
+                             "enrollment secret (hex), read once at "
+                             "startup; requires --mesh-anchor-witness. "
                              "A file, not a value argument, so the "
                              "secret does not ride in the process "
                              "command line")
@@ -2145,6 +2247,19 @@ def main(argv: list[str] | None = None) -> int:
         anchor_secret_hex = Path(
             args.anchor_secret_file).read_text(encoding="utf-8").strip()
 
+    anchor_witness_identity = (args.anchor_witness,
+                               args.anchor_witness_secret_file)
+    if any(anchor_witness_identity) and not all(anchor_witness_identity):
+        parser.error("--anchor-witness and --anchor-witness-secret-file "
+                     "must be given together")
+    if args.anchor_witness and not args.anchor:
+        parser.error("--anchor-witness requires --anchor (the witness "
+                     "identity is for that anchor)")
+    anchor_witness_secret_hex = None
+    if args.anchor_witness_secret_file:
+        anchor_witness_secret_hex = Path(
+            args.anchor_witness_secret_file).read_text(encoding="utf-8").strip()
+
     mesh_anchor_identity = (args.mesh_anchor_signer,
                             args.mesh_anchor_secret_file)
     if any(mesh_anchor_identity) and not all(mesh_anchor_identity):
@@ -2157,6 +2272,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.mesh_anchor_secret_file:
         mesh_anchor_secret_hex = Path(
             args.mesh_anchor_secret_file).read_text(encoding="utf-8").strip()
+
+    mesh_anchor_witness_identity = (args.mesh_anchor_witness,
+                                    args.mesh_anchor_witness_secret_file)
+    if (any(mesh_anchor_witness_identity)
+            and not all(mesh_anchor_witness_identity)):
+        parser.error("--mesh-anchor-witness and "
+                     "--mesh-anchor-witness-secret-file must be given "
+                     "together")
+    if args.mesh_anchor_witness and not args.mesh_anchor:
+        parser.error("--mesh-anchor-witness requires --mesh-anchor (the "
+                     "witness identity is for that anchor)")
+    mesh_anchor_witness_secret_hex = None
+    if args.mesh_anchor_witness_secret_file:
+        mesh_anchor_witness_secret_hex = Path(
+            args.mesh_anchor_witness_secret_file
+        ).read_text(encoding="utf-8").strip()
 
     tls_values = (args.tls_cert, args.tls_key, args.tls_ca)
     if any(tls_values) and not all(tls_values):
@@ -2194,9 +2325,13 @@ def main(argv: list[str] | None = None) -> int:
         anchor_path=args.anchor,
         anchor_signer=args.anchor_signer,
         anchor_secret_hex=anchor_secret_hex,
+        anchor_witness=args.anchor_witness,
+        anchor_witness_secret_hex=anchor_witness_secret_hex,
         mesh_anchor_path=args.mesh_anchor,
         mesh_anchor_signer=args.mesh_anchor_signer,
         mesh_anchor_secret_hex=mesh_anchor_secret_hex,
+        mesh_anchor_witness=args.mesh_anchor_witness,
+        mesh_anchor_witness_secret_hex=mesh_anchor_witness_secret_hex,
     )
     tls_context = None
     if all(tls_values):
