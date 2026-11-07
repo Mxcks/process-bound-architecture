@@ -23,7 +23,8 @@ GET  /health     -> {node_id, ok, entries, state_hash,
                      snapshot_entries, last_snapshot_check,
                      last_snapshot_delivery, last_snapshot_push,
                      last_anchor_delivery, last_anchor_push,
-                     last_mesh_anchor_delivery}
+                     last_mesh_anchor_delivery,
+                     last_mesh_anchor_push}
 POST /mutate     -> {key, value}: mutate this process's own
                     SyncNode; returns the entry created and the new
                     state hash. Mutations happen inside the server
@@ -240,6 +241,30 @@ POST /deliver-mesh-anchor
                     mesh_anchor_status. The MESH anchor only:
                     the registry anchor surfaces above are
                     untouched by it.
+POST /push-mesh-anchor
+                 -> {peer: "http://127.0.0.1:PORT"}: this process
+                    pushes its own MESH anchor to a peer process
+                    (experiment 032): it sends the anchor object
+                    its own mesh anchor file holds to the peer's
+                    POST /deliver-mesh-anchor (experiment 031),
+                    and the peer judges it under exactly
+                    experiment 031's rules - the receiving side
+                    is experiment 031's surface, unmodified. The
+                    response is the push's report: on 200, the
+                    peer's mesh anchor delivery status as
+                    "status" and the peer's mesh anchor delivery
+                    report itself under "delivery" (on a process
+                    with no mesh anchor configured, status
+                    "no_mesh_anchor" and "delivery" null, and no
+                    contact with the peer is made); a peer that
+                    cannot be reached, a peer whose transport
+                    refuses this process before the delivery
+                    endpoint runs, or this process's own mesh
+                    anchor unreadable on its own side is
+                    reported on 502 in /sync's refusal shape.
+                    /health carries the last mesh anchor push's
+                    outcome as last_mesh_anchor_push, beside
+                    last_mesh_anchor_delivery.
 GET  /snapshot   -> the raw bytes of this node's registry snapshot
                     file (JSON-lines, exactly the Gate 1 log format).
                     A receiver writes the bytes to its own file and
@@ -473,6 +498,30 @@ VERIFICATION IS NEVER BYPASSED ON THIS TRANSPORT
   hand-placed successor meets the same consultation, and
   the fence is the custody of the signer's secret, and at
   a witness-configured process the witness's too.
+- A MESH anchor this process pushes to a peer (POST
+  /push-mesh-anchor, experiment 032) is judged by the
+  PEER's experiment 031 judgement, not by the sender: the
+  sender contributes only the anchor object its own mesh
+  anchor file holds (the file its AnchoredSyncNode itself
+  consults on every mesh receive, so the file and the
+  standing agree by construction) and reports the peer's
+  mesh anchor delivery report, refusals included, as the
+  push's result - it re-derives no verdict of its own.
+  With identity binding on, the push first runs experiment
+  017's initiating-side check on the peer, exactly as
+  /push-snapshot does; a peer whose transport refuses the
+  SENDER before the delivery endpoint runs (experiment
+  017's accepting-side identity_mismatch, HTTP 403 naming
+  claimed and certified ids) is reported by the push on
+  502 in /sync's refusal shape. A sender with no mesh
+  anchor configured reports no_mesh_anchor on 200 and
+  contacts no peer; a sender whose own mesh anchor file
+  cannot be read or parsed at push time reports its own
+  anchor unreadable on 502 and contacts no peer. The push
+  performs no lifecycle step for the peer: succession,
+  freshness, and any witness countersignature (experiment
+  029) are the sender's completed facts, carried inside
+  the anchor object and judged at the peer.
 
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
@@ -528,7 +577,9 @@ HONEST LIMITS (prototype, NOT production)
   alone or paired with the record it blesses. Since
   experiment 030 a server can also push its own record and
   anchor together to a peer, when a client drives
-  POST /push-anchor on it.
+  POST /push-anchor on it. Since experiment 032 a server
+  can also push its own MESH anchor to a peer, alone, when
+  a client drives POST /push-mesh-anchor on it.
   No timer, scheduler,
   or thread inside the server fires any of these, nothing
   solicits a delivery, there is no broadcast or gossip of the
@@ -587,7 +638,15 @@ HONEST LIMITS (prototype, NOT production)
   a server still cannot SEND its mesh anchor onward to a
   peer, and nothing solicits or schedules a mesh anchor
   delivery: it is driven by the pushing client, exactly
-  as every delivery surface here is.)
+  as every delivery surface here is. Superseded in part
+  by experiment 032: a server CAN now send its mesh
+  anchor onward to a peer - POST /push-mesh-anchor
+  carries the anchor object its own mesh anchor file
+  holds to the peer's POST /deliver-mesh-anchor, judged
+  there by experiment 031's judgement unmodified - but
+  the push is still driven by a client call on the
+  sender, and nothing solicits, schedules, or retries
+  one.)
 """
 
 from __future__ import annotations
@@ -912,6 +971,12 @@ class NetworkNode:
         # delivery's report, in the same field style as the
         # last anchor delivery's.
         self.last_mesh_anchor_delivery: dict | None = None
+        # Experiment 032: the most recent MESH anchor push
+        # this process initiated toward a peer (POST
+        # /push-mesh-anchor) - the push's response body, a
+        # 200 report or a 502 refusal alike - beside the
+        # last mesh anchor delivery's.
+        self.last_mesh_anchor_push: dict | None = None
         self.serve_policies = bool(serve_policies)
         self.lock = threading.Lock()
 
@@ -1822,7 +1887,10 @@ class NetworkNode:
         process solicits one, and no server pushes its own
         mesh anchor onward in this experiment. Callers hold
         self.lock, as for every other node access from the
-        handler.
+        handler. (Superseded in part by experiment 032: a
+        server can now push its own mesh anchor onward -
+        POST /push-mesh-anchor, sync-mesh case 21 - judged
+        at the peer by this method, unmodified.)
         """
         mesh_mod = _mesh_anchor_module()
 
@@ -2276,6 +2344,30 @@ def push_anchor(base_url: str, peer_url: str) -> tuple[int, dict]:
     return post_json(base_url, "/push-anchor", {"peer": peer_url})
 
 
+def push_mesh_anchor(base_url: str, peer_url: str) -> tuple[int, dict]:
+    """Ask the node at base_url to push its own MESH anchor
+    to the peer process at peer_url (server-to-server,
+    experiment 032): the pushing server sends the anchor
+    object its own mesh anchor file holds to the peer's
+    /deliver-mesh-anchor (experiment 031), which judges it
+    against the mesh state the peer holds under exactly
+    case 20's rules - the receiving side is experiment
+    031's surface, unmodified. Returns the (status, body)
+    pair, like push_snapshot and push_anchor, because a
+    push's refusal can ride a non-200 status and the
+    caller must see its body. On 200 the body is the
+    push's report: "status" equal to the peer's mesh
+    anchor delivery status ("delivered", "delivery_refused",
+    "no_change", or "no_mesh_anchor" when the pushing
+    server has no mesh anchor configured) and the peer's
+    mesh anchor delivery report under "delivery". On 502
+    the body names the refusal - "identity_mismatch" with
+    the claimed and certified ids over a binding transport,
+    in /sync's refusal shape, or the sender's own mesh
+    anchor unreadable on its own side."""
+    return post_json(base_url, "/push-mesh-anchor", {"peer": peer_url})
+
+
 def fetch_policy(base_url: str, policy_hash: str) -> tuple[int, dict]:
     """Fetch a served policy. Returns (status, body); on 200 the
     body carries the code as base64 in "code_base64"."""
@@ -2426,6 +2518,13 @@ def make_handler(node: NetworkNode):
                         # first mesh anchor delivery arrives),
                         # beside the mesh standing above.
                         "last_mesh_anchor_delivery": node.last_mesh_anchor_delivery,
+                        # Experiment 032: the last MESH anchor
+                        # push this process initiated toward a
+                        # peer (its response body; None until
+                        # the first mesh anchor push is
+                        # driven), beside the last mesh anchor
+                        # delivery's.
+                        "last_mesh_anchor_push": node.last_mesh_anchor_push,
                     })
                 return
             if self.path == "/state":
@@ -2590,6 +2689,19 @@ def make_handler(node: NetworkNode):
                         "error": "push-anchor needs a peer base URL"})
                     return
                 self._push_anchor_to_peer(peer)
+                return
+            if self.path == "/push-mesh-anchor":
+                # Experiment 032: this process pushes its own
+                # MESH anchor to a peer process (see
+                # _push_mesh_anchor_to_peer). The payload is
+                # the peer's base URL, exactly /push-anchor's
+                # shape.
+                peer = payload.get("peer")
+                if not isinstance(peer, str) or not peer:
+                    self._send_json(400, {
+                        "error": "push-mesh-anchor needs a peer base URL"})
+                    return
+                self._push_mesh_anchor_to_peer(peer)
                 return
             if self.path == "/deliver-anchor":
                 # Experiment 028: one registry anchor delivery
@@ -2869,6 +2981,141 @@ def make_handler(node: NetworkNode):
             # pair as one thing, and its verdict is reported,
             # not re-derived here.
             self._send_json(200, self._record_anchor_push({
+                "node_id": node.node_id,
+                "peer": peer,
+                "status": delivery.get("status"),
+                "delivery": delivery,
+            }))
+
+        def _record_mesh_anchor_push(self, body: dict) -> dict:
+            """Record a MESH anchor push's outcome as this
+            process's last mesh anchor push (experiment 032)
+            and return the body for sending: /health carries
+            the response body of the last mesh anchor push
+            driven on this process, a 200 report or a 502
+            refusal alike, beside the last mesh anchor
+            delivery."""
+            with node.lock:
+                node.last_mesh_anchor_push = body
+            return body
+
+        def _push_mesh_anchor_to_peer(self, peer: str) -> None:
+            # Initiating-side identity check (experiment 017),
+            # exactly as _push_anchor_to_peer: with binding
+            # on, the peer server's certificate id is checked
+            # against the node id the peer claims in its health
+            # response BEFORE anything is pushed. A mismatch
+            # refuses the push outright; nothing moves.
+            if node.bind_identity:
+                try:
+                    verify_peer_identity(peer)
+                except protected_link.IdentityMismatch as exc:
+                    print(
+                        f"identity_mismatch refused mesh anchor push to {peer}: "
+                        f"claimed={exc.claimed} certified={exc.certified}",
+                        flush=True,
+                    )
+                    self._send_json(502, self._record_mesh_anchor_push({
+                        "error": "identity_mismatch",
+                        "claimed": exc.claimed,
+                        "certified": exc.certified,
+                        "detail": str(exc),
+                    }))
+                    return
+                except (AssertionError, urllib.error.URLError, OSError) as exc:
+                    self._send_json(502, self._record_mesh_anchor_push(
+                        {"error": f"peer unreachable: {exc}"}))
+                    return
+            # What this process stands on (case 21): the
+            # anchor object this process's own MESH anchor
+            # file holds, read from that file under the node
+            # lock. For the mesh anchor the file IS the
+            # standing, exactly as case 19 set it for the
+            # registry anchor: the process's AnchoredSyncNode
+            # consults that very file on every mesh receive,
+            # so the file and the standing agree by
+            # construction. The sender re-derives no verdict:
+            # it reads its file and sends what the file holds.
+            with node.lock:
+                anchor = None
+                anchor_error: Exception | None = None
+                if node.mesh_anchor_path is not None:
+                    try:
+                        anchor = json.loads(
+                            node.mesh_anchor_path.read_text(
+                                encoding="utf-8"))
+                        if not isinstance(anchor, dict):
+                            raise ValueError(
+                                "mesh anchor file does not hold "
+                                "an anchor object")
+                    except (OSError, ValueError) as exc:
+                        anchor = None
+                        anchor_error = exc
+            if node.mesh_anchor_path is None:
+                # No mesh anchor configured on this process:
+                # it holds no mesh anchor to push (case 20's
+                # own name for the mesh half's configuration
+                # edge), and no contact with the peer is made.
+                # The mesh push has no record-only fallback
+                # and no second form: unlike _push_anchor_to_
+                # peer, it carries the anchor alone or it does
+                # not run, because case 20's surface has no
+                # paired form for it to degrade into.
+                self._send_json(200, self._record_mesh_anchor_push({
+                    "node_id": node.node_id,
+                    "peer": peer,
+                    "status": "no_mesh_anchor",
+                    "delivery": None,
+                }))
+                return
+            if anchor_error is not None:
+                # This process's own mesh anchor cannot be
+                # read: it has nothing honest to send, and no
+                # contact with the peer is made. A sender-side
+                # refusal, reported on 502 in /sync's family
+                # rather than as a push of nothing.
+                self._send_json(502, self._record_mesh_anchor_push(
+                    {"error": f"own anchor unreadable: {anchor_error}"}))
+                return
+            # The peer judges: its /deliver-mesh-anchor
+            # (experiment 031) runs case 20's whole judgement
+            # against the mesh state IT holds - configuration,
+            # readability, no-change, succession, the backward
+            # fence, signature and kept history, the witness
+            # judgement where the peer is mesh-witness-
+            # configured, and the head judgement - before
+            # anything changes. post_json is used directly
+            # rather than the deliver_mesh_anchor helper
+            # (which asserts a 200) because a refusal can
+            # arrive as a non-200 and its body is the outcome,
+            # exactly as in _push_anchor_to_peer.
+            try:
+                status, delivery = post_json(
+                    peer, "/deliver-mesh-anchor", {"anchor": anchor})
+            except (urllib.error.URLError, OSError) as exc:
+                self._send_json(502, self._record_mesh_anchor_push(
+                    {"error": f"peer push failed: {exc}"}))
+                return
+            if status != 200:
+                # The peer refused before its mesh anchor
+                # delivery endpoint ran - over a binding
+                # transport, experiment 017's accepting-side
+                # identity_mismatch (403 naming claimed and
+                # certified ids). The refusal is the push's
+                # outcome and is reported in the same shape
+                # /sync reports its refusals.
+                body = {"error": delivery.get(
+                    "error", f"peer refused the push: HTTP {status}")}
+                for key in ("claimed", "certified", "detail"):
+                    if key in delivery:
+                        body[key] = delivery[key]
+                self._send_json(502, self._record_mesh_anchor_push(body))
+                return
+            # The peer's mesh anchor delivery report IS the
+            # push's result, refusals included: the peer
+            # judged, and its verdict is reported, not
+            # re-derived here.
+            self._send_json(200, self._record_mesh_anchor_push({
                 "node_id": node.node_id,
                 "peer": peer,
                 "status": delivery.get("status"),
