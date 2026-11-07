@@ -154,7 +154,11 @@ was modified.
   per-endpoint authorization (any credentialed peer can mutate,
   sync, and fetch from an opted-in node, exactly as any peer could
   in experiment 007 - the change is that an UNcredentialed peer
-  now cannot), no certificate revocation, no rotation or expiry
+  now cannot), no certificate revocation [superseded in part
+  by experiment 034: a CA-issued CRL over its own books,
+  selected by --tls-crl, now refuses a revoked certificate at
+  the handshake in both directions - rotation, live CRL
+  reload, and expiry handling remain unbuilt], no rotation or expiry
   handling beyond the throwaway certificates' 3-day validity, and
   no protection of the key files at rest - a process reads its key
   from a plain file path it is started with.
