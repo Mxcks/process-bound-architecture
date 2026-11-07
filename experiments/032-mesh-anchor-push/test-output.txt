@@ -1,0 +1,246 @@
+Experiment 032 - server-to-server mesh anchor push (sync-mesh case 21)
+Real run output, captured 2026-11-06. Nothing below is paraphrased:
+the pre-build baseline, the tests-first run, the new suite, the
+demo, and the full regression.
+
+======================================================================
+1. BASELINE - the pre-build full suite
+======================================================================
+
+$ python3 -m unittest discover -s packages/<pkg> -p "test_*.py"  (x4)
+=== registration ===
+Ran 25 tests in 0.067s
+OK
+=== policy-library ===
+Ran 42 tests in 1.358s
+OK
+=== validation ===
+Ran 22 tests in 1.536s
+OK
+=== synchronization (first count run, under load) ===
+Ran 114 tests in 298.689s
+FAILED (errors=1)
+
+The one error was the known port-file race in the suites'
+wait_ready helpers (experiment 030's helper has no retry
+guard), recorded verbatim:
+
+ERROR: test_paired_push_brings_peer_fully_current (test_paired_push.PlaintextPairPushTests.test_paired_push_brings_peer_fully_current)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_paired_push.py", line 391, in test_paired_push_brings_peer_fully_current
+    a, b, snap_a, snap_b = self._signed_pair("pair-a", "pair-b")
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_paired_push.py", line 337, in _signed_pair
+    a.wait_ready()
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_paired_push.py", line 174, in wait_ready
+    port = int(self.port_file.read_text(encoding="utf-8").strip())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: ''
+
+----------------------------------------------------------------------
+Ran 114 tests in 298.689s
+
+FAILED (errors=1)
+
+=== synchronization (clean re-run, nothing else running) ===
+Ran 114 tests in 272.054s
+OK
+=== EAI handoff ===
+PASS: 3 EAI vectors recompute exactly.
+=== leftover node_server processes after every baseline run ===
+0
+
+Baseline: 203/203 plus EAI PASS 3/3.
+
+======================================================================
+2. TESTS FIRST - the new suite against the UNBUILT code
+   (the push surface does not exist yet; every test errors
+    on exactly that absence)
+======================================================================
+
+$ python3 packages/synchronization/test_mesh_anchor_push.py
+
+test_mesh_anchor_push_anchor_mismatch_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_mismatch_refused) ... ERROR
+test_mesh_anchor_push_anchor_regression_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_regression_refused) ... ERROR
+test_mesh_anchor_push_brings_peer_current (__main__.MeshAnchorPushTests.test_mesh_anchor_push_brings_peer_current) ... ERROR
+test_mesh_anchor_push_different_signer_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_different_signer_refused) ... ERROR
+test_mesh_anchor_push_signature_invalid_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_signature_invalid_refused) ... ERROR
+test_push_mesh_anchor_no_mesh_anchor_configured (__main__.MeshAnchorPushTests.test_push_mesh_anchor_no_mesh_anchor_configured) ... ERROR
+test_push_mesh_anchor_own_anchor_unreadable (__main__.MeshAnchorPushTests.test_push_mesh_anchor_own_anchor_unreadable) ... ERROR
+test_false_claiming_pusher_refused_at_transport (__main__.TlsMeshAnchorPushTests.test_false_claiming_pusher_refused_at_transport) ... ERROR
+test_mesh_anchor_push_over_protected_link (__main__.TlsMeshAnchorPushTests.test_mesh_anchor_push_over_protected_link) ... ERROR
+test_mesh_anchor_push_witness_refused_then_delivered (__main__.WitnessedMeshAnchorPushTests.test_mesh_anchor_push_witness_refused_then_delivered) ... ERROR
+
+======================================================================
+ERROR: test_mesh_anchor_push_anchor_mismatch_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_mismatch_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 582, in test_mesh_anchor_push_anchor_mismatch_refused
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_mesh_anchor_push_anchor_regression_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_regression_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 490, in test_mesh_anchor_push_anchor_regression_refused
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_mesh_anchor_push_brings_peer_current (__main__.MeshAnchorPushTests.test_mesh_anchor_push_brings_peer_current)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 333, in test_mesh_anchor_push_brings_peer_current
+    self.assertIsNone(health["last_mesh_anchor_push"])
+                      ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'last_mesh_anchor_push'
+
+======================================================================
+ERROR: test_mesh_anchor_push_different_signer_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_different_signer_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 435, in test_mesh_anchor_push_different_signer_refused
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_mesh_anchor_push_signature_invalid_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_signature_invalid_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 530, in test_mesh_anchor_push_signature_invalid_refused
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_push_mesh_anchor_no_mesh_anchor_configured (__main__.MeshAnchorPushTests.test_push_mesh_anchor_no_mesh_anchor_configured)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 624, in test_push_mesh_anchor_no_mesh_anchor_configured
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_push_mesh_anchor_own_anchor_unreadable (__main__.MeshAnchorPushTests.test_push_mesh_anchor_own_anchor_unreadable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 658, in test_push_mesh_anchor_own_anchor_unreadable
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_false_claiming_pusher_refused_at_transport (__main__.TlsMeshAnchorPushTests.test_false_claiming_pusher_refused_at_transport)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 847, in test_false_claiming_pusher_refused_at_transport
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_mesh_anchor_push_over_protected_link (__main__.TlsMeshAnchorPushTests.test_mesh_anchor_push_over_protected_link)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 783, in test_mesh_anchor_push_over_protected_link
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+======================================================================
+ERROR: test_mesh_anchor_push_witness_refused_then_delivered (__main__.WitnessedMeshAnchorPushTests.test_mesh_anchor_push_witness_refused_then_delivered)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_push.py", line 710, in test_mesh_anchor_push_witness_refused_then_delivered
+    status, push = node_server.push_mesh_anchor(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'push_mesh_anchor'. Did you mean: 'push_anchor'?
+
+----------------------------------------------------------------------
+Ran 10 tests in 15.216s
+
+FAILED (errors=10)
+
+======================================================================
+3. THE NEW SUITE - after the build
+======================================================================
+
+$ python3 packages/synchronization/test_mesh_anchor_push.py -v
+
+test_mesh_anchor_push_anchor_mismatch_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_mismatch_refused) ... ok
+test_mesh_anchor_push_anchor_regression_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_anchor_regression_refused) ... ok
+test_mesh_anchor_push_brings_peer_current (__main__.MeshAnchorPushTests.test_mesh_anchor_push_brings_peer_current) ... ok
+test_mesh_anchor_push_different_signer_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_different_signer_refused) ... ok
+test_mesh_anchor_push_signature_invalid_refused (__main__.MeshAnchorPushTests.test_mesh_anchor_push_signature_invalid_refused) ... ok
+test_push_mesh_anchor_no_mesh_anchor_configured (__main__.MeshAnchorPushTests.test_push_mesh_anchor_no_mesh_anchor_configured) ... ok
+test_push_mesh_anchor_own_anchor_unreadable (__main__.MeshAnchorPushTests.test_push_mesh_anchor_own_anchor_unreadable) ... ok
+test_false_claiming_pusher_refused_at_transport (__main__.TlsMeshAnchorPushTests.test_false_claiming_pusher_refused_at_transport) ... ok
+test_mesh_anchor_push_over_protected_link (__main__.TlsMeshAnchorPushTests.test_mesh_anchor_push_over_protected_link) ... ok
+test_mesh_anchor_push_witness_refused_then_delivered (__main__.WitnessedMeshAnchorPushTests.test_mesh_anchor_push_witness_refused_then_delivered) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 116.396s
+
+OK
+MESH ANCHOR PUSH anchor_mismatch: a foreign chain's anchor in a fresh lineage, pushed by a server standing under it, refused at the peer's head judgement; the peer unchanged
+MESH ANCHOR PUSH anchor_regression: the earlier version of the lineage pushed to a peer standing on its later version refused under the backward name; the peer kept the later anchor byte-for-byte
+MESH ANCHOR PUSH setup: the mesh grew at the sender; the peer's sync toward it refused anchor_stale, the peer keeping the anchored state
+MESH ANCHOR PUSH (plaintext): ONE push from the sender delivered the advanced mesh anchor - entries 3 -> 4, history sequence 0 -> 1; the peer's anchor file is byte-for-byte the sender's
+MESH ANCHOR PUSH: the same sync then converged on the grown state; both servers anchored
+MESH ANCHOR PUSH no_change: a second push of the identical anchor rewrote nothing at the peer
+MESH ANCHOR PUSH different_signer: a push of bob's anchor to an alice-anchored peer refused at succession and audit-logged beside the peer's mesh anchor; the peer unchanged
+MESH ANCHOR PUSH anchor_signature_invalid: the peer judged the sender's tampered anchor file content and refused it before any head judgement; the peer unchanged
+MESH ANCHOR PUSH no_mesh_anchor: a sender with no mesh anchor configured reported the configuration edge on 200 and contacted no peer
+MESH ANCHOR PUSH own anchor unreadable: the sender with its mesh anchor file deleted reported the refusal on 502 and contacted no peer
+MESH ANCHOR PUSH identity_mismatch: a pusher claiming an id its certificate was not issued for refused at the binding peer's transport; the peer recorded no mesh anchor delivery
+MESH ANCHOR PUSH (mutual TLS, identity binding, signed anchor): the stale-refused sync, ONE push over HTTPS delivered, and the same sync converged over the protected link
+MESH ANCHOR PUSH anchor_witness_invalid: the sender's signer-alone advance refused at the witness-configured peer; the peer unchanged
+MESH ANCHOR PUSH witnessed: the same push delivered once the sender's anchor was countersigned by the configured witness at the sender; the peer's sync converged
+
+======================================================================
+4. DEMO - the end-to-end story, driven by ONE push
+======================================================================
+
+$ python3 packages/synchronization/demo_mesh_anchor_push.py
+
+Setup. mesh-a (pid 46080) and mesh-b (pid 46085) both run anchored under alice's signed mesh anchor over the 3-entry converged state: mesh-a mesh_anchor_status=anchored, mesh-b mesh_anchor_status=anchored; mesh-a's last_mesh_anchor_push=None
+1. The mesh grew at the sender (mesh-a); mesh-b's sync toward it is refused: divergence=True, reason=anchor_stale - mesh-b's anchor pins the older head
+2. mesh-a's mesh anchor advanced at the sender: alice re-anchored the grown head from mesh-a's own anchor file, its kept history extended by the lifecycle's one write
+3. ONE mesh anchor push from mesh-a: HTTP 200, status=delivered - the peer's delivery report: entries 3 -> 4, history sequence 0 -> 1; mesh-b's anchor file byte-for-byte the anchor mesh-a sent: True
+4. The same sync now: divergence=False; health: mesh-a last_mesh_anchor_push=delivered, mesh-b last_mesh_anchor_delivery=delivered, both mesh_anchor_status anchored: True
+5. A second identical push: HTTP 200, status=no_change - the peer already stands on the identical anchor; nothing rewritten at mesh-b
+6. FINDING (stated, as in cases 17/20): a successor mesh anchor over a rewritten chain, written from the sender's current anchor file with alice's secret, is one this push would carry and the peer's unmodified experiment 031 judgement would accept - custody of the signer's secret is the whole fence at this surface too
+   Neither server was restarted after its anchored start: mesh-a pid 46080, mesh-b pid 46085 throughout, and no hand touched mesh-b's mesh anchor file
+Demo state left in: /tmp/pba-mesh-anchor-push-demo-y3f_35g1
+
+======================================================================
+5. FULL REGRESSION - after the build
+======================================================================
+
+$ python3 -m unittest discover -s packages/<pkg> -p "test_*.py"  (x4)
+$ python3 scripts/verify-handoffs.py
+
+=== registration ===
+Ran 25 tests in 0.224s
+OK
+=== policy-library ===
+Ran 42 tests in 3.504s
+OK
+=== synchronization ===
+Ran 124 tests in 560.801s
+OK
+=== validation ===
+Ran 22 tests in 4.078s
+OK
+=== EAI handoff ===
+PASS: 3 EAI vectors recompute exactly.
+=== leftover node_server processes ===
+0
+DONE
+
