@@ -82,6 +82,28 @@ becomes two secrets' custody) and what it does not (the
 model stays symmetric; the witness binds the anchor's
 current write).
 
+SIGNER ROTATION (experiment 038, sync-mesh case 26)
+-------------------------------------------------------
+The registry anchor's rotation (registration case 12,
+stated in full in packages/registration/anchor.py) exists
+here under the same rule, in this chain's own terms: the
+rotation record's effective point carries the mesh anchor's
+STATE HASH and entry count instead of a registry chain
+head; the same two signatures (the current signer signs,
+PBA-ANCHOR-ROTATE-v1 with the sync-mesh chain name inside
+it; the successor countersigns accepting,
+PBA-ANCHOR-ROTATE-ACCEPT-v1); the same refusal names
+(anchor_signer_retired, anchor_rotation_signer_invalid,
+anchor_rotation_invalid, anchor_rotation_mismatch); the
+same judgement order (internal, rotation, signature,
+witness, heads); and the same scope decisions - the
+witness is not rotated by this mechanism, lost-secret
+recovery is not built, and a verifier the rotation never
+reaches is not rescued. Checks take the lineage
+configuration (signer_secrets, plus an optional held
+rotations argument) in the signer/witness opt-in style,
+and AnchoredSyncNode takes it as anchor_signer_secrets.
+
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
 - Same stand-in limit as the registry anchor
@@ -268,6 +290,332 @@ def countersign_mesh_anchor(
     ).hexdigest()
 
 
+# -- signer rotation records (experiment 038) ------------------------------
+#
+# The mesh half of registration anchor.py's rotation: the
+# same two-signature discipline and refusal names, with a
+# canonical encoding for this chain (domain-separated from
+# the registry rotation's by the chain name inside it), and
+# the effective point stated in this chain's terms - the
+# state hash and entry count the successor's first entry
+# anchors, instead of a registry chain head.
+
+ROTATION_FORMAT = "PBA-ANCHOR-ROTATION-v1"
+
+
+def canonical_mesh_anchor_rotation_bytes(
+    from_signer: str,
+    to_signer: str,
+    rotation_seq: int,
+    effective_anchor_seq: int,
+    effective_state_hash: str,
+    effective_entry_count: int,
+) -> bytes:
+    """Deterministic encoding of one mesh rotation
+    statement: who hands over, who accepts, which rotation
+    this is, and the point it takes effect at."""
+    return (
+        f"PBA-ANCHOR-ROTATE-v1|sync-mesh|{from_signer}|{to_signer}|"
+        f"{rotation_seq}|{effective_anchor_seq}|"
+        f"{effective_state_hash}|{effective_entry_count}"
+    ).encode("utf-8")
+
+
+def sign_mesh_anchor_rotation(
+    secret_hex: str,
+    from_signer: str,
+    to_signer: str,
+    rotation_seq: int,
+    effective_anchor_seq: int,
+    effective_state_hash: str,
+    effective_entry_count: int,
+) -> str:
+    """The current signer's signature over a mesh rotation
+    statement: HMAC-SHA256 with the current signer's Gate 1
+    enrollment secret."""
+    return hmac.new(
+        bytes.fromhex(secret_hex),
+        canonical_mesh_anchor_rotation_bytes(
+            from_signer, to_signer, rotation_seq,
+            effective_anchor_seq, effective_state_hash,
+            effective_entry_count,
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def canonical_mesh_anchor_rotation_accept_bytes(
+    to_signer: str,
+    from_signer: str,
+    rotation_seq: int,
+    effective_anchor_seq: int,
+    effective_state_hash: str,
+    effective_entry_count: int,
+    signature: str,
+) -> bytes:
+    """Deterministic encoding of the successor's acceptance
+    of a mesh rotation: the same statement, plus the
+    current signer's signature over it."""
+    return (
+        f"PBA-ANCHOR-ROTATE-ACCEPT-v1|sync-mesh|{to_signer}|"
+        f"{from_signer}|{rotation_seq}|{effective_anchor_seq}|"
+        f"{effective_state_hash}|{effective_entry_count}|{signature}"
+    ).encode("utf-8")
+
+
+def countersign_mesh_anchor_rotation(
+    secret_hex: str,
+    to_signer: str,
+    from_signer: str,
+    rotation_seq: int,
+    effective_anchor_seq: int,
+    effective_state_hash: str,
+    effective_entry_count: int,
+    signature: str,
+) -> str:
+    """The successor's countersignature over a mesh
+    rotation statement: HMAC-SHA256 with the successor's
+    enrollment secret."""
+    return hmac.new(
+        bytes.fromhex(secret_hex),
+        canonical_mesh_anchor_rotation_accept_bytes(
+            to_signer, from_signer, rotation_seq,
+            effective_anchor_seq, effective_state_hash,
+            effective_entry_count, signature,
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def make_mesh_anchor_rotation(
+    *,
+    from_signer: str,
+    from_secret_hex: str,
+    to_signer: str,
+    to_secret_hex: str,
+    rotation_seq: int,
+    effective_anchor_seq: int,
+    effective_state_hash: str,
+    effective_entry_count: int,
+) -> dict:
+    """Build a complete mesh rotation record: the current
+    signer signs the statement and the successor
+    countersigns it accepting. Both secrets are required,
+    as on the registry chain."""
+    signature = sign_mesh_anchor_rotation(
+        from_secret_hex, from_signer, to_signer, rotation_seq,
+        effective_anchor_seq, effective_state_hash,
+        effective_entry_count,
+    )
+    return {
+        "format": ROTATION_FORMAT,
+        "chain": "sync-mesh",
+        "rotation_seq": rotation_seq,
+        "from_signer": from_signer,
+        "to_signer": to_signer,
+        "effective_anchor_seq": effective_anchor_seq,
+        "effective_state_hash": effective_state_hash,
+        "effective_entry_count": effective_entry_count,
+        "signature": signature,
+        "countersignature": countersign_mesh_anchor_rotation(
+            to_secret_hex, to_signer, from_signer, rotation_seq,
+            effective_anchor_seq, effective_state_hash,
+            effective_entry_count, signature,
+        ),
+    }
+
+
+def _expected_signers(history: list[dict],
+                      rotations: list[dict]) -> list:
+    """The signer expected at each history sequence, under a
+    rotation chain already judged for its signer links. The
+    registry anchor's _expected_signers states the rule."""
+    base = history[0].get("signer") if history else None
+    expected = []
+    for seq in range(len(history)):
+        signer = base
+        for rot in rotations:
+            eff = rot.get("effective_anchor_seq")
+            if isinstance(eff, int) and seq >= eff:
+                signer = rot.get("to_signer")
+        expected.append(signer)
+    return expected
+
+
+def _validate_rotations(
+    history: list[dict],
+    rotations: list[dict],
+    signer_secrets: dict | None,
+) -> tuple[str | None, str | None]:
+    """Judge a mesh rotation chain against a kept history.
+    Returns (refusal_status, current_signer), under exactly
+    the registry chain's rules (packages/registration/
+    anchor.py, _validate_rotations), with the effective
+    point's match judged on the history entry's state hash
+    and entry count."""
+    if not rotations:
+        return None, (history[-1].get("signer") if history else None)
+    if not history:
+        return "anchor_rotation_invalid", None
+    for i, rot in enumerate(rotations):
+        if rot.get("rotation_seq") != i:
+            return "anchor_rotation_invalid", None
+    effs = [rot.get("effective_anchor_seq") for rot in rotations]
+    if any(not isinstance(e, int) or e < 1 for e in effs):
+        return "anchor_rotation_invalid", None
+    if any(e > len(history) for e in effs):
+        return "anchor_rotation_mismatch", None
+    if effs != sorted(effs) or len(set(effs)) != len(effs):
+        return "anchor_rotation_invalid", None
+    base = history[0].get("signer")
+    for i, rot in enumerate(rotations):
+        expected_from = base if i == 0 else rotations[i - 1].get("to_signer")
+        if rot.get("from_signer") != expected_from:
+            return "anchor_rotation_signer_invalid", None
+        if not rot.get("to_signer") or rot.get("to_signer") == expected_from:
+            return "anchor_rotation_invalid", None
+        if signer_secrets is not None:
+            from_secret = signer_secrets.get(str(rot.get("from_signer")))
+            to_secret = signer_secrets.get(str(rot.get("to_signer")))
+            if from_secret is None or to_secret is None:
+                return "anchor_rotation_invalid", None
+            expected_sig = sign_mesh_anchor_rotation(
+                from_secret, str(rot["from_signer"]),
+                str(rot["to_signer"]), i,
+                int(rot["effective_anchor_seq"]),
+                str(rot.get("effective_state_hash")),
+                int(rot.get("effective_entry_count", -1)),
+            )
+            if not hmac.compare_digest(
+                    expected_sig, rot.get("signature") or ""):
+                return "anchor_rotation_invalid", None
+            if not rot.get("countersignature"):
+                return "anchor_rotation_invalid", None
+            expected_counter = countersign_mesh_anchor_rotation(
+                to_secret, str(rot["to_signer"]),
+                str(rot["from_signer"]), i,
+                int(rot["effective_anchor_seq"]),
+                str(rot.get("effective_state_hash")),
+                int(rot.get("effective_entry_count", -1)),
+                expected_sig,
+            )
+            if not hmac.compare_digest(
+                    expected_counter, rot.get("countersignature") or ""):
+                return "anchor_rotation_invalid", None
+        eff = int(rot["effective_anchor_seq"])
+        if eff < len(history):
+            entry = history[eff]
+            if (entry.get("state_hash") != rot.get("effective_state_hash")
+                    or entry.get("entry_count")
+                    != rot.get("effective_entry_count")):
+                return "anchor_rotation_mismatch", None
+    expected = _expected_signers(history, rotations)
+    lineage = {base}
+    for rot in rotations:
+        lineage.add(rot.get("from_signer"))
+        lineage.add(rot.get("to_signer"))
+    for seq, entry in enumerate(history):
+        if entry.get("signer") != expected[seq]:
+            if entry.get("signer") in lineage:
+                return "anchor_signer_retired", None
+            return "anchor_signature_invalid", None
+    return None, expected[-1]
+
+
+def rotation_refusal(
+    record: "MeshAnchor",
+    signer_secrets: dict | None,
+    root_signer: str | None = None,
+) -> str | None:
+    """The rotation judgement over one mesh anchor record,
+    for callers that judge a delivered anchor before pairing
+    it: the registry anchor's rotation_refusal, for this
+    chain."""
+    rotations = [dict(r) for r in record.rotations]
+    if not rotations:
+        return None
+    if signer_secrets is None:
+        return "anchor_rotation_invalid"
+    history = [dict(e) for e in record.history]
+    if root_signer is not None and history \
+            and history[0].get("signer") != root_signer:
+        return "anchor_rotation_signer_invalid"
+    status, _current = _validate_rotations(
+        history, rotations, signer_secrets)
+    return status
+
+
+def _history_verifies_rotated(
+    history: list[dict],
+    rotations: list[dict],
+    signer_secrets: dict | None,
+) -> bool:
+    """Segment-by-segment verification of a rotated mesh
+    kept history: the registry chain's rule, with each
+    entry's signature recomputed by this chain's signing."""
+    if not history:
+        return False
+    if not _verify_history_entries(history):
+        return False
+    if signer_secrets is None:
+        return False
+    expected = _expected_signers(history, rotations)
+    for seq, entry in enumerate(history):
+        if entry.get("signer") != expected[seq]:
+            return False
+        secret = signer_secrets.get(str(expected[seq]))
+        if secret is None:
+            return False
+        expected_sig = sign_mesh_anchor(
+            secret, str(entry.get("signer")),
+            entry.get("origin_heads", {}),
+            str(entry.get("state_hash")),
+            int(entry.get("entry_count", -1)), seq,
+            str(entry.get("prev_hash")),
+        )
+        if not hmac.compare_digest(
+                expected_sig, entry.get("signature") or ""):
+            return False
+    return True
+
+
+def _signature_verifies_rotated(
+    record: "MeshAnchor",
+    signer_secrets: dict | None,
+    root_signer: str | None = None,
+) -> bool:
+    """True only if a ROTATED mesh record's segmented
+    history verifies and its top fields are exactly the
+    history's last entry. The registry chain's
+    _signature_verifies_rotated states the rule."""
+    if record.signer is None or record.signature is None \
+            or record.anchor_seq is None:
+        return False
+    history = [dict(e) for e in record.history]
+    if not history or len(history) != record.anchor_seq + 1:
+        return False
+    if root_signer is not None \
+            and history[0].get("signer") != root_signer:
+        return False
+    rotations = [dict(r) for r in record.rotations]
+    status, current = _validate_rotations(
+        history, rotations, signer_secrets)
+    if status is not None:
+        return False
+    if not _history_verifies_rotated(history, rotations, signer_secrets):
+        return False
+    last = history[-1]
+    if last["origin_heads"] != record.origin_heads:
+        return False
+    if last["state_hash"] != record.state_hash:
+        return False
+    if last["entry_count"] != record.entry_count:
+        return False
+    if record.signer != current or record.signer != last["signer"]:
+        return False
+    return hmac.compare_digest(last["signature"], record.signature)
+
+
 def _history_entry(
     signer: str,
     secret_hex: str,
@@ -376,11 +724,19 @@ def read_anchor_audit(anchor_path: str | Path) -> list[dict]:
     return events
 
 
-def _signature_verifies(record: "MeshAnchor", signer: str, secret_hex: str) -> bool:
+def _signature_verifies(record: "MeshAnchor", signer: str, secret_hex: str,
+                        signer_secrets: dict | None = None) -> bool:
     """True only if a record is a genuine signed mesh anchor BY
     the configured signer: signer matches, kept history verifies
     (chain and signatures), top fields are exactly the history's
-    last entry, and the top signature recomputes."""
+    last entry, and the top signature recomputes.
+
+    Experiment 038: a record carrying rotations, judged with
+    the lineage secrets, verifies segment by segment instead;
+    `signer` then names the lineage's root."""
+    if signer_secrets is not None and record.rotations:
+        return _signature_verifies_rotated(
+            record, signer_secrets, root_signer=signer)
     if record.signer is None or record.signer != signer:
         return False
     if record.signature is None or record.anchor_seq is None:
@@ -475,6 +831,12 @@ class MeshAnchor:
     # wrote it.
     witness: str | None = None
     witness_signature: str | None = None
+    # Experiment 038, signer rotation: the rotation records
+    # this anchor's signer succession stands on, in rotation
+    # sequence order. Empty for an anchor that never rotated,
+    # and omitted from the file entirely, as on the registry
+    # chain.
+    rotations: tuple = ()
 
     def to_dict(self) -> dict:
         data = {
@@ -492,6 +854,8 @@ class MeshAnchor:
             if self.witness is not None:
                 data["witness"] = self.witness
                 data["witness_signature"] = self.witness_signature
+            if self.rotations:
+                data["rotations"] = [dict(r) for r in self.rotations]
         return data
 
 
@@ -514,10 +878,20 @@ class MeshAnchorCheck:
     witness_checked: bool = False
     witness_valid: bool | None = None
     witness: str | None = None
+    # Experiment 038: as on the registry AnchorCheck - unchecked
+    # with no lineage configured; a configured rotation failure
+    # is reported under rotation_status, before the signature's
+    # status and ahead of the heads'.
+    rotation_checked: bool = False
+    rotation_valid: bool | None = None
+    rotation_status: str | None = None
+    current_signer: str | None = None
 
     @property
     def ok(self) -> bool:
         base = self.heads_match and self.state_matches
+        if self.rotation_checked and not self.rotation_valid:
+            return False
         if self.signature_checked and not self.signature_valid:
             return False
         if self.witness_checked and not self.witness_valid:
@@ -526,6 +900,8 @@ class MeshAnchorCheck:
 
     @property
     def status(self) -> str:
+        if self.rotation_checked and not self.rotation_valid:
+            return self.rotation_status or "anchor_rotation_invalid"
         if self.signature_checked and not self.signature_valid:
             return "anchor_signature_invalid"
         if self.witness_checked and not self.witness_valid:
@@ -544,9 +920,77 @@ class MeshAnchorCheck:
             "witness_checked": self.witness_checked,
             "witness_valid": self.witness_valid,
             "witness": self.witness,
+            "rotation_checked": self.rotation_checked,
+            "rotation_valid": self.rotation_valid,
+            "rotation_status": self.rotation_status,
+            "current_signer": self.current_signer,
             "ok": self.ok,
             "status": self.status,
         }
+
+
+def _judge_rotation_write(
+    existing: "MeshAnchor",
+    rotation,
+    signer: str,
+    secret_hex: str,
+    predecessor_secret_hex: str | None,
+    signer_secrets: dict | None,
+    state_hash: str,
+    count: int,
+) -> str | None:
+    """Judge a rotation presented at the successor's first
+    mesh anchor write. The registry chain's
+    _judge_rotation_write states the order and the names;
+    the stated point here is this write's state hash and
+    entry count."""
+    if not isinstance(rotation, dict):
+        return "anchor_rotation_invalid"
+    if rotation.get("from_signer") != existing.signer \
+            or rotation.get("to_signer") != signer:
+        return "anchor_rotation_signer_invalid"
+    if existing.rotations:
+        if signer_secrets is None:
+            return "anchor_rotation_invalid"
+        root = existing.history[0].get("signer") \
+            if existing.history else None
+        if not _signature_verifies_rotated(
+                existing, signer_secrets, root_signer=root):
+            return "anchor_rotation_invalid"
+    else:
+        if predecessor_secret_hex is None or not _signature_verifies(
+                existing, str(existing.signer),
+                predecessor_secret_hex):
+            return "anchor_rotation_invalid"
+    if rotation.get("rotation_seq") != len(existing.rotations):
+        return "anchor_rotation_invalid"
+    if rotation.get("effective_anchor_seq") != len(existing.history):
+        return "anchor_rotation_mismatch"
+    if rotation.get("effective_state_hash") != state_hash \
+            or rotation.get("effective_entry_count") != count:
+        return "anchor_rotation_mismatch"
+    if predecessor_secret_hex is None:
+        return "anchor_rotation_invalid"
+    expected_sig = sign_mesh_anchor_rotation(
+        predecessor_secret_hex, str(existing.signer), signer,
+        int(rotation["rotation_seq"]),
+        int(rotation["effective_anchor_seq"]), state_hash, count,
+    )
+    if not hmac.compare_digest(
+            expected_sig, rotation.get("signature") or ""):
+        return "anchor_rotation_invalid"
+    if not rotation.get("countersignature"):
+        return "anchor_rotation_invalid"
+    expected_counter = countersign_mesh_anchor_rotation(
+        secret_hex, signer, str(existing.signer),
+        int(rotation["rotation_seq"]),
+        int(rotation["effective_anchor_seq"]), state_hash, count,
+        expected_sig,
+    )
+    if not hmac.compare_digest(
+            expected_counter, rotation.get("countersignature") or ""):
+        return "anchor_rotation_invalid"
+    return None
 
 
 def write_mesh_anchor(
@@ -557,6 +1001,9 @@ def write_mesh_anchor(
     secret_hex: str | None = None,
     witness: str | None = None,
     witness_secret_hex: str | None = None,
+    rotation: dict | None = None,
+    predecessor_secret_hex: str | None = None,
+    signer_secrets: dict | None = None,
 ) -> MeshAnchor:
     """Write the chain heads of a node's current view to an anchor
     file held outside the node. Returns the anchor written.
@@ -570,7 +1017,12 @@ def write_mesh_anchor(
     signer): the new history entry is countersigned by that
     second identity, under the registry anchor's discipline -
     a witness equal to the signer is refused, and succession
-    is judged on the signer alone."""
+    is judged on the signer alone. Rotated (experiment 038,
+    rotation given): the successor's first write, judged by
+    _judge_rotation_write under the registry chain's names,
+    refusals audit-logged as rotation_rejected; writing over
+    an anchor that already carries rotations requires
+    signer_secrets, as on the registry chain."""
     heads = origin_heads(node)
     state_hash = node.state_hash()
     count = len(node.entries())
@@ -610,45 +1062,141 @@ def write_mesh_anchor(
         )
 
     history: list[dict] = []
+    rotations_kept: list[dict] = []
     if anchor_path.exists():
         existing = read_mesh_anchor(anchor_path)
         if existing.signer is not None:
-            if existing.signer != signer:
-                _append_anchor_audit(
-                    anchor_path,
-                    {
-                        "event": "reanchor_rejected",
-                        "reason": "different_signer",
-                        "attempted_signer": signer,
-                        "current_signer": existing.signer,
-                        "chain": "sync-mesh",
-                        "state_hash": state_hash,
-                        "entry_count": count,
-                    },
+            if rotation is not None:
+                # Experiment 038: the successor's first write,
+                # presenting the rotation record, judged under
+                # its own names and audit-logged as
+                # rotation_rejected, as on the registry chain.
+                status = _judge_rotation_write(
+                    existing, rotation, signer, secret_hex,
+                    predecessor_secret_hex, signer_secrets,
+                    state_hash, count,
                 )
-                raise MeshAnchorError(
-                    f"re-anchor refused: anchor is signed by "
-                    f"{existing.signer}, not by {signer} "
-                    f"(same-identity rule, experiment 019)"
-                )
-            if not _signature_verifies(existing, signer, secret_hex):
-                _append_anchor_audit(
-                    anchor_path,
-                    {
-                        "event": "reanchor_rejected",
-                        "reason": "existing_signature_invalid",
-                        "attempted_signer": signer,
-                        "current_signer": existing.signer,
-                        "chain": "sync-mesh",
-                        "state_hash": state_hash,
-                        "entry_count": count,
-                    },
-                )
-                raise MeshAnchorError(
-                    "re-anchor refused: the existing signed anchor does "
-                    "not verify under the presented secret"
-                )
-            history = [dict(e) for e in existing.history]
+                if status is not None:
+                    _append_anchor_audit(
+                        anchor_path,
+                        {
+                            "event": "rotation_rejected",
+                            "reason": status,
+                            "attempted_signer": signer,
+                            "current_signer": existing.signer,
+                            "chain": "sync-mesh",
+                            "state_hash": state_hash,
+                            "entry_count": count,
+                        },
+                    )
+                    raise MeshAnchorError(
+                        f"rotation refused: {status} - the "
+                        f"presented rotation does not stand for "
+                        f"this write (experiment 038, case 26)"
+                    )
+                history = [dict(e) for e in existing.history]
+                rotations_kept = [dict(r) for r in existing.rotations]
+                rotations_kept.append(dict(rotation))
+            elif existing.rotations:
+                # Experiment 038: writing over a ROTATED anchor
+                # requires the lineage secrets, as on the
+                # registry chain.
+                if existing.signer != signer:
+                    _append_anchor_audit(
+                        anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "different_signer",
+                            "attempted_signer": signer,
+                            "current_signer": existing.signer,
+                            "chain": "sync-mesh",
+                            "state_hash": state_hash,
+                            "entry_count": count,
+                        },
+                    )
+                    raise MeshAnchorError(
+                        f"re-anchor refused: anchor is signed by "
+                        f"{existing.signer}, not by {signer} "
+                        f"(same-identity rule, experiment 019)"
+                    )
+                if signer_secrets is None:
+                    raise MeshAnchorError(
+                        "anchor_rotation_invalid: re-anchoring a "
+                        "rotated anchor needs the lineage secrets "
+                        "(signer_secrets), so its segmented history "
+                        "can be verified (experiment 038)"
+                    )
+                root = existing.history[0].get("signer") \
+                    if existing.history else None
+                if not _signature_verifies_rotated(
+                        existing, signer_secrets, root_signer=root):
+                    _append_anchor_audit(
+                        anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "existing_signature_invalid",
+                            "attempted_signer": signer,
+                            "current_signer": existing.signer,
+                            "chain": "sync-mesh",
+                            "state_hash": state_hash,
+                            "entry_count": count,
+                        },
+                    )
+                    raise MeshAnchorError(
+                        "re-anchor refused: the existing rotated "
+                        "anchor does not verify under the "
+                        "presented lineage secrets"
+                    )
+                history = [dict(e) for e in existing.history]
+                rotations_kept = [dict(r) for r in existing.rotations]
+            else:
+                if existing.signer != signer:
+                    _append_anchor_audit(
+                        anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "different_signer",
+                            "attempted_signer": signer,
+                            "current_signer": existing.signer,
+                            "chain": "sync-mesh",
+                            "state_hash": state_hash,
+                            "entry_count": count,
+                        },
+                    )
+                    raise MeshAnchorError(
+                        f"re-anchor refused: anchor is signed by "
+                        f"{existing.signer}, not by {signer} "
+                        f"(same-identity rule, experiment 019)"
+                    )
+                if not _signature_verifies(existing, signer, secret_hex):
+                    _append_anchor_audit(
+                        anchor_path,
+                        {
+                            "event": "reanchor_rejected",
+                            "reason": "existing_signature_invalid",
+                            "attempted_signer": signer,
+                            "current_signer": existing.signer,
+                            "chain": "sync-mesh",
+                            "state_hash": state_hash,
+                            "entry_count": count,
+                        },
+                    )
+                    raise MeshAnchorError(
+                        "re-anchor refused: the existing signed anchor does "
+                        "not verify under the presented secret"
+                    )
+                history = [dict(e) for e in existing.history]
+        elif rotation is not None:
+            raise MeshAnchorError(
+                "anchor_rotation_invalid: the existing anchor is "
+                "unsigned - there is no signer to rotate from "
+                "(experiment 038)"
+            )
+    elif rotation is not None:
+        raise MeshAnchorError(
+            "anchor_rotation_invalid: no anchor exists here - "
+            "there is no signer to rotate from (experiment 038)"
+        )
 
     seq = len(history)
     prev_hash = history[-1]["entry_hash"] if history else GENESIS_HASH
@@ -667,6 +1215,7 @@ def write_mesh_anchor(
         history=tuple(history),
         witness=witness,
         witness_signature=entry.get("witness_signature"),
+        rotations=tuple(rotations_kept),
     )
     anchor_path.parent.mkdir(parents=True, exist_ok=True)
     anchor_path.write_text(
@@ -734,6 +1283,28 @@ def read_mesh_anchor(anchor_path: str | Path) -> MeshAnchor:
                     f"witnessed anchor is missing its countersignature: "
                     f"{anchor_path}"
                 ) from exc
+        if data.get("rotations") is not None:
+            # A rotated anchor (experiment 038): parsed here,
+            # verified by the check, as on the registry anchor.
+            try:
+                rotations = tuple(dict(r) for r in data["rotations"])
+            except (TypeError, ValueError) as exc:
+                raise MeshAnchorError(
+                    f"rotated anchor has malformed rotation records: "
+                    f"{anchor_path}"
+                ) from exc
+            anchor = MeshAnchor(
+                origin_heads=anchor.origin_heads,
+                state_hash=anchor.state_hash,
+                entry_count=anchor.entry_count,
+                signer=anchor.signer,
+                signature=anchor.signature,
+                anchor_seq=anchor.anchor_seq,
+                history=anchor.history,
+                witness=anchor.witness,
+                witness_signature=anchor.witness_signature,
+                rotations=rotations,
+            )
     return anchor
 
 
@@ -743,17 +1314,56 @@ def verify_mesh_anchor_history(
     secret_hex: str | None = None,
     witness: str | None = None,
     witness_secret_hex: str | None = None,
+    signer_secrets: dict | None = None,
+    rotations: list | None = None,
 ) -> bool:
     """Verify a mesh anchor file's kept history on its own (the
     registry anchor's verify_anchor_history, for this chain):
     chain recomputation, and with a secret every entry's
     signature. An unsigned anchor returns False. With a
     witness (experiment 029), the anchor's countersignature
-    must also verify for that witness."""
+    must also verify for that witness. With rotations in play
+    (experiment 038) and the lineage secrets given, the
+    history verifies segment by segment under the validated
+    rotation chain instead."""
     record = read_mesh_anchor(anchor_path)
     if record.signer is None or not record.history:
         return False
     history = [dict(e) for e in record.history]
+    effective_rotations = (
+        [dict(r) for r in rotations] if rotations is not None
+        else [dict(r) for r in record.rotations]
+    )
+    if effective_rotations:
+        if signer_secrets is None:
+            return False
+        status, _current = _validate_rotations(
+            history, effective_rotations, signer_secrets)
+        if status is not None:
+            return False
+        if signer is not None and history[0].get("signer") != signer:
+            return False
+        if not _history_verifies_rotated(
+                history, effective_rotations, signer_secrets):
+            return False
+        last = history[-1]
+        tied = (
+            last["origin_heads"] == record.origin_heads
+            and last["state_hash"] == record.state_hash
+            and last["entry_count"] == record.entry_count
+            and last["seq"] == record.anchor_seq
+            and hmac.compare_digest(last["signature"],
+                                    record.signature or "")
+        )
+        if not tied:
+            return False
+        if witness is not None:
+            if witness_secret_hex is None:
+                raise MeshAnchorError(
+                    "verifying a witnessed anchor needs "
+                    "witness_secret_hex")
+            return _witness_verifies(record, witness, witness_secret_hex)
+        return True
     if not _verify_history_entries(history, signer=signer, secret_hex=secret_hex):
         return False
     last = history[-1]
@@ -782,6 +1392,8 @@ def check_node_against_anchor(
     secret_hex: str | None = None,
     witness: str | None = None,
     witness_secret_hex: str | None = None,
+    signer_secrets: dict | None = None,
+    rotations: list | None = None,
 ) -> MeshAnchorCheck:
     """Check a presented node against an outside mesh anchor: its
     per-origin heads and its state hash must match exactly.
@@ -793,17 +1405,70 @@ def check_node_against_anchor(
     witness identity configured (experiment 029), the anchor's
     countersignature is ALSO verified, and a failure is
     reported in the check (status anchor_witness_invalid),
-    under the same discipline."""
+    under the same discipline. With a lineage configured
+    (experiment 038, signer_secrets, plus optional held
+    rotations), the anchor's rotation chain is ALSO judged -
+    before the signature, witness, and head judgements - and
+    the signature judgement runs segment by segment, under
+    exactly the registry chain's rules."""
     anchor = read_mesh_anchor(anchor_path)
     presented_heads = origin_heads(node)
     heads_match = presented_heads == anchor.origin_heads
     presented_state = node.state_hash()
-    signature_checked = signer is not None
+
+    held_rotations = (
+        [dict(r) for r in rotations] if rotations is not None else None
+    )
+    own_rotations = [dict(r) for r in anchor.rotations]
+    rotation_checked = signer_secrets is not None or held_rotations is not None
+    rotation_valid: bool | None = None
+    rotation_status: str | None = None
+    current_signer: str | None = None
+    if rotation_checked:
+        rotation_valid = True
+        if held_rotations is not None and own_rotations \
+                and held_rotations != own_rotations:
+            rotation_valid = False
+            rotation_status = "anchor_rotation_invalid"
+        else:
+            effective = own_rotations if own_rotations \
+                else (held_rotations or [])
+            if effective:
+                if signer_secrets is None:
+                    rotation_valid = False
+                    rotation_status = "anchor_rotation_invalid"
+                else:
+                    status, current_signer = _validate_rotations(
+                        [dict(e) for e in anchor.history],
+                        effective, signer_secrets,
+                    )
+                    if status is not None:
+                        rotation_valid = False
+                        rotation_status = status
+            else:
+                current_signer = anchor.signer
+
+    signature_checked = signer is not None or signer_secrets is not None
     signature_valid: bool | None = None
     if signature_checked:
-        if secret_hex is None:
+        if secret_hex is None and signer_secrets is None:
             raise MeshAnchorError("checking a signed anchor needs secret_hex")
-        signature_valid = _signature_verifies(anchor, signer, secret_hex)
+        if own_rotations and signer_secrets is not None:
+            signature_valid = bool(
+                rotation_valid
+                and _signature_verifies_rotated(
+                    anchor, signer_secrets, root_signer=signer)
+            )
+        elif signer is not None and secret_hex is not None:
+            signature_valid = _signature_verifies(
+                anchor, signer, secret_hex,
+                signer_secrets=signer_secrets)
+        elif signer_secrets is not None and anchor.signer is not None \
+                and anchor.signer in signer_secrets:
+            signature_valid = _signature_verifies(
+                anchor, anchor.signer, signer_secrets[anchor.signer])
+        else:
+            signature_valid = False
     witness_checked = witness is not None
     witness_valid: bool | None = None
     if witness_checked:
@@ -822,6 +1487,10 @@ def check_node_against_anchor(
         witness_checked=witness_checked,
         witness_valid=witness_valid,
         witness=anchor.witness,
+        rotation_checked=rotation_checked,
+        rotation_valid=rotation_valid,
+        rotation_status=rotation_status,
+        current_signer=current_signer,
     )
 
 
@@ -833,13 +1502,18 @@ def verify_node_against_anchor(
     secret_hex: str | None = None,
     witness: str | None = None,
     witness_secret_hex: str | None = None,
+    signer_secrets: dict | None = None,
+    rotations: list | None = None,
 ) -> bool:
     """True only if the presented node holds exactly the anchored
     entry set: same origin heads, same state hash - and, when a
     signing identity is configured, a verifying signature, and
     when a witness identity is configured, a verifying
-    countersignature."""
+    countersignature, and when a lineage is configured, a
+    standing rotation chain with a verifying segmented
+    history."""
     return check_node_against_anchor(
         node, anchor_path, signer=signer, secret_hex=secret_hex,
         witness=witness, witness_secret_hex=witness_secret_hex,
+        signer_secrets=signer_secrets, rotations=rotations,
     ).ok
