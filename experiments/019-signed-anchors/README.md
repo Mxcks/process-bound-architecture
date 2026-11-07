@@ -222,7 +222,18 @@ check, and the demo passed on the runs quoted in
   set or public append-only log holds it, and no other party
   attests that this head was the head at a given time.
   Production still needs the head held where the record's
-  writer cannot reach it.
+  writer cannot reach it. (Superseded in part by experiment
+  029: a second enrolled identity's countersignature on the
+  anchor IS built at prototype scale - write-time optional,
+  required wherever a witness is configured, refused as
+  anchor_witness_invalid - and experiment 028's finding pair
+  is refused at a witness-configured server unless the
+  witness countersigned it. What stands: the countersignature
+  is the same symmetric HMAC under a second enrollment
+  secret, held in the same local anchor file; there is still
+  no witness SET, no public append-only log, and no external
+  party attesting anything. The fence moved from one secret's
+  custody to two, and the model did not change.)
 - Signing inherits Gate 1's HMAC limit in full: the signature
   is symmetric, verification REQUIRES the signer's secret, so
   every verifier configured with an identity holds a secret
