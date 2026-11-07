@@ -87,6 +87,11 @@ HONEST LIMITS (prototype, NOT production)
   018). The server processes' mesh side still holds a plain
   SyncNode and consults no mesh anchor; their --anchor (experiment
   018) consults the REGISTRY anchor for their snapshot.
+  (Superseded in part by experiment 026: a server started with
+  --mesh-anchor holds an AnchoredSyncNode for its mesh side and
+  consults this anchor on every mesh receive over the wire; a
+  server started without the flag still holds a plain SyncNode,
+  as stated.)
 """
 
 from __future__ import annotations
