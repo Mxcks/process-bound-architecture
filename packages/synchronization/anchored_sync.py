@@ -142,6 +142,7 @@ class AnchoredSyncNode(SyncNode):
         anchor_secret_hex: str | None = None,
         anchor_witness: str | None = None,
         anchor_witness_secret_hex: str | None = None,
+        anchor_signer_secrets: dict | None = None,
     ):
         super().__init__(node_id)
         self.anchor_path = Path(anchor_path) if anchor_path is not None else None
@@ -167,10 +168,20 @@ class AnchoredSyncNode(SyncNode):
             )
         self.anchor_witness = anchor_witness
         self.anchor_witness_secret_hex = anchor_witness_secret_hex
+        # Experiment 038: the lineage secrets this node verifies
+        # a ROTATED mesh anchor's segmented history with, when
+        # configured (an identity-to-secret map; anchor_signer
+        # then names the lineage's root). None (the default)
+        # is experiments 019/029's judgement.
+        self.anchor_signer_secrets = (
+            dict(anchor_signer_secrets)
+            if anchor_signer_secrets is not None else None
+        )
 
     def _check_anchor(self):
         """The anchor check for this node, with the signing
-        identity and the witness identity when configured."""
+        identity, the witness identity, and the lineage
+        secrets when configured."""
         kwargs = {}
         if self.anchor_signer is not None:
             kwargs["signer"] = self.anchor_signer
@@ -178,6 +189,8 @@ class AnchoredSyncNode(SyncNode):
         if self.anchor_witness is not None:
             kwargs["witness"] = self.anchor_witness
             kwargs["witness_secret_hex"] = self.anchor_witness_secret_hex
+        if self.anchor_signer_secrets is not None:
+            kwargs["signer_secrets"] = self.anchor_signer_secrets
         return check_node_against_anchor(self, self.anchor_path, **kwargs)
 
     # -- introspection ----------------------------------------------------
@@ -195,6 +208,10 @@ class AnchoredSyncNode(SyncNode):
         if self.anchor_path is None:
             return "no_anchor"
         check = self._check_anchor()
+        if check.rotation_checked and not check.rotation_valid:
+            # Experiment 038: the rotation judgement precedes
+            # the signature's, under its own names.
+            return check.rotation_status or "anchor_rotation_invalid"
         if check.status == "anchor_signature_invalid":
             return "anchor_signature_invalid"
         if check.status == "anchor_witness_invalid":
@@ -244,7 +261,9 @@ class AnchoredSyncNode(SyncNode):
         try:
             check = self._check_anchor()
             status = (
-                "anchor_signature_invalid"
+                (check.rotation_status or "anchor_rotation_invalid")
+                if check.rotation_checked and not check.rotation_valid
+                else "anchor_signature_invalid"
                 if check.status == "anchor_signature_invalid"
                 else "anchor_witness_invalid"
                 if check.status == "anchor_witness_invalid"
