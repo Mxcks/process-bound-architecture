@@ -1101,3 +1101,92 @@
    and `no_snapshot`; the paired flow over mutual TLS with
    identity binding and a signed anchor, and the
    anchor-alone `no_change` over the same link).
+18. Witnessed anchors on the mesh chain and at the server
+   processes (added 2026-11-06, experiment 029; the mesh and
+   wire half of registration case 11): the mesh anchor of
+   case 11 gains the same optional witness countersignature
+   as registration case 11 sets for the registry anchor -
+   the same Gate 1 HMAC scheme, a domain-separated witness
+   encoding for this chain covering the signer's identity
+   and signature with the per-origin heads, the state hash,
+   the count, the history sequence, and the previous
+   history entry's hash - recorded in the kept history
+   entry for that write and mirrored at the anchor's top
+   level. The Gate 3 AnchoredSyncNode of case 8, configured
+   with a witness identity in case 11's opt-in style (both
+   the identity and its secret, or neither), requires the
+   countersignature exactly as it requires the signature:
+   a merge whose anchor judgement fails the witness check
+   is refused as a divergence named anchor_witness_invalid,
+   rolled back, nothing accepted, and anchor_status()
+   reports the same name; with no witness configured the
+   node behaves exactly as cases 8/11 built. At the server
+   processes, the witness is startup configuration in the
+   style of case 10's signing flags - an anchor witness
+   flag pair for the registry anchor and, independently,
+   for the mesh anchor (case 15) - passed to the same
+   consultations the signer already reaches: the startup
+   construction, the live reload of case 13, the candidate
+   construction of case 14, and the anchor judgements of
+   case 17, whose signature judgement gains the witness
+   judgement immediately after it, under the same name,
+   before pairing. Expected: a server started over a
+   signer-alone anchor with a witness configured refuses to
+   start, its log naming anchor_witness_invalid; a live
+   reload against a signer-alone re-anchor is refused under
+   the same name with the previous view serving, and lands
+   once the anchor is countersigned; case 17's delivered
+   anchors are judged for their countersignature under the
+   same discipline. The central assertion is registration
+   case 11's finding re-run at a witness-configured server:
+   the pair experiment 028 ACCEPTED - a rewritten record
+   with an anchor over the rewrite signed by the current
+   signer, its kept history honestly extended - is REFUSED
+   as anchor_witness_invalid when it carries no
+   countersignature, refused again under the same name when
+   countersigned by an identity who is not the configured
+   witness, and ACCEPTED when countersigned by the
+   configured witness, the server then serving the rewritten
+   record, stated as the finding's new form: the fence is
+   now the custody of two secrets, the signer's and the
+   witness's, and the symmetric model itself is unchanged.
+   The honest flows of cases 13/14/17 keep working under a
+   witness configuration whenever the anchor lifecycle is
+   countersigned, and a server with NO witness configured
+   behaves exactly as experiment 028 left it - including
+   accepting the finding's pair, as the unmodified case 17
+   suite proves in the same run. The Gate 5 verdict (case
+   9's anchor evidence, registration case 11) takes the
+   witness as opt-in arguments beside the signer for both
+   chains: a signer-alone anchor fails that chain's anchor
+   check under the name anchor_witness_invalid and nothing
+   else, and countersigned anchors keep the verdict passing.
+   Status: IMPLEMENTED at prototype scale (2026-11-06,
+   experiment `experiments/029-witnessed-anchors/`); the case
+   was written before the build, and the tests-first failure
+   and the passing results are recorded in that experiment's
+   `test-output.txt`. Tests:
+   `packages/synchronization/test_witnessed_mesh_anchor.py`
+   (a countersigned mesh anchor verifies with the witness
+   checked; a signer-alone mesh anchor is
+   anchor_witness_invalid at the check and at an
+   AnchoredSyncNode's receive and standing; a different
+   signer countersigned by the witness is still refused at
+   write as different_signer),
+   `packages/synchronization/test_witnessed_anchor_in_servers.py`
+   (startup over a signer-alone anchor refused naming
+   anchor_witness_invalid, startup over a countersigned
+   anchor serves; the live reload refused then landed; the
+   finding re-run in its three new legs at a
+   witness-configured server; succession over the wire -
+   a pair signed by a different signer and countersigned by
+   the configured witness still refused as different_signer;
+   the witness as configuration only - no delivery installs
+   or replaces it), and
+   `packages/validation/test_gate5_witnessed_anchor.py`
+   (countersigned anchors keep the verdict passing with
+   witnesses configured for both chains; a signer-alone
+   registry anchor fails the verdict on the registry anchor
+   check alone, named anchor_witness_invalid; the same for
+   the mesh anchor; no witness configured judges exactly as
+   case 10).
