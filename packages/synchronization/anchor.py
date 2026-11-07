@@ -57,6 +57,31 @@ distinct from anchor_mismatch and anchor_stale, never a valid
 anchor. With no identity configured, mesh anchors are judged by
 their heads exactly as experiments 012/015 built.
 
+WITNESSED ANCHORS (experiment 029, sync-mesh case 18)
+-------------------------------------------------------
+write_mesh_anchor may additionally be called with a witness
+and that witness's Gate 1 enrollment secret: a SECOND
+enrolled identity, distinct from the signer (a witness equal
+to the signer is refused at write time), countersigns the
+signed anchor under exactly the registry anchor's rules
+(packages/registration/anchor.py states them in full): the
+same HMAC scheme over a domain-separated canonical encoding
+covering the signer's identity and signature with the
+per-origin heads, the state hash, the count, the history
+sequence, and the previous history entry's hash; the
+countersignature is part of the kept history entry for that
+write and mirrored at the anchor's top level; and checks
+configured with a witness identity treat a missing,
+wrong-identity, or tampered countersignature as
+anchor_witness_invalid - after the signature judgement,
+ahead of the head judgement, never a valid anchor. With no
+witness configured, mesh anchors are judged exactly as
+experiments 012-027 built. Registration case 11 states what
+this closes (experiment 028's one-secret custody fence
+becomes two secrets' custody) and what it does not (the
+model stays symmetric; the witness binds the anchor's
+current write).
+
 HONEST LIMITS (prototype, NOT production)
 -----------------------------------------
 - Same stand-in limit as the registry anchor
@@ -72,7 +97,13 @@ HONEST LIMITS (prototype, NOT production)
   the channel that issued it could forge). Production needs the
   heads held somewhere a chain writer cannot reach, and
   cross-node head comparison at scale (Gate 3's named
-  direction) is not built here.
+  direction) is not built here. (Superseded in part by
+  experiment 029: a second identity's countersignature on the
+  anchor IS built at prototype scale - the witness section
+  above - and a witness-configured check refuses an anchor
+  the witness did not countersign; the heads' location is
+  unchanged, and the countersignature inherits the symmetric
+  limit in full.)
 - The anchor pins one converged view at one moment. Nodes keep
   mutating honestly afterward and will then mismatch that anchor:
   a mismatch is "not the anchored state", never by itself a
@@ -180,6 +211,63 @@ def sign_mesh_anchor(
     ).hexdigest()
 
 
+# -- witness countersignatures (experiment 029) ------------------------------
+#
+# The mesh half of registration anchor.py's witness: the same
+# Gate 1 HMAC scheme and discipline, with a canonical encoding
+# for this chain (domain-separated from the registry witness's
+# by the chain name inside it). The witness countersigns the
+# SIGNED anchor - the signer's signature is inside the
+# encoding - not merely a state hash.
+
+
+def canonical_mesh_anchor_witness_bytes(
+    witness: str,
+    signer: str,
+    signature: str,
+    origin_heads: dict,
+    state_hash: str,
+    entry_count: int,
+    anchor_seq: int,
+    prev_history_hash: str,
+) -> bytes:
+    """Deterministic encoding of one mesh anchor
+    countersigning act: who witnesses, whose signed anchor
+    (signer and that anchor's signature), which per-origin
+    heads and state, at which history sequence, chained to
+    which previous history entry."""
+    return (
+        f"PBA-ANCHOR-WITNESS-v1|sync-mesh|{witness}|{signer}|{anchor_seq}|"
+        f"{state_hash}|{entry_count}|{_canonical_heads(origin_heads)}|"
+        f"{prev_history_hash}|{signature}"
+    ).encode("utf-8")
+
+
+def countersign_mesh_anchor(
+    secret_hex: str,
+    witness: str,
+    signer: str,
+    signature: str,
+    origin_heads: dict,
+    state_hash: str,
+    entry_count: int,
+    anchor_seq: int,
+    prev_history_hash: str,
+) -> str:
+    """Prototype mesh anchor countersignature: HMAC-SHA256
+    over the canonical mesh witness bytes, with the witness's
+    Gate 1 enrollment secret. See registration/anchor.py for
+    why this is NOT production signing."""
+    return hmac.new(
+        bytes.fromhex(secret_hex),
+        canonical_mesh_anchor_witness_bytes(
+            witness, signer, signature, origin_heads, state_hash,
+            entry_count, anchor_seq, prev_history_hash,
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def _history_entry(
     signer: str,
     secret_hex: str,
@@ -188,10 +276,15 @@ def _history_entry(
     state_hash: str,
     count: int,
     prev_hash: str,
+    witness: str | None = None,
+    witness_secret_hex: str | None = None,
 ) -> dict:
     """One kept-history entry, in the repo's chain style: the
     signature is part of the hashed body, so editing any field
-    of an old entry breaks its entry hash."""
+    of an old entry breaks its entry hash. With a witness
+    (experiment 029), the countersignature is part of the
+    body the same way; an unwitnessed write produces exactly
+    the experiment 019 entry."""
     signature = sign_mesh_anchor(
         secret_hex, signer, heads, state_hash, count, seq, prev_hash
     )
@@ -204,6 +297,12 @@ def _history_entry(
         "prev_hash": prev_hash,
         "signature": signature,
     }
+    if witness is not None:
+        body["witness"] = witness
+        body["witness_signature"] = countersign_mesh_anchor(
+            witness_secret_hex, witness, signer, signature,
+            heads, state_hash, count, seq, prev_hash,
+        )
     entry = dict(body)
     entry["entry_hash"] = _sha256_hex(
         json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -312,6 +411,54 @@ def _signature_verifies(record: "MeshAnchor", signer: str, secret_hex: str) -> b
     return hmac.compare_digest(expected, record.signature)
 
 
+def _witness_verifies(record: "MeshAnchor", witness: str,
+                      witness_secret_hex: str) -> bool:
+    """True only if a record is a genuinely WITNESSED mesh
+    anchor BY the configured witness (experiment 029): the
+    recorded witness is the configured one, the kept
+    history's hash chain verifies, the top fields are the
+    history's last entry (heads, state, count, witness
+    fields), and the top countersignature recomputes under
+    the witness's secret. The registry anchor's
+    _witness_verifies states the discipline in full,
+    including the current-write limit."""
+    if record.witness is None or record.witness != witness:
+        return False
+    if record.witness_signature is None or record.anchor_seq is None:
+        return False
+    if record.signer is None or record.signature is None:
+        return False
+    history = [dict(e) for e in record.history]
+    if not history or len(history) != record.anchor_seq + 1:
+        return False
+    if not _verify_history_entries(history):
+        return False
+    last = history[-1]
+    if last.get("witness") != witness:
+        return False
+    if last["origin_heads"] != record.origin_heads:
+        return False
+    if last["state_hash"] != record.state_hash:
+        return False
+    if last["entry_count"] != record.entry_count:
+        return False
+    if not hmac.compare_digest(
+            last.get("witness_signature") or "", record.witness_signature):
+        return False
+    expected = countersign_mesh_anchor(
+        witness_secret_hex,
+        witness,
+        record.signer,
+        record.signature,
+        record.origin_heads,
+        record.state_hash,
+        record.entry_count,
+        record.anchor_seq,
+        last["prev_hash"],
+    )
+    return hmac.compare_digest(expected, record.witness_signature)
+
+
 @dataclass(frozen=True)
 class MeshAnchor:
     origin_heads: dict[str, dict]
@@ -323,6 +470,11 @@ class MeshAnchor:
     signature: str | None = None
     anchor_seq: int | None = None
     history: tuple = ()
+    # Experiment 029, witnessed anchors: both None for an
+    # anchor nobody countersigned, exactly as experiment 019
+    # wrote it.
+    witness: str | None = None
+    witness_signature: str | None = None
 
     def to_dict(self) -> dict:
         data = {
@@ -337,6 +489,9 @@ class MeshAnchor:
             data["signature"] = self.signature
             data["anchor_seq"] = self.anchor_seq
             data["history"] = [dict(e) for e in self.history]
+            if self.witness is not None:
+                data["witness"] = self.witness
+                data["witness_signature"] = self.witness_signature
         return data
 
 
@@ -352,18 +507,29 @@ class MeshAnchorCheck:
     signature_checked: bool = False
     signature_valid: bool | None = None
     signer: str | None = None
+    # Experiment 029: as on the registry AnchorCheck - unchecked
+    # with no witness configured; a configured witness failure
+    # is its own status, after the signature's, ahead of
+    # mismatch.
+    witness_checked: bool = False
+    witness_valid: bool | None = None
+    witness: str | None = None
 
     @property
     def ok(self) -> bool:
         base = self.heads_match and self.state_matches
-        if self.signature_checked:
-            return base and bool(self.signature_valid)
+        if self.signature_checked and not self.signature_valid:
+            return False
+        if self.witness_checked and not self.witness_valid:
+            return False
         return base
 
     @property
     def status(self) -> str:
         if self.signature_checked and not self.signature_valid:
             return "anchor_signature_invalid"
+        if self.witness_checked and not self.witness_valid:
+            return "anchor_witness_invalid"
         return "anchored" if self.ok else "anchor_mismatch"
 
     def to_dict(self) -> dict:
@@ -375,6 +541,9 @@ class MeshAnchorCheck:
             "signature_checked": self.signature_checked,
             "signature_valid": self.signature_valid,
             "signer": self.signer,
+            "witness_checked": self.witness_checked,
+            "witness_valid": self.witness_valid,
+            "witness": self.witness,
             "ok": self.ok,
             "status": self.status,
         }
@@ -386,6 +555,8 @@ def write_mesh_anchor(
     *,
     signer: str | None = None,
     secret_hex: str | None = None,
+    witness: str | None = None,
+    witness_secret_hex: str | None = None,
 ) -> MeshAnchor:
     """Write the chain heads of a node's current view to an anchor
     file held outside the node. Returns the anchor written.
@@ -394,7 +565,12 @@ def write_mesh_anchor(
     the anchor file is overwritten. Signed (experiment 019):
     the same-identity re-anchor rule, refusal logging, and
     appended kept history as the registry anchor
-    (packages/registration/anchor.py, write_anchor)."""
+    (packages/registration/anchor.py, write_anchor). Witnessed
+    (experiment 029, witness + witness_secret_hex alongside a
+    signer): the new history entry is countersigned by that
+    second identity, under the registry anchor's discipline -
+    a witness equal to the signer is refused, and succession
+    is judged on the signer alone."""
     heads = origin_heads(node)
     state_hash = node.state_hash()
     count = len(node.entries())
@@ -403,6 +579,11 @@ def write_mesh_anchor(
     if signer is None:
         if secret_hex is not None:
             raise MeshAnchorError("secret_hex given without a signer")
+        if witness is not None or witness_secret_hex is not None:
+            raise MeshAnchorError(
+                "a witness countersigns a SIGNED anchor: witness "
+                "given without a signer (experiment 029)"
+            )
         anchor = MeshAnchor(
             origin_heads=heads, state_hash=state_hash, entry_count=count
         )
@@ -415,6 +596,18 @@ def write_mesh_anchor(
 
     if secret_hex is None:
         raise MeshAnchorError("a signed anchor needs the signer's secret_hex")
+
+    if (witness is None) != (witness_secret_hex is None):
+        raise MeshAnchorError(
+            "witness and witness_secret_hex must be given together "
+            "(a witness is an id plus its verification secret)"
+        )
+    if witness is not None and witness == signer:
+        raise MeshAnchorError(
+            "a witness must be a second identity, distinct from "
+            "the signer: a countersignature by the signer's own "
+            "identity is not a second custody (experiment 029)"
+        )
 
     history: list[dict] = []
     if anchor_path.exists():
@@ -459,7 +652,10 @@ def write_mesh_anchor(
 
     seq = len(history)
     prev_hash = history[-1]["entry_hash"] if history else GENESIS_HASH
-    entry = _history_entry(signer, secret_hex, seq, heads, state_hash, count, prev_hash)
+    entry = _history_entry(
+        signer, secret_hex, seq, heads, state_hash, count, prev_hash,
+        witness=witness, witness_secret_hex=witness_secret_hex,
+    )
     history.append(entry)
     anchor = MeshAnchor(
         origin_heads=heads,
@@ -469,6 +665,8 @@ def write_mesh_anchor(
         signature=entry["signature"],
         anchor_seq=seq,
         history=tuple(history),
+        witness=witness,
+        witness_signature=entry.get("witness_signature"),
     )
     anchor_path.parent.mkdir(parents=True, exist_ok=True)
     anchor_path.write_text(
@@ -516,6 +714,26 @@ def read_mesh_anchor(anchor_path: str | Path) -> MeshAnchor:
             raise MeshAnchorError(
                 f"signed anchor is missing its signature or history: {anchor_path}"
             ) from exc
+        if data.get("witness") is not None:
+            # A witnessed anchor (experiment 029): parsed here,
+            # verified by the check, as on the registry anchor.
+            try:
+                anchor = MeshAnchor(
+                    origin_heads=anchor.origin_heads,
+                    state_hash=anchor.state_hash,
+                    entry_count=anchor.entry_count,
+                    signer=anchor.signer,
+                    signature=anchor.signature,
+                    anchor_seq=anchor.anchor_seq,
+                    history=anchor.history,
+                    witness=str(data["witness"]),
+                    witness_signature=str(data["witness_signature"]),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise MeshAnchorError(
+                    f"witnessed anchor is missing its countersignature: "
+                    f"{anchor_path}"
+                ) from exc
     return anchor
 
 
@@ -523,11 +741,15 @@ def verify_mesh_anchor_history(
     anchor_path: str | Path,
     signer: str | None = None,
     secret_hex: str | None = None,
+    witness: str | None = None,
+    witness_secret_hex: str | None = None,
 ) -> bool:
     """Verify a mesh anchor file's kept history on its own (the
     registry anchor's verify_anchor_history, for this chain):
     chain recomputation, and with a secret every entry's
-    signature. An unsigned anchor returns False."""
+    signature. An unsigned anchor returns False. With a
+    witness (experiment 029), the anchor's countersignature
+    must also verify for that witness."""
     record = read_mesh_anchor(anchor_path)
     if record.signer is None or not record.history:
         return False
@@ -535,13 +757,21 @@ def verify_mesh_anchor_history(
     if not _verify_history_entries(history, signer=signer, secret_hex=secret_hex):
         return False
     last = history[-1]
-    return (
+    tied = (
         last["origin_heads"] == record.origin_heads
         and last["state_hash"] == record.state_hash
         and last["entry_count"] == record.entry_count
         and last["seq"] == record.anchor_seq
         and hmac.compare_digest(last["signature"], record.signature or "")
     )
+    if not tied:
+        return False
+    if witness is not None:
+        if witness_secret_hex is None:
+            raise MeshAnchorError("verifying a witnessed anchor needs "
+                                  "witness_secret_hex")
+        return _witness_verifies(record, witness, witness_secret_hex)
+    return True
 
 
 def check_node_against_anchor(
@@ -550,6 +780,8 @@ def check_node_against_anchor(
     *,
     signer: str | None = None,
     secret_hex: str | None = None,
+    witness: str | None = None,
+    witness_secret_hex: str | None = None,
 ) -> MeshAnchorCheck:
     """Check a presented node against an outside mesh anchor: its
     per-origin heads and its state hash must match exactly.
@@ -557,7 +789,11 @@ def check_node_against_anchor(
     With a signing identity configured (experiment 019), the
     anchor's signature and kept history are ALSO verified, and a
     failure is reported in the check (status
-    anchor_signature_invalid), never a silent pass."""
+    anchor_signature_invalid), never a silent pass. With a
+    witness identity configured (experiment 029), the anchor's
+    countersignature is ALSO verified, and a failure is
+    reported in the check (status anchor_witness_invalid),
+    under the same discipline."""
     anchor = read_mesh_anchor(anchor_path)
     presented_heads = origin_heads(node)
     heads_match = presented_heads == anchor.origin_heads
@@ -568,6 +804,13 @@ def check_node_against_anchor(
         if secret_hex is None:
             raise MeshAnchorError("checking a signed anchor needs secret_hex")
         signature_valid = _signature_verifies(anchor, signer, secret_hex)
+    witness_checked = witness is not None
+    witness_valid: bool | None = None
+    if witness_checked:
+        if witness_secret_hex is None:
+            raise MeshAnchorError("checking a witnessed anchor needs "
+                                  "witness_secret_hex")
+        witness_valid = _witness_verifies(anchor, witness, witness_secret_hex)
     return MeshAnchorCheck(
         heads_match=heads_match,
         state_matches=hmac.compare_digest(presented_state, anchor.state_hash),
@@ -576,6 +819,9 @@ def check_node_against_anchor(
         signature_checked=signature_checked,
         signature_valid=signature_valid,
         signer=anchor.signer,
+        witness_checked=witness_checked,
+        witness_valid=witness_valid,
+        witness=anchor.witness,
     )
 
 
@@ -585,10 +831,15 @@ def verify_node_against_anchor(
     *,
     signer: str | None = None,
     secret_hex: str | None = None,
+    witness: str | None = None,
+    witness_secret_hex: str | None = None,
 ) -> bool:
     """True only if the presented node holds exactly the anchored
     entry set: same origin heads, same state hash - and, when a
-    signing identity is configured, a verifying signature."""
+    signing identity is configured, a verifying signature, and
+    when a witness identity is configured, a verifying
+    countersignature."""
     return check_node_against_anchor(
-        node, anchor_path, signer=signer, secret_hex=secret_hex
+        node, anchor_path, signer=signer, secret_hex=secret_hex,
+        witness=witness, witness_secret_hex=witness_secret_hex,
     ).ok
