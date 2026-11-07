@@ -1,0 +1,117 @@
+Experiment 031 - mesh anchor delivery over the wire (sync-mesh case 20)
+Real run output, captured 2026-11-06. Nothing below is paraphrased:
+the tests-first run, the new suite, the demo, and the full regression.
+
+======================================================================
+1. TESTS FIRST - the new suite against the UNBUILT code
+   (the delivery surface does not exist yet; every test errors
+    on exactly that absence)
+======================================================================
+
+$ python3 packages/synchronization/test_mesh_anchor_wire_delivery.py
+ERROR: test_delivery_over_protected_link (__main__.TlsMeshAnchorDeliveryTests.test_delivery_over_protected_link)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_wire_delivery.py", line 912, in test_delivery_over_protected_link
+    report = node_server.deliver_mesh_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_mesh_anchor'. Did you mean: 'deliver_anchor'?
+
+======================================================================
+ERROR: test_backward_fence_prefix_of_pinned_chain_unsigned (__main__.UnsignedMeshAnchorDeliveryTests.test_backward_fence_prefix_of_pinned_chain_unsigned)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_wire_delivery.py", line 786, in test_backward_fence_prefix_of_pinned_chain_unsigned
+    report = node_server.deliver_mesh_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_mesh_anchor'. Did you mean: 'deliver_anchor'?
+
+======================================================================
+ERROR: test_witness_fence_at_delivery (__main__.WitnessedMeshAnchorDeliveryTests.test_witness_fence_at_delivery)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hatch/workspace/process-bound-architecture-monorepo-that-holds-every-layer/repo/packages/synchronization/test_mesh_anchor_wire_delivery.py", line 824, in test_witness_fence_at_delivery
+    report = node_server.deliver_mesh_anchor(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'node_server' has no attribute 'deliver_mesh_anchor'. Did you mean: 'deliver_anchor'?
+
+----------------------------------------------------------------------
+Ran 14 tests in 11.340s
+
+FAILED (errors=14)
+
+======================================================================
+2. THE NEW SUITE - after the build
+======================================================================
+
+$ python3 packages/synchronization/test_mesh_anchor_wire_delivery.py -v
+test_backward_fence_earlier_version_of_own_file (__main__.MeshAnchorDeliveryTests.test_backward_fence_earlier_version_of_own_file) ... ok
+test_delivery_onto_exactly_held_state (__main__.MeshAnchorDeliveryTests.test_delivery_onto_exactly_held_state) ... ok
+test_different_signer_refused_and_audited (__main__.MeshAnchorDeliveryTests.test_different_signer_refused_and_audited) ... ok
+test_foreign_chain_anchor_refused_mismatch (__main__.MeshAnchorDeliveryTests.test_foreign_chain_anchor_refused_mismatch) ... ok
+test_honest_growth_past_delivered_anchor_is_stale (__main__.MeshAnchorDeliveryTests.test_honest_growth_past_delivered_anchor_is_stale) ... ok
+test_identical_anchor_no_change (__main__.MeshAnchorDeliveryTests.test_identical_anchor_no_change) ... ok
+test_lineage_successor_over_rewrite_accepted (__main__.MeshAnchorDeliveryTests.test_lineage_successor_over_rewrite_accepted) ... ok
+test_no_mesh_anchor_configured (__main__.MeshAnchorDeliveryTests.test_no_mesh_anchor_configured) ... ok
+test_stale_sync_then_wire_delivery_converges (__main__.MeshAnchorDeliveryTests.test_stale_sync_then_wire_delivery_converges) ... ok
+test_tampered_history_signature_invalid (__main__.MeshAnchorDeliveryTests.test_tampered_history_signature_invalid) ... ok
+test_unreadable_current_anchor_refused (__main__.MeshAnchorDeliveryTests.test_unreadable_current_anchor_refused) ... ok
+test_delivery_over_protected_link (__main__.TlsMeshAnchorDeliveryTests.test_delivery_over_protected_link) ... ok
+test_backward_fence_prefix_of_pinned_chain_unsigned (__main__.UnsignedMeshAnchorDeliveryTests.test_backward_fence_prefix_of_pinned_chain_unsigned) ... ok
+test_witness_fence_at_delivery (__main__.WitnessedMeshAnchorDeliveryTests.test_witness_fence_at_delivery) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 10.280s
+
+OK
+MESH ANCHOR DELIVERY anchor_regression (i): an earlier version of the server's own anchor file refused after the anchor advanced
+MESH ANCHOR DELIVERY catch-up: an anchor pinning exactly the held state delivered onto it; the server's own growth is anchored without a sync
+MESH ANCHOR DELIVERY different_signer: bob's anchor over the same state refused at succession and audit-logged beside the mesh anchor
+MESH ANCHOR DELIVERY anchor_mismatch: the same signer's anchor over a foreign chain, in a fresh lineage, refused - it pairs with nothing held and succeeds nothing
+MESH ANCHOR DELIVERY anchor_stale: an anchor over an intermediate state refused - the held state already stands honestly past it
+MESH ANCHOR DELIVERY FINDING: a successor anchor over the REWRITTEN chain, written from the current anchor file with the current signer's secret, is ACCEPTED - custody of that secret is the whole fence at this surface, exactly as case 17 found for the registry half
+MESH ANCHOR DELIVERY no_mesh_anchor: a server with no mesh anchor configured reports the edge and is undisturbed
+MESH ANCHOR DELIVERY: a sync refused anchor_stale was unblocked by an anchor delivered over the wire - no hand placed the file; /health classifies the not-yet-converged held state anchor_mismatch, as in case 15
+MESH ANCHOR DELIVERY (mutual TLS): the successor anchor delivered over the protected link; the stale-refused sync converged
+MESH ANCHOR DELIVERY anchor_regression (ii): an unsigned anchor pinning an earlier prefix of the pinned chain refused on a head-only server
+MESH ANCHOR DELIVERY anchor_witness_invalid: a signer-alone successor and a wrongly countersigned successor both refused at a witness-configured server
+MESH ANCHOR DELIVERY witnessed: the configured witness's countersigned successor delivered, and the sync it unblocked converged
+
+======================================================================
+3. THE DEMO
+======================================================================
+
+$ python3 packages/synchronization/demo_mesh_anchor_wire_delivery.py
+Setup. mesh-a (pid 30657) runs anchored under alice's signed mesh anchor over the 3-entry converged state: mesh_anchor_status=anchored
+1. The mesh anchor it already holds, delivered again: no_change - nothing written
+2. mesh-b grew; the sync is refused: divergence=True, reason=anchor_stale - the anchor pins the older head
+3. The successor anchor, delivered over the wire: delivered - entries 3 -> 4, history sequence 0 -> 1; no hand placed the file at mesh-a
+4. The same sync now: divergence=False; health: mesh_anchor_status=anchored, last_mesh_anchor_delivery=delivered
+5. The ORIGINAL anchor delivered: delivery_refused / anchor_regression - an earlier version of the server's own anchor file; anchor file unchanged: True; audit log's last event: reanchor_rejected / anchor_regression
+6. FINDING: a successor anchor over the REWRITTEN chain, written from mesh-a's current anchor file with alice's secret: delivered - and the next honest sync is refused: divergence=True, reason=anchor_mismatch. What stops a rewrite from being blessed at this surface is the custody of the signer's secret, and nothing else
+   mesh-a was never restarted after its anchored start: pid 30657 throughout, and its mesh anchor file was never written by hand after startup
+Demo state left in: /tmp/pba-mesh-anchor-wire-demo-5tvgknl4
+
+======================================================================
+4. FULL REGRESSION - all four packages plus the EAI handoff check
+======================================================================
+
+$ for pkg in registration policy-library synchronization validation; do
+    python3 -m unittest discover -s packages/$pkg -p "test_*.py"; done
+$ python3 scripts/verify-handoffs.py
+=== registration ===
+Ran 25 tests in 0.036s
+OK
+=== policy-library ===
+Ran 42 tests in 0.841s
+OK
+=== synchronization ===
+Ran 114 tests in 107.143s
+OK
+=== validation ===
+Ran 22 tests in 0.591s
+OK
+=== EAI ===
+PASS: 3 EAI vectors recompute exactly.
+
+Leftover node_server processes after every run above: 0 (checked with ps).
