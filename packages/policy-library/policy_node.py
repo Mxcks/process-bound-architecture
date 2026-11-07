@@ -366,6 +366,49 @@ class AnchorWitnessInvalid(AnchorRefused):
     status = "anchor_witness_invalid"
 
 
+class AnchorSignerRetired(AnchorRefused):
+    """The anchor's entries past a rotation point are signed
+    by a retired signer (registration case 12, experiment
+    038).
+
+    Raised only on a node configured with the anchor's
+    lineage secrets (anchor_signer_secrets): the anchor
+    carries a valid rotation, and entries at or after the
+    rotation point are signed by the signer the rotation
+    retired. Distinct from AnchorSignatureInvalid by
+    construction: the rotation judgement runs before the
+    signature judgement, because retired is the fact about
+    such an anchor.
+    """
+
+    status = "anchor_signer_retired"
+
+
+class AnchorRotationInvalid(AnchorRefused):
+    """The anchor's rotation chain does not stand
+    (registration case 12, experiment 038).
+
+    Raised only on a node configured with the anchor's
+    lineage secrets: a rotation record is signed by a signer
+    who was not current at its point
+    (anchor_rotation_signer_invalid), its signatures do not
+    verify or its countersignature is missing
+    (anchor_rotation_invalid), or its stated point does not
+    match the history entry at that point
+    (anchor_rotation_mismatch). The instance's status carries
+    the check's specific rotation_status, so a caller reads
+    the exact name from the refusal as with every other
+    anchor refusal here.
+    """
+
+    status = "anchor_rotation_invalid"
+
+    def __init__(self, message: str, check):
+        super().__init__(message, check)
+        if getattr(check, "rotation_status", None):
+            self.status = check.rotation_status
+
+
 @dataclass(frozen=True)
 class ServedPolicy:
     policy_hash: str
@@ -422,6 +465,7 @@ class PolicyNode:
         anchor_secret_hex: str | None = None,
         anchor_witness: str | None = None,
         anchor_witness_secret_hex: str | None = None,
+        anchor_signer_secrets: dict | None = None,
     ):
         if (anchor_signer is None) != (anchor_secret_hex is None):
             raise ValueError(
@@ -452,6 +496,16 @@ class PolicyNode:
         # required.
         self.anchor_witness = anchor_witness
         self.anchor_witness_secret_hex = anchor_witness_secret_hex
+        # Experiment 038: the lineage secrets this node verifies
+        # a ROTATED anchor's segmented history with, when
+        # configured (an identity-to-secret map for every signer
+        # in the anchor's lineage; anchor_signer then names the
+        # lineage's root). None (the default) is experiments
+        # 019/029's judgement: no rotation is judged.
+        self.anchor_signer_secrets = (
+            dict(anchor_signer_secrets)
+            if anchor_signer_secrets is not None else None
+        )
         self.anchor_check = None
         self.anchor_status: str = "no_anchor"
         # Raises TamperedRecord if the copied chain does not verify.
@@ -486,11 +540,31 @@ class PolicyNode:
         if self.anchor_witness is not None:
             kwargs["witness"] = self.anchor_witness
             kwargs["witness_secret_hex"] = self.anchor_witness_secret_hex
+        if self.anchor_signer_secrets is not None:
+            kwargs["signer_secrets"] = self.anchor_signer_secrets
         check = anchor_mod.check_registry_against_anchor(
             snapshot_path, self.anchor_path, **kwargs
         )
         if check.ok:
             return check, "anchored"
+        if check.rotation_checked and not check.rotation_valid:
+            # Experiment 038: the rotation judgement precedes
+            # the signature judgement. A retired signer's
+            # entries past the rotation point are refused
+            # under their own name; any other rotation failure
+            # carries the check's specific rotation_status.
+            if check.rotation_status == "anchor_signer_retired":
+                raise AnchorSignerRetired(
+                    f"registry snapshot's anchor was signed past "
+                    f"its rotation point by a retired signer: "
+                    f"refusing as anchor_signer_retired",
+                    check,
+                )
+            raise AnchorRotationInvalid(
+                f"registry snapshot's anchor rotation does not "
+                f"stand: refusing as {check.rotation_status}",
+                check,
+            )
         if check.signature_checked and not check.signature_valid:
             # Experiment 019: the signature judgement precedes the
             # head judgement. A missing, wrong, or tampered
@@ -605,6 +679,7 @@ class PolicyNode:
         anchor_secret_hex: str | None = None,
         anchor_witness: str | None = None,
         anchor_witness_secret_hex: str | None = None,
+        anchor_signer_secrets: dict | None = None,
     ) -> "PolicyNode":
         """Build a node from the operator's own JSON config file.
 
@@ -628,6 +703,7 @@ class PolicyNode:
             anchor_secret_hex=anchor_secret_hex,
             anchor_witness=anchor_witness,
             anchor_witness_secret_hex=anchor_witness_secret_hex,
+            anchor_signer_secrets=anchor_signer_secrets,
         )
 
     # -- introspection (holding is not serving) ---------------------------
