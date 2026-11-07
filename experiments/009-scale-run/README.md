@@ -268,3 +268,23 @@ benchmark - which this run shows is also an incremental-
 verification design question, not only a hardware one). Nothing
 here is deployed beyond the local working copy, and nothing in
 this experiment changes that.
+
+[Superseded in part, 2026-11-06, experiment 036: this run's
+scale evidence is in-process only - Gate 3's SyncNode objects
+in one Python process, no servers, no HTTP, no persistence.
+Experiment 036 (`experiments/036-process-scale-run/`) now
+measures the same sizes at the server-process level: 8 real
+`node_server.py` processes, the same 1,000-policy generation,
+a 1,000-entry mesh originated over the wire and converged by
+035's peer-list sweeps with 033's persistence on, policies
+served over HTTP at ~1 ms median, a SIGKILL restart
+recovering the exact state in ~0.2 s, and a revocation pushed
+around the ring to a 410 everywhere in under a second. Its
+headline confirms this run's verdict one layer up: the write
+path is still the wall - origination with persistence on
+costs a median of ~40 ms per single write at 1,000 entries
+and rising (the whole-set re-check per write, this time
+033's persist-and-judge), 82% of the scenario's time, while
+bulk anti-entropy - this era's expected suspect - converged
+the 8 processes in one sweep round of 1.2-1.6 s. This run's
+in-process numbers themselves stand as measured.]
